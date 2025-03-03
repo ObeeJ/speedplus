@@ -1,7 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:speedplus/auth/registrationSceen.dart';
-import 'package:speedplus/core/util/colors.dart';
-// import 'package:speedplus/unboarding/unboardingView.dart';
 
 void main() {
   runApp(const MyApp());
@@ -10,19 +7,33 @@ void main() {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'SpeedPlus',
+      title: 'Flutter Demo',
       theme: ThemeData(
-      
-        colorScheme: ColorScheme.fromSeed(seedColor: darkGreen),
-        useMaterial3: true,
+        primarySwatch: Colors.blue,
       ),
-      home:const Login(),
+      home: const HomeScreen(),
     );
   }
 }
 
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Home Screen'),
+      ),
+      body: const Center(
+        child: Text(
+          'Hello, Flutter!',
+          style: TextStyle(fontSize: 24),
+        ),
+      ),
+    );
+  }
+}
