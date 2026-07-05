@@ -1,0 +1,27 @@
+/* SpeedPlus Design Tokens — Tailwind v4 @theme */
+
+@theme {
+  /* Brand Colors */
+  --color-primary:     #00C48C;
+  --color-primary-700: #008F66;
+  --color-primary-300: #80E2C6;
+  --color-primary-100: #E0FBF4;
+  --color-midnight:    #1A1A2E;
+  --color-surface:     #F8FFFE;
+  --color-mid:         #6B7280;
+  --color-error:       #DC2626;
+  --color-warning:     #D97706;
+  --color-white:       #FFFFFF;
+
+  /* Typography */
+  --font-display: 'Plus Jakarta Sans', sans-serif;
+  --font-body:    'Inter', sans-serif;
+  --font-mono:    'DM Mono', monospace;
+
+  /* Border Radius */
+  --radius-sm:   6px;
+  --radius-md:   12px;
+  --radius-lg:   20px;
+  --radius-xl:   28px;
+  --radius-full: 9999px;
+}

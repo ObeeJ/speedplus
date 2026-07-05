@@ -1,0 +1,11 @@
+{
+  "name": "@speedplus/config",
+  "version": "0.0.1",
+  "private": true,
+  "exports": {
+    "./tailwind/tokens.css": "./tailwind/tokens.css",
+    "./eslint": "./eslint/index.js",
+    "./typescript/base.json": "./typescript/base.json",
+    "./typescript/nextjs.json": "./typescript/nextjs.json"
+  }
+}
