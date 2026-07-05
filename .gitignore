@@ -1,0 +1,24 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build outputs
+.next
+dist
+out
+build
+.turbo
+
+# Environment
+.env
+.env.local
+.env.production
+.env*.local
+
+# Misc
+.DS_Store
+*.pem
+.vercel
+*.log
+bun.lockb

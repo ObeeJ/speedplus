@@ -1,0 +1,8 @@
+[install]
+exact = false
+
+[install.lockfile]
+save = true
+
+[run]
+bun = true

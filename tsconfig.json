@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "skipLibCheck": true
+  },
+  "files": [],
+  "references": [
+    { "path": "packages/types" },
+    { "path": "packages/ui" },
+    { "path": "packages/api-client" },
+    { "path": "packages/utils" },
+    { "path": "apps/customer" },
+    { "path": "apps/driver" },
+    { "path": "apps/merchant" },
+    { "path": "apps/admin" }
+  ]
+}

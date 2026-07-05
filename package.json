@@ -1,0 +1,24 @@
+{
+  "name": "speedplus",
+  "private": true,
+  "version": "0.0.1",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "dev:customer": "turbo dev --filter=@speedplus/customer",
+    "dev:driver": "turbo dev --filter=@speedplus/driver",
+    "dev:merchant": "turbo dev --filter=@speedplus/merchant",
+    "dev:admin": "turbo dev --filter=@speedplus/admin",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "clean": "turbo clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.5.0"
+  }
+}
