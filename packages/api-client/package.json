@@ -1,0 +1,14 @@
+{
+  "name": "@speedplus/api-client",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@speedplus/types": "workspace:*",
+    "axios": "^1.7.0"
+  }
+}
