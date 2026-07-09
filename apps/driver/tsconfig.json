@@ -1,0 +1,15 @@
+{
+  "extends": "@speedplus/config/typescript/nextjs.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"],
+      "@speedplus/ui": ["../../packages/ui/src/index.ts"],
+      "@speedplus/types": ["../../packages/types/src/index.ts"],
+      "@speedplus/api-client": ["../../packages/api-client/src/index.ts"],
+      "@speedplus/utils": ["../../packages/utils/src/index.ts"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}

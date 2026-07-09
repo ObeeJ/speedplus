@@ -1,0 +1,35 @@
+{
+  "name": "@speedplus/customer",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack --port 3000",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@speedplus/ui": "workspace:*",
+    "@speedplus/types": "workspace:*",
+    "@speedplus/api-client": "workspace:*",
+    "@speedplus/utils": "workspace:*",
+    "@tanstack/react-query": "^5.59.0",
+    "@tanstack/react-query-devtools": "^5.59.0",
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zustand": "^5.0.0",
+    "react-hook-form": "^7.53.0",
+    "zod": "^3.23.0",
+    "@hookform/resolvers": "^3.9.0"
+  },
+  "devDependencies": {
+    "@speedplus/config": "workspace:*",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tailwindcss": "^4.0.0",
+    "@tailwindcss/postcss": "^4.0.0"
+  }
+}
