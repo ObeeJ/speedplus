@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS kyc_checks;
+DROP TABLE IF EXISTS kyc_documents;
+DROP TABLE IF EXISTS merchant_profiles;
+DROP TABLE IF EXISTS driver_profiles;
+DROP TABLE IF EXISTS addresses;
+DROP TABLE IF EXISTS pins;
+DROP TABLE IF EXISTS otp_codes;
+DROP TABLE IF EXISTS refresh_tokens;
+DROP TABLE IF EXISTS users;

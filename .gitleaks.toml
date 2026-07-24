@@ -1,0 +1,29 @@
+title = "SpeedPlus gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "paystack-secret"
+description = "Paystack secret key"
+regex = '''sk_(live|test)_[0-9a-zA-Z]{40,}'''
+tags = ["paystack", "secret"]
+
+[[rules]]
+id = "flutterwave-secret"
+description = "Flutterwave secret key"
+regex = '''FLWSECK(_TEST)?-[0-9a-zA-Z]{32,}'''
+tags = ["flutterwave", "secret"]
+
+[[rules]]
+id = "prembly-key"
+description = "Prembly API key"
+regex = '''[Pp]rembly[_\-]?[Aa][Pp][Ii][_\-]?[Kk]ey['":\s=]+[0-9a-zA-Z\-_]{20,}'''
+tags = ["prembly", "kyc"]
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+    '''.env.example''',
+    '''\.md$''',
+]

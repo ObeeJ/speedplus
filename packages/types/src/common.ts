@@ -27,7 +27,7 @@ export type ErrorCode =
   | 'AREA_NOT_COVERED'
   | 'MERCHANT_CLOSED';
 
-export type Vertical = 'gas' | 'grocery' | 'food' | 'pharmacy';
+export type Vertical = 'package' | 'gas' | 'grocery' | 'food' | 'pharmacy';
 
 export type Currency = 'NGN';
 

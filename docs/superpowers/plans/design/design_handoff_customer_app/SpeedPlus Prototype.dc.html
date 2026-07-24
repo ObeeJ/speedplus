@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+:root{--emerald:#0A3D2C;--lime:#C6F24E;--lime-press:#AEE032;--sand:#F7F5EF;--paper:#FFFFFF;--ink:#121216;--muted:#63636E;--line:#E4E0D6;--amber:#E8B14E;--tile:#E9F3D8;--stroke:#1C3A2E;--olive:#7BA05B}
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{background:#E9E6DD;color:var(--ink);font-family:'Instrument Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--emerald)}a:hover{color:#072D20}
+input{font:inherit;color:inherit;border:0;background:transparent;outline:none;flex:1;min-width:0}
+input::placeholder{color:#9A968D}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.6);opacity:.5}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sp-shell{min-height:100vh;display:flex;justify-content:center;padding:24px 12px}
+.sp-shell.force-mobile .sp-topnav,.sp-shell.force-mobile .sp-context{display:none !important}
+.sp-shell.force-mobile{flex-direction:row !important;height:auto !important;overflow:visible !important;justify-content:center !important;padding:24px 12px !important}
+.sp-shell.force-mobile .sp-panel{border-radius:24px !important;border-right:none !important;max-width:430px !important;min-height:780px !important;box-shadow:0 24px 60px rgba(10,61,44,.18) !important}
+.sp-shell.force-mobile .sp-bottomnav{display:flex !important}
+.sp-shell.force-mobile .sp-mobilehead{display:flex !important}
+.sp-shell.force-desktop .sp-mobilehead{display:none !important}
+.sp-shell.force-desktop{flex-direction:column !important;padding:0 !important;height:100vh !important;overflow:hidden !important}
+.sp-shell.force-desktop .sp-topnav{display:flex !important}
+.sp-shell.force-desktop .sp-context{display:flex !important}
+.sp-shell.force-desktop .sp-bottomnav{display:none !important}
+.sp-shell.force-desktop .sp-panel{order:1;min-height:0 !important;border-radius:0 !important;box-shadow:none !important;border-right:1px solid var(--line) !important;overflow-y:auto !important}
+.sp-topnav,.sp-context,.sp-grid,.sp-deskhome,.sp-deskflowhead{display:none}
+.sp-shell.force-mobile .sp-deskflowhead{display:none !important}
+.sp-shell.force-mobile .sp-flowhead{display:flex !important}
+.sp-shell.force-desktop .sp-deskflowhead{display:flex !important}
+.sp-shell.force-desktop .sp-flowhead{display:none !important}
+@media(min-width:760px){
+  .sp-shell{flex-direction:column;padding:0;height:100vh;overflow:hidden}
+  .sp-topnav{display:flex;align-items:center;justify-content:space-between;padding:0 28px;height:64px;flex:none;background:var(--emerald)}
+  .sp-body{display:flex;flex:1;min-height:0}
+  .sp-panel{order:1;max-width:var(--panelw,460px) !important;min-height:0 !important;border-radius:0;box-shadow:none !important;border-right:1px solid var(--line);overflow-y:auto !important}
+  .sp-context{order:2;display:flex;flex:1;position:relative;overflow:hidden;background:linear-gradient(160deg,#0D4E38,#08301F)}
+  .sp-grid{display:block;position:absolute;inset:0;opacity:.5;pointer-events:none}
+  .sp-bottomnav{display:none !important}
+  .sp-mobilehead{display:none !important}
+  .sp-shell.on-home .sp-panel{display:none !important}
+  .sp-shell.on-home .sp-route{display:none}
+  .sp-body{position:relative}
+  .sp-shell.in-flow .sp-context{display:none}
+  .sp-shell.in-flow .sp-panel{max-width:none !important;border-right:none !important;background:var(--sand)}
+  .sp-shell.in-flow .sp-deskflowhead{width:100%;max-width:860px;margin:0 auto;padding:44px 28px 4px;box-sizing:border-box}
+  .sp-shell.in-flow .sp-flow{width:100%;max-width:860px;margin:0 auto;padding:20px 28px 44px !important;box-sizing:border-box}
+  .sp-flow>div[style*="margin-top:auto"]{align-items:flex-start;margin-top:14px !important}
+  .sp-flow>div[style*="margin-top:auto"]>span{width:380px;max-width:100%;box-sizing:border-box}
+  .sp-shell.on-track .sp-context{display:none}
+  .sp-shell.on-track .sp-panel{max-width:none !important;border-right:none !important}
+  .sp-shell.on-track .sp-panel>div[style*="flex:1;padding:16px 20px"]{width:100%;max-width:760px;margin:0 auto;box-sizing:border-box}
+  .sp-ridercard .sp-rc-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sp-ridercard .sp-rc-sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sp-flowhead{display:none !important}
+  .sp-deskflowhead{display:flex;align-items:center;gap:16px;padding:30px 34px 6px}
+  .sp-flow{padding:28px 34px !important;gap:18px !important}
+  .sp-flow span{font-size:inherit}
+  .sp-shell.on-home .sp-grid{opacity:.25}
+  .sp-context .sp-deskhome{display:flex;position:absolute;inset:0;z-index:2;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:0 40px 80px}
+}
+.sp-shell.force-mobile .sp-panel{display:flex !important}
+</style>
+</helmet>
+
+<div class="sp-shell {{ shellClass }}" style="--panelw:{{ panelMax }};--lime:{{ accentColor }}">
+
+  <div class="sp-topnav" data-screen-label="Desktop top nav">
+    <span style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:20px;color:var(--sand);letter-spacing:-0.4px">speed<span style="color:var(--lime)">+</span></span>
+    <div style="display:flex;gap:26px;align-items:center">
+      <span style="font-size:13px;font-weight:600;color:var(--lime);cursor:pointer">Home</span>
+      <span style="font-size:13px;font-weight:500;color:rgba(247,245,239,.65);cursor:pointer">My orders</span>
+      <span style="font-size:13px;font-weight:500;color:rgba(247,245,239,.65);cursor:pointer">My money</span>
+      <span style="font-size:12px;color:rgba(247,245,239,.55)">Lekki Phase 1 ▾</span>
+      <span style="width:36px;height:36px;border-radius:50%;background:rgba(247,245,239,.12);display:flex;align-items:center;justify-content:center;color:var(--lime);font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:13px">K</span>
+    </div>
+  </div>
+
+  <div class="sp-body">
+
+  <div class="sp-context" data-screen-label="Desktop live map">
+    <svg class="sp-grid" width="100%" height="100%" viewBox="0 0 900 800" fill="none" preserveAspectRatio="xMidYMid slice"><g stroke="#1C6146" stroke-width="24"><path d="M-20 190 H920"></path><path d="M-20 470 H920"></path><path d="M180 -20 V820"></path><path d="M480 -20 V820"></path><path d="M720 -20 V820"></path></g><g stroke="#12583F" stroke-width="9"><path d="M-20 330 H920"></path><path d="M-20 620 H920"></path><path d="M320 -20 V820"></path><path d="M600 -20 V820"></path></g><g fill="#0F5238"><rect x="200" y="210" width="100" height="100" rx="4"></rect><rect x="340" y="210" width="120" height="100" rx="4"></rect><rect x="500" y="210" width="180" height="100" rx="4"></rect><rect x="200" y="350" width="100" height="100" rx="4"></rect><rect x="500" y="490" width="180" height="110" rx="4"></rect><rect x="200" y="490" width="260" height="110" rx="4"></rect></g></svg>
+    <sc-if value="{{ hasActiveOrder }}" hint-placeholder-val="{{ false }}">
+      <svg class="sp-route" width="100%" height="100%" viewBox="0 0 900 800" fill="none" preserveAspectRatio="xMidYMid slice" style="position:absolute;inset:0">
+        <path d="M240 560 L240 470 L480 470 L480 300 L620 300" stroke="#08301F" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M240 560 L240 470 L480 470 L480 300 L620 300" stroke="#C6F24E" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1 14"></path>
+        <circle cx="240" cy="560" r="9" fill="#F7F5EF" stroke="#0A3D2C" stroke-width="4"></circle>
+        <circle cx="620" cy="300" r="11" fill="#C6F24E" stroke="#0A3D2C" stroke-width="4"></circle>
+      </svg>
+      <div style="position:absolute;top:20px;left:24px;display:flex;align-items:center;gap:9px;background:rgba(8,48,31,.8);backdrop-filter:blur(8px);border:1px solid rgba(198,242,78,.3);border-radius:999px;padding:9px 16px">
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--lime);animation:pulse 2s infinite"></span>
+        <span style="font-size:12.5px;font-weight:600;color:var(--sand)">{{ trackLine }} · {{ eta }} min</span>
+      </div>
+      <div onClick="{{ goTracking }}" class="sp-ridercard" style="position:absolute;bottom:24px;left:24px;right:24px;background:var(--sand);border-radius:18px;padding:16px 20px;box-shadow:0 16px 44px rgba(0,0,0,.35);display:flex;align-items:center;gap:16px;cursor:pointer;min-width:0">
+        <span style="width:48px;height:48px;flex:none;border-radius:50%;background:var(--emerald);display:flex;align-items:center;justify-content:center;color:var(--lime);font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:17px">M</span>
+        <span style="flex:1;display:flex;flex-direction:column;min-width:0"><span class="sp-rc-title" style="font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:600">Musa is on the way</span><span class="sp-rc-sub" style="font-size:11.5px;color:var(--muted)">Bike · ★ 4.9 · you pay only on arrival</span></span>
+        <span style="font-family:'Space Grotesk',sans-serif;font-size:26px;font-weight:700;color:var(--emerald);letter-spacing:-0.8px">{{ eta }} min</span>
+      </div>
+    </sc-if>
+    <sc-if value="{{ noActiveOrder }}" hint-placeholder-val="{{ true }}">
+      <div style="position:absolute;bottom:24px;left:24px;display:flex;align-items:center;gap:10px;background:rgba(8,48,31,.8);backdrop-filter:blur(8px);border:1px solid rgba(247,245,239,.15);border-radius:999px;padding:9px 16px">
+        <span style="font-size:12.5px;color:rgba(247,245,239,.75)">Lekki Phase 1 · 34 riders nearby · price always shown before you pay</span>
+      </div>
+    </sc-if>
+
+    <!-- Desktop home: 9c command center overlay -->
+    <sc-if value="{{ isHome }}" hint-placeholder-val="{{ false }}">
+      <div class="sp-deskhome">
+        <span style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:clamp(34px,4vw,46px);line-height:1.05;color:var(--sand);letter-spacing:-1.4px;text-align:center">What do you need moved?</span>
+        <div style="width:640px;max-width:100%;display:flex;align-items:center;gap:12px;background:var(--sand);border-radius:18px;padding:18px 22px;box-shadow:0 24px 60px rgba(0,0,0,.4)">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0A3D2C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
+          <input type="text" placeholder="Tell us — e.g. “12kg gas to Surulere” or “documents to Ikeja by 3pm”" value="{{ query }}" onChange="{{ onQuery }}" onKeyDown="{{ onQueryKey }}">
+          <span onClick="{{ startPackage }}" style="font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600;color:var(--emerald);background:var(--lime);border-radius:11px;padding:9px 18px;cursor:pointer" style-hover="background:var(--lime-press)">Send</span>
+        </div>
+        <div style="display:flex;gap:11px">
+          <span onClick="{{ startPackage }}" style="display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--emerald);background:var(--lime);border-radius:999px;padding:10px 18px;cursor:pointer" style-hover="background:var(--lime-press)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0A3D2C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5L12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z"></path><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9"></path></svg>Package</span>
+          <span onClick="{{ startGas }}" style="display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--sand);background:rgba(247,245,239,.1);border:1px solid rgba(247,245,239,.18);border-radius:999px;padding:10px 18px;cursor:pointer" style-hover="background:rgba(247,245,239,.2)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F7F5EF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="7" width="8" height="14" rx="3"></rect><path d="M10 7V4.5M14 7V4.5M9 4.5h6M10.5 11.5h3"></path></svg>Gas refill</span>
+          <span onClick="{{ startFood }}" style="display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--sand);background:rgba(247,245,239,.1);border:1px solid rgba(247,245,239,.18);border-radius:999px;padding:10px 18px;cursor:pointer" style-hover="background:rgba(247,245,239,.2)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F7F5EF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16a8 8 0 0116 0z"></path><path d="M12 8V6.8M3 19h18"></path></svg>Food</span>
+          <span onClick="{{ startPharm }}" style="display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--sand);background:rgba(247,245,239,.1);border:1px solid rgba(247,245,239,.18);border-radius:999px;padding:10px 18px;cursor:pointer" style-hover="background:rgba(247,245,239,.2)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F7F5EF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="5.5"></rect><path d="M12 8.5v7M8.5 12h7"></path></svg>Medicine</span>
+        </div>
+        <span style="font-size:12px;color:rgba(247,245,239,.45)">Priced by weight, size and distance — you see it before you confirm</span>
+      </div>
+    </sc-if>
+  </div>
+
+<div class="sp-panel" style="width:100%;max-width:430px;background:var(--sand);border-radius:24px;overflow:hidden;box-shadow:0 24px 60px rgba(10,61,44,0.18);display:flex;flex-direction:column;min-height:780px;flex:none">
+
+  <!-- ============ HOME ============ -->
+  <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+    <div style="background:var(--emerald);padding:18px 20px;display:flex;flex-direction:column;gap:12px">
+      <div class="sp-mobilehead" style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:19px;color:var(--sand);letter-spacing:-0.4px">speed<span style="color:var(--lime)">+</span></span>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:11px;color:rgba(247,245,239,0.7)">Your area: Lekki Phase 1 ▾</span>
+          <span style="width:32px;height:32px;border-radius:50%;background:rgba(247,245,239,0.12);display:flex;align-items:center;justify-content:center;color:var(--lime);font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px">K</span>
+        </div>
+      </div>
+      <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:23px;line-height:1.1;color:var(--sand);letter-spacing:-0.5px">What do you need moved?</span>
+      <div style="display:flex;align-items:center;gap:10px;background:var(--sand);border-radius:14px;padding:14px 15px;box-shadow:0 8px 24px rgba(0,0,0,0.25)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0A3D2C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
+        <input type="text" placeholder="Tell us — e.g. “gas to Surulere”" value="{{ query }}" onChange="{{ onQuery }}" onKeyDown="{{ onQueryKey }}">
+        <span onClick="{{ startPackage }}" style="font-family:'Space Grotesk',sans-serif;font-size:12px;font-weight:600;color:var(--emerald);background:var(--lime);border-radius:9px;padding:7px 13px;cursor:pointer" style-hover="background:var(--lime-press)">Send</span>
+      </div>
+      <span style="font-size:11px;color:rgba(247,245,239,0.55)">…or just tap what you need below 👇</span>
+    </div>
+    <div style="padding:14px 20px 0;display:flex;flex-direction:column;gap:8px">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:9px">
+        <span onClick="{{ startPackage }}" style="display:flex;flex-direction:column;align-items:center;gap:6px;background:var(--tile);border:2px solid transparent;border-radius:14px;padding:10px 4px;cursor:pointer" style-hover="border-color:var(--emerald)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1C3A2E" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5L12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z"></path><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9"></path><path d="M7.8 5.3l8.4 4.5" stroke="#7BA05B"></path></svg>
+          <span style="font-size:10.5px;font-weight:600;color:var(--ink)">Package</span></span>
+        <span onClick="{{ startGas }}" style="display:flex;flex-direction:column;align-items:center;gap:6px;background:var(--tile);border:2px solid transparent;border-radius:14px;padding:10px 4px;cursor:pointer" style-hover="border-color:var(--emerald)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1C3A2E" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="7" width="8" height="14" rx="3"></rect><path d="M10 7V4.5M14 7V4.5M9 4.5h6"></path><path d="M10.5 11.5h3" stroke="#7BA05B"></path></svg>
+          <span style="font-size:10.5px;font-weight:600;color:var(--ink)">Gas</span></span>
+        <span onClick="{{ startFood }}" style="display:flex;flex-direction:column;align-items:center;gap:6px;background:var(--tile);border:2px solid transparent;border-radius:14px;padding:10px 4px;cursor:pointer" style-hover="border-color:var(--emerald)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1C3A2E" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16a8 8 0 0116 0z"></path><path d="M3 19h18"></path><path d="M12 8V6.8" stroke="#7BA05B"></path></svg>
+          <span style="font-size:10.5px;font-weight:600;color:var(--ink)">Food</span></span>
+        <span onClick="{{ startPharm }}" style="display:flex;flex-direction:column;align-items:center;gap:6px;background:var(--tile);border:2px solid transparent;border-radius:14px;padding:10px 4px;cursor:pointer" style-hover="border-color:var(--emerald)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1C3A2E" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="5.5"></rect><path d="M12 8.5v7M8.5 12h7" stroke="#7BA05B"></path></svg>
+          <span style="font-size:10.5px;font-weight:600;color:var(--ink)">Medicine</span></span>
+      </div>
+    </div>
+    <div style="flex:1;padding:14px 20px;display:flex;flex-direction:column;gap:11px">
+      <span style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:0.6px">YOUR ORDERS RIGHT NOW</span>
+      <sc-if value="{{ hasActiveOrder }}" hint-placeholder-val="{{ false }}">
+        <div onClick="{{ goTracking }}" style="border-radius:18px;background:var(--emerald);display:flex;align-items:center;gap:11px;padding:13px 15px;cursor:pointer">
+          <span style="width:7px;height:7px;border-radius:50%;background:var(--lime);box-shadow:0 0 0 3px rgba(198,242,78,0.3);animation:pulse 2s infinite"></span>
+          <span style="flex:1;display:flex;flex-direction:column"><span style="font-size:12.5px;font-weight:600;color:var(--sand)">{{ trackLine }}</span><span style="font-size:10.5px;color:rgba(247,245,239,0.6)">Musa is bringing it · arrives in about {{ eta }} min</span></span>
+          <span style="font-family:'Space Grotesk',sans-serif;font-size:11px;font-weight:600;color:var(--emerald);background:var(--lime);border-radius:8px;padding:6px 11px">See where</span>
+        </div>
+      </sc-if>
+      <sc-if value="{{ noActiveOrder }}" hint-placeholder-val="{{ true }}">
+        <div style="border:1.5px dashed var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;align-items:center;gap:4px">
+          <span style="font-size:12.5px;font-weight:600;color:var(--muted)">Nothing moving yet</span>
+          <span style="font-size:11px;color:#9A968D">When you order something, you'll see it here live.</span>
+        </div>
+      </sc-if>
+    </div>
+    <div class="sp-bottomnav" style="background:var(--paper);border-top:1px solid var(--line);padding:8px 20px 12px;display:flex;justify-content:space-around;align-items:center">
+      <span style="display:flex;flex-direction:column;align-items:center;gap:2px;font-size:9.5px;font-weight:700;color:var(--emerald)"><span style="width:34px;height:24px;border-radius:12px;background:var(--tile);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#0A3D2C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8v9a1 1 0 01-1 1h-5v-6h-6v6H4a1 1 0 01-1-1v-9z"></path></svg></span>Home</span>
+      <span onClick="{{ goTracking }}" style="display:flex;flex-direction:column;align-items:center;gap:2px;font-size:9.5px;font-weight:500;color:var(--muted);cursor:pointer"><span style="width:34px;height:24px;display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#63636E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-5.5-7-11a7 7 0 0114 0c0 5.5-7 11-7 11z"></path><circle cx="12" cy="10" r="2.5"></circle></svg></span>My orders</span>
+      <span style="display:flex;flex-direction:column;align-items:center;gap:2px;font-size:9.5px;font-weight:500;color:var(--muted);cursor:pointer"><span style="width:34px;height:24px;display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#63636E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="3"></rect><path d="M3 10h18"></path></svg></span>My money</span>
+      <span style="display:flex;flex-direction:column;align-items:center;gap:2px;font-size:9.5px;font-weight:500;color:var(--muted);cursor:pointer"><span style="width:34px;height:24px;display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#63636E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21a8 8 0 0116 0"></path></svg></span>Me</span>
+    </div>
+  </sc-if>
+
+  <!-- ============ FLOW HEADER ============ -->
+  <sc-if value="{{ inFlow }}" hint-placeholder-val="{{ false }}">
+    <div class="sp-flowhead" style="background:var(--emerald);padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span onClick="{{ goBack }}" style="width:34px;height:34px;border-radius:11px;background:rgba(247,245,239,0.12);display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:rgba(247,245,239,0.24)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#F7F5EF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19l-7-7 7-7"></path></svg></span>
+        <span class="sp-ft" style="flex:1;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;color:var(--sand)">{{ stepTitle }}</span>
+        <span style="font-size:11px;color:rgba(247,245,239,0.6)">Step {{ stepNum }} of 3</span>
+      </div>
+      <div style="display:flex;gap:5px">
+        <span style="flex:1;height:4px;border-radius:2px;background:{{ bar1 }}"></span>
+        <span style="flex:1;height:4px;border-radius:2px;background:{{ bar2 }}"></span>
+        <span style="flex:1;height:4px;border-radius:2px;background:{{ bar3 }}"></span>
+      </div>
+    </div>
+    <!-- Desktop/tablet flow header: light, editorial, no mobile chrome -->
+    <div class="sp-deskflowhead">
+      <span onClick="{{ goBack }}" style="width:40px;height:40px;flex:none;border-radius:12px;background:var(--tile);display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:#DCEDC2"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0A3D2C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19l-7-7 7-7"></path></svg></span>
+      <div style="display:flex;flex-direction:column;gap:3px;flex:1">
+        <span style="font-size:11px;font-weight:600;color:#9A968D;letter-spacing:0.8px">STEP {{ stepNum }} OF 3 · PRICE SHOWN BEFORE YOU PAY</span>
+        <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:25px;color:var(--ink);letter-spacing:-0.6px">{{ stepTitle }}</span>
+      </div>
+      <div style="display:flex;gap:5px;align-items:center">
+        <span style="width:26px;height:5px;border-radius:3px;background:{{ barD1 }}"></span>
+        <span style="width:26px;height:5px;border-radius:3px;background:{{ barD2 }}"></span>
+        <span style="width:26px;height:5px;border-radius:3px;background:{{ barD3 }}"></span>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ============ GAS: PICK CYLINDER ============ -->
+  <sc-if value="{{ isGas }}" hint-placeholder-val="{{ false }}">
+    <div class="sp-flow" style="flex:1;padding:18px 20px;display:flex;flex-direction:column;gap:14px">
+      <span style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:0.6px">WHICH CYLINDER DO YOU USE?</span>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
+        <sc-for list="{{ cylinders }}" as="c" hint-placeholder-count="4">
+          <span onClick="{{ c.pick }}" style="display:flex;align-items:center;gap:11px;background:{{ c.bg }};border:2px solid {{ c.border }};border-radius:14px;padding:13px 14px;cursor:pointer">
+            <span style="font-size:19px">🔥</span>
+            <span style="display:flex;flex-direction:column"><span style="font-size:13px;font-weight:700;color:{{ c.color }}">{{ c.label }}</span><span style="font-size:10px;color:{{ c.sub }}">{{ c.desc }}</span></span>
+          </span>
+        </sc-for>
+      </div>
+      <span style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:0.6px;margin-top:4px">HOW SHOULD WE DO IT?</span>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
+        <span onClick="{{ pickRefill }}" style="display:flex;flex-direction:column;gap:4px;background:{{ refillBg }};border:2px solid {{ refillBorder }};border-radius:14px;padding:13px 14px;cursor:pointer">
+          <span style="font-size:13px;font-weight:700;color:{{ refillColor }}">Refill mine</span>
+          <span style="font-size:10.5px;color:{{ refillSub }}">We take your cylinder, fill it, bring it back</span></span>
+        <span onClick="{{ pickSwap }}" style="display:flex;flex-direction:column;gap:4px;background:{{ swapBg }};border:2px solid {{ swapBorder }};border-radius:14px;padding:13px 14px;cursor:pointer">
+          <span style="font-size:13px;font-weight:700;color:{{ swapColor }}">Swap it</span>
+          <span style="font-size:10.5px;color:{{ swapSub }}">We bring a full one, take your empty — faster</span></span>
+      </div>
+      <sc-if value="{{ gasReady }}" hint-placeholder-val="{{ false }}">
+        <span style="font-size:11.5px;color:var(--muted);background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:9px 12px">✓ A <b style="color:var(--emerald)">{{ cylinderLabel }}</b> cylinder, <b style="color:var(--emerald)">{{ gasModeLabel }}</b>. Next: where do we come?</span>
+      </sc-if>
+      <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px">
+        <span onClick="{{ gasNext }}" style="text-align:center;font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;color:{{ gasNextColor }};background:{{ gasNextBg }};border-radius:13px;padding:15px 0;cursor:pointer">Continue — where do we come?</span>
+        <span style="font-size:10.5px;color:#9A968D;text-align:center">Nothing is paid yet. You'll see the price first.</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ============ FOOD: PICK KITCHEN ============ -->
+  <sc-if value="{{ isFood }}" hint-placeholder-val="{{ false }}">
+    <div class="sp-flow" style="flex:1;padding:18px 20px;display:flex;flex-direction:column;gap:12px">
+      <span style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:0.6px">KITCHENS NEAR YOU — TAP ONE MEAL</span>
+      <sc-for list="{{ meals }}" as="m" hint-placeholder-count="4">
+        <span onClick="{{ m.pick }}" style="display:flex;align-items:center;gap:12px;background:{{ m.bg }};border:2px solid {{ m.border }};border-radius:14px;padding:12px 14px;cursor:pointer">
+          <span style="font-size:22px">{{ m.emoji }}</span>
+          <span style="flex:1;display:flex;flex-direction:column"><span style="font-size:13px;font-weight:700;color:{{ m.color }}">{{ m.label }}</span><span style="font-size:10.5px;color:{{ m.sub }}">{{ m.desc }}</span></span>
+          <span style="font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:700;color:{{ m.color }}">₦{{ m.price }}</span>
+        </span>
+      </sc-for>
+      <sc-if value="{{ foodReady }}" hint-placeholder-val="{{ false }}">
+        <span style="font-size:11.5px;color:var(--muted);background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:9px 12px">✓ <b style="color:var(--emerald)">{{ mealLabel }}</b> — being cooked fresh. Next: where do we bring it?</span>
+      </sc-if>
+      <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px">
+        <span onClick="{{ foodNext }}" style="text-align:center;font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;color:{{ foodNextColor }};background:{{ foodNextBg }};border-radius:13px;padding:15px 0;cursor:pointer">Continue — where do we bring it?</span>
+        <span style="font-size:10.5px;color:#9A968D;text-align:center">Nothing is paid yet. You'll see the full price first.</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ============ PHARMACY: WHAT DO YOU NEED ============ -->
+  <sc-if value="{{ isPharm }}" hint-placeholder-val="{{ false }}">
+    <div class="sp-flow" style="flex:1;padding:18px 20px;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;gap:8px">
+        <span onClick="{{ tabOtc }}" style="flex:1;text-align:center;font-size:12.5px;font-weight:700;color:{{ otcTabColor }};background:{{ otcTabBg }};border-radius:11px;padding:11px 0;cursor:pointer">Everyday medicine</span>
+        <span onClick="{{ tabRx }}" style="flex:1;text-align:center;font-size:12.5px;font-weight:700;color:{{ rxTabColor }};background:{{ rxTabBg }};border-radius:11px;padding:11px 0;cursor:pointer">I have a prescription</span>
+      </div>
+      <sc-if value="{{ isOtcTab }}" hint-placeholder-val="{{ true }}">
+        <span style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:0.6px">TAP WHAT YOU NEED — NO PRESCRIPTION REQUIRED</span>
+        <sc-for list="{{ otcItems }}" as="o" hint-placeholder-count="3">
+          <span onClick="{{ o.pick }}" style="display:flex;align-items:center;gap:12px;background:{{ o.bg }};border:2px solid {{ o.border }};border-radius:14px;padding:12px 14px;cursor:pointer">
+            <span style="font-size:20px">{{ o.emoji }}</span>
+            <span style="flex:1;display:flex;flex-direction:column"><span style="font-size:13px;font-weight:700;color:{{ o.color }}">{{ o.label }}</span><span style="font-size:10.5px;color:{{ o.sub }}">{{ o.desc }}</span></span>
+            <span style="font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:700;color:{{ o.color }}">₦{{ o.price }}</span>
+          </span>
+        </sc-for>
+      </sc-if>
+      <sc-if value="{{ isRxTab }}" hint-placeholder-val="{{ false }}">
+        <span style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:0.6px">SHOW US YOUR PRESCRIPTION</span>
+        <sc-if value="{{ rxNotSent }}" hint-placeholder-val="{{ true }}">
+          <span onClick="{{ sendRx }}" style="display:flex;flex-direction:column;align-items:center;gap:8px;border:2px dashed var(--emerald);border-radius:16px;padding:26px 16px;cursor:pointer;background:var(--tile)" style-hover="background:#DCEDC2">
+            <span style="font-size:26px">📷</span>
+            <span style="font-size:13px;font-weight:700;color:var(--emerald)">Take a photo of it</span>
+            <span style="font-size:11px;color:var(--muted);text-align:center">A real licensed pharmacist reads it and confirms it's right for you before anything moves.</span>
+          </span>
+        </sc-if>
+        <sc-if value="{{ rxReviewing }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:12px;background:#FFF7E6;border:1px solid #F0DFB4;border-radius:14px;padding:14px 15px">
+            <span style="width:22px;height:22px;border-radius:50%;border:3px solid #F0DFB4;border-top-color:var(--amber);animation:spin 1s linear infinite;flex:none"></span>
+            <span style="display:flex;flex-direction:column"><span style="font-size:12.5px;font-weight:700">Pharmacist is checking it now…</span><span style="font-size:10.5px;color:var(--muted)">Adaeze at HealthPlus Lekki · usually under a minute here</span></span>
+          </div>
+        </sc-if>
+        <sc-if value="{{ rxApproved }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:12px;background:var(--tile);border:1px solid #C9E0A8;border-radius:14px;padding:14px 15px">
+            <span style="font-size:20px">✅</span>
+            <span style="display:flex;flex-direction:column"><span style="font-size:12.5px;font-weight:700;color:var(--emerald)">Approved — Amoxicillin 500mg, 14 capsules</span><span style="font-size:10.5px;color:var(--muted)">Checked by Adaeze O. (PCN licensed) · ₦3,200</span></span>
+          </div>
+        </sc-if>
+      </sc-if>
+      <sc-if value="{{ pharmReady }}" hint-placeholder-val="{{ false }}">
+        <span style="font-size:11.5px;color:var(--muted);background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:9px 12px">✓ <b style="color:var(--emerald)">{{ pharmSummary }}</b>. Next: where do we bring it?</span>
+      </sc-if>
+      <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px">
+        <span onClick="{{ pharmNext }}" style="text-align:center;font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;color:{{ pharmNextColor }};background:{{ pharmNextBg }};border-radius:13px;padding:15px 0;cursor:pointer">Continue — where do we bring it?</span>
+        <span style="font-size:10.5px;color:#9A968D;text-align:center">Medicine is sealed and checked. Price shown before you pay.</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ============ WHERE (shared) ============ -->
+  <sc-if value="{{ isWhere }}" hint-placeholder-val="{{ false }}">
+    <div class="sp-flow" style="flex:1;padding:18px 20px;display:flex;flex-direction:column;gap:14px">
+      <sc-if value="{{ needsPickup }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;flex-direction:column;gap:9px">
+          <span style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:0.6px">{{ pickupLabel }}</span>
+          <div style="display:flex;align-items:center;gap:10px;background:var(--paper);border:2px solid {{ pickupBorder }};border-radius:13px;padding:13px 14px">
+            <span style="width:9px;height:9px;border-radius:50%;background:var(--emerald)"></span>
+            <input type="text" placeholder="e.g. My home — 12 Admiralty Way" value="{{ pickup }}" onChange="{{ onPickup }}">
+          </div>
+          <div style="display:flex;gap:8px">
+            <span onClick="{{ pickHome }}" style="font-size:11.5px;font-weight:600;color:var(--emerald);background:var(--tile);border-radius:999px;padding:7px 13px;cursor:pointer" style-hover="background:#DCEDC2">🏠 My home</span>
+            <span onClick="{{ pickCurrent }}" style="font-size:11.5px;font-weight:600;color:var(--emerald);background:var(--tile);border-radius:999px;padding:7px 13px;cursor:pointer" style-hover="background:#DCEDC2">📍 Where I am now</span>
+          </div>
+        </div>
+      </sc-if>
+      <div style="display:flex;flex-direction:column;gap:9px">
+        <span style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:0.6px">DELIVER TO</span>
+        <div style="display:flex;align-items:center;gap:10px;background:var(--paper);border:2px solid {{ dropBorder }};border-radius:13px;padding:13px 14px">
+          <span style="width:9px;height:9px;border-radius:50%;background:var(--amber)"></span>
+          <input type="text" placeholder="e.g. 5 Herbert Macaulay Way, Yaba" value="{{ drop }}" onChange="{{ onDrop }}">
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span onClick="{{ dropHome }}" style="font-size:11.5px;font-weight:600;color:var(--emerald);background:var(--tile);border-radius:999px;padding:7px 13px;cursor:pointer" style-hover="background:#DCEDC2">🏠 My home</span>
+          <span onClick="{{ dropYaba }}" style="font-size:11.5px;font-weight:600;color:var(--emerald);background:var(--tile);border-radius:999px;padding:7px 13px;cursor:pointer" style-hover="background:#DCEDC2">Yaba · 12 km</span>
+          <span onClick="{{ dropIkeja }}" style="font-size:11.5px;font-weight:600;color:var(--emerald);background:var(--tile);border-radius:999px;padding:7px 13px;cursor:pointer" style-hover="background:#DCEDC2">Ikeja · 21 km</span>
+          <span onClick="{{ dropSurulere }}" style="font-size:11.5px;font-weight:600;color:var(--emerald);background:var(--tile);border-radius:999px;padding:7px 13px;cursor:pointer" style-hover="background:#DCEDC2">Surulere · 16 km</span>
+        </div>
+      </div>
+      <sc-if value="{{ whereReady }}" hint-placeholder-val="{{ false }}">
+        <span style="font-size:11.5px;color:var(--muted);background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:9px 12px">✓ Got it — {{ whereSummary }} · about {{ km }} km</span>
+      </sc-if>
+      <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px">
+        <span onClick="{{ toNext }}" style="text-align:center;font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;color:{{ nextColor }};background:{{ nextBg }};border-radius:13px;padding:15px 0;cursor:pointer">{{ whereNextLabel }}</span>
+        <span style="font-size:10.5px;color:#9A968D;text-align:center">Nothing is paid yet. You'll see the price first.</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ============ WHAT (package only) ============ -->
+  <sc-if value="{{ isWhat }}" hint-placeholder-val="{{ false }}">
+    <div class="sp-flow" style="flex:1;padding:18px 20px;display:flex;flex-direction:column;gap:14px">
+      <span style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:0.6px">HOW BIG IS IT?</span>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:9px">
+        <sc-for list="{{ sizes }}" as="s" hint-placeholder-count="3">
+          <span onClick="{{ s.pick }}" style="display:flex;flex-direction:column;align-items:center;gap:5px;background:{{ s.bg }};border:2px solid {{ s.border }};border-radius:14px;padding:13px 6px;cursor:pointer">
+            <span style="font-size:20px">{{ s.emoji }}</span>
+            <span style="font-size:12px;font-weight:700;color:{{ s.color }}">{{ s.label }}</span>
+            <span style="font-size:9.5px;color:{{ s.sub }};text-align:center">{{ s.desc }}</span>
+          </span>
+        </sc-for>
+      </div>
+      <span style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:0.6px;margin-top:4px">ABOUT HOW HEAVY?</span>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:9px">
+        <sc-for list="{{ weights }}" as="w" hint-placeholder-count="4">
+          <span onClick="{{ w.pick }}" style="display:flex;flex-direction:column;align-items:center;gap:3px;background:{{ w.bg }};border:2px solid {{ w.border }};border-radius:12px;padding:11px 4px;cursor:pointer">
+            <span style="font-size:12px;font-weight:700;color:{{ w.color }}">{{ w.label }}</span>
+            <span style="font-size:9px;color:{{ w.sub }}">{{ w.desc }}</span>
+          </span>
+        </sc-for>
+      </div>
+      <sc-if value="{{ whatReady }}" hint-placeholder-val="{{ false }}">
+        <span style="font-size:11.5px;color:var(--muted);background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:9px 12px">✓ A <b style="color:var(--emerald)">{{ sizeLabel }}</b>, <b style="color:var(--emerald)">{{ weightLabel }}</b> package. A {{ vehicle }} will carry it.</span>
+      </sc-if>
+      <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px">
+        <span onClick="{{ toPrice }}" style="text-align:center;font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;color:{{ next2Color }};background:{{ next2Bg }};border-radius:13px;padding:15px 0;cursor:pointer">See the price</span>
+        <span style="font-size:10.5px;color:#9A968D;text-align:center">Still nothing paid. Price comes next.</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ============ PRICE (shared) ============ -->
+  <sc-if value="{{ isPrice }}" hint-placeholder-val="{{ false }}">
+    <div class="sp-flow" style="flex:1;padding:18px 20px;display:flex;flex-direction:column;gap:14px">
+      <div style="background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:12px">
+        <span style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:0.6px">YOUR PRICE — NOTHING HIDDEN</span>
+        <span style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:38px;color:var(--emerald);letter-spacing:-1px">₦{{ price }}</span>
+        <div style="display:flex;flex-direction:column;gap:7px;border-top:1px solid var(--line);padding-top:11px">
+          <sc-for list="{{ lineItems }}" as="li" hint-placeholder-count="3">
+            <span style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)"><span>{{ li.label }}</span><b style="color:var(--ink)">₦{{ li.amount }}</b></span>
+          </sc-for>
+        </div>
+      </div>
+      <div style="background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:13px 15px;display:flex;flex-direction:column;gap:6px">
+        <sc-for list="{{ summary }}" as="row" hint-placeholder-count="3">
+          <span style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">{{ row.k }}</span><b>{{ row.v }}</b></span>
+        </sc-for>
+      </div>
+      <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px">
+        <span onClick="{{ confirmOrder }}" style="text-align:center;font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:600;color:var(--emerald);background:var(--lime);border-radius:13px;padding:16px 0;cursor:pointer" style-hover="background:var(--lime-press)">Yes — order it for ₦{{ price }}</span>
+        <span onClick="{{ goBack }}" style="text-align:center;font-size:12px;font-weight:600;color:var(--muted);padding:6px 0;cursor:pointer">← Change something</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ============ FINDING ============ -->
+  <sc-if value="{{ isFinding }}" hint-placeholder-val="{{ false }}">
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:20px">
+      <span style="width:56px;height:56px;border-radius:50%;border:4px solid var(--tile);border-top-color:var(--emerald);animation:spin 1s linear infinite"></span>
+      <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:19px;color:var(--ink)">{{ findingTitle }}</span>
+      <span style="font-size:12px;color:var(--muted);text-align:center;max-width:260px">{{ findingSub }}</span>
+    </div>
+  </sc-if>
+
+  <!-- ============ TRACKING ============ -->
+  <sc-if value="{{ isTracking }}" hint-placeholder-val="{{ false }}">
+    <div style="background:var(--emerald);padding:16px 20px;display:flex;align-items:center;gap:12px">
+      <span onClick="{{ goHome }}" style="width:34px;height:34px;border-radius:11px;background:rgba(247,245,239,0.12);display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:rgba(247,245,239,0.24)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#F7F5EF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19l-7-7 7-7"></path></svg></span>
+      <span style="flex:1;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;color:var(--sand)">{{ trackTitle }}</span>
+      <span style="font-size:11px;font-weight:700;color:var(--lime)">LIVE</span>
+    </div>
+    <div style="position:relative;height:240px;background:linear-gradient(160deg,#0D4E38,#08301F);overflow:hidden;flex:none">
+      <svg width="430" height="240" viewBox="0 0 430 240" fill="none" style="position:absolute;inset:0;opacity:0.5"><path d="M-10 70 L130 70 L130 -10" stroke="#1C6146" stroke-width="11"></path><path d="M0 160 L230 160 L230 250" stroke="#1C6146" stroke-width="11"></path><path d="M290 -10 L290 110 L440 110" stroke="#1C6146" stroke-width="11"></path><path d="M70 250 L70 190 L360 190 L360 250" stroke="#1C6146" stroke-width="11"></path></svg>
+      <svg width="430" height="240" viewBox="0 0 430 240" fill="none" style="position:absolute;inset:0"><path d="M130 70 C180 110 210 145 230 160" stroke="#C6F24E" stroke-width="3" stroke-dasharray="2 7" stroke-linecap="round"></path></svg>
+      <span style="position:absolute;left:122px;top:62px;width:14px;height:14px;border-radius:50%;background:#C6F24E;border:3px solid #0A3D2C;box-shadow:0 0 0 4px rgba(198,242,78,0.25);animation:pulse 2s infinite"></span>
+      <span style="position:absolute;left:224px;top:154px;width:11px;height:11px;border-radius:50%;background:#F7F5EF;border:3px solid #0A3D2C"></span>
+      <div style="position:absolute;left:16px;bottom:14px;display:flex;align-items:center;gap:9px;background:rgba(8,48,31,0.8);backdrop-filter:blur(6px);border:1px solid rgba(198,242,78,0.3);border-radius:999px;padding:8px 14px">
+        <span style="width:7px;height:7px;border-radius:50%;background:#C6F24E"></span>
+        <span style="font-size:11.5px;font-weight:600;color:#F7F5EF">Musa is {{ eta }} min away</span>
+      </div>
+    </div>
+    <div style="flex:1;padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;gap:13px;background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:14px 16px">
+        <span style="width:46px;height:46px;border-radius:50%;background:var(--emerald);display:flex;align-items:center;justify-content:center;color:var(--lime);font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:17px">M</span>
+        <span style="flex:1;display:flex;flex-direction:column"><span style="font-size:13.5px;font-weight:600">Musa Ibrahim</span><span style="font-size:11px;color:var(--muted)">Bike · ★ 4.9 · 2,140 deliveries</span></span>
+        <span style="width:40px;height:40px;border-radius:12px;background:var(--tile);display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:#DCEDC2"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#0A3D2C" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6c0 8 6 14 14 14l2.5-3-4-2-2 2c-2.5-1.2-4.3-3-5.5-5.5l2-2-2-4L6 4"></path></svg></span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:0;background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:15px 16px">
+        <sc-for list="{{ steps }}" as="st" hint-placeholder-count="4">
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <span style="display:flex;flex-direction:column;align-items:center">
+              <span style="width:11px;height:11px;border-radius:50%;background:{{ st.dotBg }};border:2.5px solid {{ st.dotBorder }};margin-top:2px"></span>
+              <sc-if value="{{ st.line }}" hint-placeholder-val="{{ true }}"><span style="width:2px;height:26px;background:{{ st.lineBg }}"></span></sc-if>
+            </span>
+            <span style="display:flex;flex-direction:column;padding-bottom:8px"><span style="font-size:12.5px;font-weight:600;color:{{ st.color }}">{{ st.label }}</span><span style="font-size:10.5px;color:#9A968D">{{ st.time }}</span></span>
+          </div>
+        </sc-for>
+      </div>
+      <span style="font-size:11px;color:#9A968D;text-align:center;margin-top:auto">You pay ₦{{ price }} when it arrives — cash or card, your choice.</span>
+    </div>
+  </sc-if>
+
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;1280px&quot;,&quot;height&quot;:&quot;820px&quot;},&quot;layout&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;auto&quot;,&quot;desktop&quot;,&quot;mobile&quot;],&quot;default&quot;:&quot;auto&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Layout&quot;},&quot;panelWidth&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;min&quot;:380,&quot;max&quot;:560,&quot;step&quot;:10,&quot;default&quot;:460,&quot;unit&quot;:&quot;px&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Layout&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;options&quot;:[&quot;#C6F24E&quot;,&quot;#7FF0D4&quot;,&quot;#E8B14E&quot;],&quot;default&quot;:&quot;#C6F24E&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;}}">
+class Component extends DCLogic {
+  state = {
+    screen: 'home', service: 'package',
+    query: '', pickup: '', drop: '', km: 0,
+    size: null, weight: null,
+    cylinder: null, gasMode: null,
+    meal: null, pharmTab: 'otc', otc: null, rxState: 'none',
+    eta: 4, ordered: false,
+  };
+
+  componentDidMount() {
+    const saved = localStorage.getItem('sp-proto2');
+    if (saved) { try { this.setState(JSON.parse(saved)); } catch(e) {} }
+    this.timer = setInterval(() => {
+      if (this.state.screen === 'tracking' && this.state.eta > 1) this.save({ eta: this.state.eta - 1 });
+    }, 15000);
+  }
+  componentWillUnmount() { clearInterval(this.timer); }
+
+  save(patch) {
+    this.setState(patch, () => {
+      localStorage.setItem('sp-proto2', JSON.stringify(this.state));
+    });
+  }
+
+  prices() {
+    const s = this.state;
+    const km = s.km || 12;
+    const distFee = km * 45;
+    let itemLabel = '', itemFee = 0;
+    if (s.service === 'package') {
+      itemLabel = 'Size & weight';
+      itemFee = ({S:100,M:250,L:600}[s.size]||0) + ({light:0,mid:100,heavy:300,vheavy:700}[s.weight]||0);
+    } else if (s.service === 'gas') {
+      itemLabel = 'Gas (' + ({s3:'3kg',s6:'6kg',s125:'12.5kg',s25:'25kg'}[s.cylinder]||'') + (s.gasMode==='swap' ? ', swap' : ', refill') + ')';
+      itemFee = ({s3:3200,s6:6100,s125:11800,s25:23000}[s.cylinder]||0) + (s.gasMode==='swap'?500:0);
+    } else if (s.service === 'food') {
+      const m = this.mealData().find(m => m.id === s.meal);
+      itemLabel = m ? m.label : 'Meal'; itemFee = m ? m.p : 0;
+    } else if (s.service === 'pharm') {
+      if (s.rxState === 'approved') { itemLabel = 'Amoxicillin 500mg ×14 (Rx)'; itemFee = 3200; }
+      else { const o = this.otcData().find(o => o.id === s.otc); itemLabel = o ? o.label : 'Medicine'; itemFee = o ? o.p : 0; }
+    }
+    return { km, distFee, itemLabel, itemFee, price: 100 + distFee + itemFee };
+  }
+
+  mealData() {
+    return [
+      { id:'jollof', emoji:'🍛', label:'Jollof rice + chicken', desc:'Kilimanjaro · ready in 15 min', p:3500 },
+      { id:'amala', emoji:'🥘', label:'Amala + ewedu + goat meat', desc:'Iya Moria · ready in 20 min', p:2800 },
+      { id:'suya', emoji:'🍢', label:'Beef suya (large)', desc:'Glover Court · ready in 10 min', p:4000 },
+      { id:'shawarma', emoji:'🌯', label:'Chicken shawarma ×2', desc:'The Place · ready in 12 min', p:5200 },
+    ];
+  }
+  otcData() {
+    return [
+      { id:'malaria', emoji:'💊', label:'Malaria kit (test + treatment)', desc:'ACT combo, WHO approved', p:4500 },
+      { id:'paracetamol', emoji:'🌡️', label:'Paracetamol 500mg ×24', desc:'For pain and fever', p:800 },
+      { id:'firstaid', emoji:'🩹', label:'First aid pack', desc:'Plasters, antiseptic, bandage', p:3000 },
+    ];
+  }
+
+  renderVals() {
+    const s = this.state;
+    const { km, distFee, itemLabel, itemFee, price } = this.prices();
+    const fmt = n => n.toLocaleString('en-NG');
+    const short = t => (t || '').split('—')[0].split(',')[0].trim() || '…';
+    const svcNoun = {package:'package', gas:'gas', food:'food', pharm:'medicine'}[s.service];
+    const needsPickup = s.service === 'package';
+    const whereReady = (needsPickup ? s.pickup.length > 2 : true) && s.drop.length > 2;
+    const whatReady = !!s.size && !!s.weight;
+    const gasReady = !!s.cylinder && !!s.gasMode;
+    const foodReady = !!s.meal;
+    const pharmReady = s.pharmTab === 'otc' ? !!s.otc : s.rxState === 'approved';
+    const vehicle = s.service==='gas' ? (s.cylinder==='s25'?'van':'tricycle') : (s.size === 'L' || s.weight === 'vheavy') ? 'van' : (s.weight === 'heavy' ? 'tricycle' : 'bike');
+    const stepMap = s.service === 'package' ? {where:1, what:2, price:3} : {gas:1, food:1, pharm:1, where:2, price:3};
+    const stepNum = stepMap[s.screen] || 1;
+    const G = '#C6F24E', GD = 'rgba(247,245,239,0.25)';
+    const AC = { bg:'#0A3D2C', border:'#C6F24E', color:'#C6F24E', sub:'rgba(198,242,78,0.7)' };
+    const RE = { bg:'#FFFFFF', border:'#E4E0D6', color:'#121216', sub:'#9A968D' };
+    const st = on => on ? AC : RE;
+    const btn = ready => ({ bg: ready ? '#C6F24E' : '#E4E0D6', color: ready ? '#0A3D2C' : '#9A968D' });
+
+    const stepTitles = {
+      gas: 'Gas — which one?', food: 'What are you eating?', pharm: 'What medicine do you need?',
+      where: s.service === 'package' ? 'Where is it going?' : 'Where do we bring it?',
+      what: 'What are we carrying?', price: 'Here is your price',
+    };
+
+    const trackSteps = [
+      { label: 'Order confirmed', time: 'Just now', done: true },
+      { label: s.service==='food' ? 'Kitchen cooked it fresh' : s.service==='pharm' ? 'Pharmacist packed and sealed it' : 'Musa picked it up', time: '2 min ago', done: true },
+      { label: 'On the way to ' + (short(s.drop) || 'you'), time: 'Now — about ' + s.eta + ' min left', done: true, current: true },
+      { label: 'Delivered to your hands', time: 'You pay only when you get it', done: false },
+    ].map((x, i, arr) => ({
+      label: x.label, time: x.time,
+      dotBg: x.done ? '#0A3D2C' : '#FFFFFF', dotBorder: x.done ? '#C6F24E' : '#E4E0D6',
+      color: x.current ? '#0A3D2C' : (x.done ? '#121216' : '#9A968D'),
+      line: i < arr.length - 1, lineBg: x.done && arr[i+1].done ? '#C6F24E' : '#E4E0D6',
+    }));
+
+    const lineItems = [
+      { label: 'Delivery (' + km + ' km)', amount: fmt(distFee) },
+      { label: itemLabel || '—', amount: fmt(itemFee) },
+      { label: 'Base fare', amount: '100' },
+    ];
+    const summary = [
+      ...(needsPickup ? [{ k:'From', v: short(s.pickup) }] : []),
+      { k:'To', v: short(s.drop) },
+      { k:'Carried by', v: vehicle },
+      { k:'When do you pay?', v: 'Only when it arrives' },
+    ];
+
+    return {
+      isHome: s.screen==='home',
+      inFlow: ['gas','food','pharm','where','what','price'].includes(s.screen),
+      isGas: s.screen==='gas', isFood: s.screen==='food', isPharm: s.screen==='pharm',
+      isWhere: s.screen==='where', isWhat: s.screen==='what', isPrice: s.screen==='price',
+      isFinding: s.screen==='finding', isTracking: s.screen==='tracking',
+      hasActiveOrder: s.ordered, noActiveOrder: !s.ordered,
+      trackLine: 'Your ' + svcNoun + ' is on its way to ' + (short(s.drop) || 'you'),
+      shellClass: ((this.props.layout === 'desktop') ? 'force-desktop' : (this.props.layout === 'mobile') ? 'force-mobile' : '') + (s.screen === 'home' ? ' on-home' : '') + (['gas','food','pharm','where','what','price','finding'].includes(s.screen) ? ' in-flow' : '') + (s.screen === 'tracking' ? ' on-track' : ''),
+      panelMax: (this.props.panelWidth ?? 460) + 'px',
+      accentColor: this.props.accent ?? '#C6F24E',
+      contextHeadline: s.screen==='home' ? 'What do you need moved?' : s.screen==='tracking' ? 'It\u2019s on the way.' : stepTitles[s.screen] || 'One network. Everything moves.',
+      contextSub: s.screen==='home' ? 'Packages, gas, food and medicine — one trusted network across Lagos and beyond. Tap a service in the panel to start.' : s.screen==='tracking' ? 'Watch it live in the panel. You pay only when it arrives.' : 'Follow the steps in the panel — the price is always shown before you confirm.',
+      query: s.query,
+      stepTitle: stepTitles[s.screen] || '', stepNum,
+      bar1: stepNum>=1?G:GD, bar2: stepNum>=2?G:GD, bar3: stepNum>=3?G:GD,
+      barD1: stepNum>=1?'#0A3D2C':'#E4E0D6', barD2: stepNum>=2?'#0A3D2C':'#E4E0D6', barD3: stepNum>=3?'#0A3D2C':'#E4E0D6',
+
+      // where
+      needsPickup,
+      pickupLabel: 'PICK UP FROM',
+      pickup: s.pickup, drop: s.drop, km,
+      pickupBorder: s.pickup.length>2 ? '#0A3D2C' : '#E4E0D6',
+      dropBorder: s.drop.length>2 ? '#0A3D2C' : '#E4E0D6',
+      whereReady,
+      whereSummary: needsPickup ? ('from ' + short(s.pickup) + ' to ' + short(s.drop)) : ('we bring it to ' + short(s.drop)),
+      whereNextLabel: s.service==='package' ? 'Continue — tell us what it is' : 'See the price',
+      nextBg: btn(whereReady).bg, nextColor: btn(whereReady).color,
+
+      // what (package)
+      whatReady,
+      next2Bg: btn(whatReady).bg, next2Color: btn(whatReady).color,
+      sizes: [
+        { emoji:'✉️', label:'Small', desc:'Fits one hand — docs, phone', ...st(s.size==='S'), pick:()=>this.save({size:'S'}) },
+        { emoji:'📦', label:'Medium', desc:'A shoe box or bag', ...st(s.size==='M'), pick:()=>this.save({size:'M'}) },
+        { emoji:'🧺', label:'Large', desc:'Needs two hands', ...st(s.size==='L'), pick:()=>this.save({size:'L'}) },
+      ],
+      weights: [
+        { label:'Light', desc:'Under 3 kg', ...st(s.weight==='light'), pick:()=>this.save({weight:'light'}) },
+        { label:'Medium', desc:'3–10 kg', ...st(s.weight==='mid'), pick:()=>this.save({weight:'mid'}) },
+        { label:'Heavy', desc:'10–25 kg', ...st(s.weight==='heavy'), pick:()=>this.save({weight:'heavy'}) },
+        { label:'Very heavy', desc:'Over 25 kg', ...st(s.weight==='vheavy'), pick:()=>this.save({weight:'vheavy'}) },
+      ],
+      sizeLabel: {S:'small',M:'medium',L:'large'}[s.size]||'',
+      weightLabel: {light:'light',mid:'medium-weight',heavy:'heavy',vheavy:'very heavy'}[s.weight]||'',
+      vehicle,
+
+      // gas
+      gasReady,
+      cylinders: [
+        { label:'3 kg', desc:'Small household', ...st(s.cylinder==='s3'), pick:()=>this.save({cylinder:'s3'}) },
+        { label:'6 kg', desc:'Everyday cooking', ...st(s.cylinder==='s6'), pick:()=>this.save({cylinder:'s6'}) },
+        { label:'12.5 kg', desc:'Most families', ...st(s.cylinder==='s125'), pick:()=>this.save({cylinder:'s125'}) },
+        { label:'25 kg', desc:'Big family / business', ...st(s.cylinder==='s25'), pick:()=>this.save({cylinder:'s25'}) },
+      ],
+      cylinderLabel: {s3:'3 kg',s6:'6 kg',s125:'12.5 kg',s25:'25 kg'}[s.cylinder]||'',
+      gasModeLabel: s.gasMode==='swap' ? 'swapped for a full one' : 'refilled and returned',
+      refillBg: st(s.gasMode==='refill').bg, refillBorder: st(s.gasMode==='refill').border, refillColor: st(s.gasMode==='refill').color, refillSub: st(s.gasMode==='refill').sub,
+      swapBg: st(s.gasMode==='swap').bg, swapBorder: st(s.gasMode==='swap').border, swapColor: st(s.gasMode==='swap').color, swapSub: st(s.gasMode==='swap').sub,
+      pickRefill: ()=>this.save({gasMode:'refill'}), pickSwap: ()=>this.save({gasMode:'swap'}),
+      gasNextBg: btn(gasReady).bg, gasNextColor: btn(gasReady).color,
+      gasNext: ()=>{ if(gasReady) this.save({screen:'where'}); },
+
+      // food
+      foodReady,
+      meals: this.mealData().map(m => ({ emoji:m.emoji, label:m.label, desc:m.desc, price:fmt(m.p), ...st(s.meal===m.id), pick:()=>this.save({meal:m.id}) })),
+      mealLabel: (this.mealData().find(m=>m.id===s.meal)||{}).label || '',
+      foodNextBg: btn(foodReady).bg, foodNextColor: btn(foodReady).color,
+      foodNext: ()=>{ if(foodReady) this.save({screen:'where'}); },
+
+      // pharmacy
+      pharmReady,
+      isOtcTab: s.pharmTab==='otc', isRxTab: s.pharmTab==='rx',
+      otcTabBg: s.pharmTab==='otc' ? '#0A3D2C' : '#FFFFFF', otcTabColor: s.pharmTab==='otc' ? '#C6F24E' : '#63636E',
+      rxTabBg: s.pharmTab==='rx' ? '#0A3D2C' : '#FFFFFF', rxTabColor: s.pharmTab==='rx' ? '#C6F24E' : '#63636E',
+      tabOtc: ()=>this.save({pharmTab:'otc'}), tabRx: ()=>this.save({pharmTab:'rx'}),
+      otcItems: this.otcData().map(o => ({ emoji:o.emoji, label:o.label, desc:o.desc, price:fmt(o.p), ...st(s.otc===o.id), pick:()=>this.save({otc:o.id}) })),
+      rxNotSent: s.rxState==='none', rxReviewing: s.rxState==='reviewing', rxApproved: s.rxState==='approved',
+      sendRx: ()=>{ this.save({rxState:'reviewing'}); setTimeout(()=>this.save({rxState:'approved'}), 3000); },
+      pharmSummary: s.pharmTab==='rx' ? 'Prescription approved by a licensed pharmacist' : ((this.otcData().find(o=>o.id===s.otc)||{}).label || ''),
+      pharmNextBg: btn(pharmReady).bg, pharmNextColor: btn(pharmReady).color,
+      pharmNext: ()=>{ if(pharmReady) this.save({screen:'where'}); },
+
+      // price
+      price: fmt(price), lineItems, summary,
+      eta: s.eta, steps: trackSteps,
+      findingTitle: s.service==='food' ? 'Telling the kitchen…' : s.service==='pharm' ? 'Packing your medicine…' : 'Finding your rider…',
+      findingSub: s.service==='food' ? 'They start cooking now. A rider picks it up hot.' : s.service==='pharm' ? 'Sealed by the pharmacist, then the nearest trusted rider brings it.' : 'We\u2019re picking the nearest trusted rider. This usually takes a few seconds.',
+      trackTitle: 'Your ' + svcNoun + ' is moving',
+
+      // actions
+      onQuery: e=>this.setState({query:e.target.value}),
+      onQueryKey: e=>{ if(e.key==='Enter') this.save({screen:'where', service:'package'}); },
+      startPackage: ()=>this.save({screen:'where', service:'package'}),
+      startGas: ()=>this.save({screen:'gas', service:'gas'}),
+      startFood: ()=>this.save({screen:'food', service:'food'}),
+      startPharm: ()=>this.save({screen:'pharm', service:'pharm'}),
+      onPickup: e=>this.save({pickup:e.target.value}),
+      onDrop: e=>this.save({drop:e.target.value}),
+      pickHome: ()=>this.save({pickup:'My home — 12 Admiralty Way, Lekki'}),
+      pickCurrent: ()=>this.save({pickup:'Where I am — Lekki Phase 1'}),
+      dropHome: ()=>this.save({drop:'My home — 12 Admiralty Way, Lekki', km:3}),
+      dropYaba: ()=>this.save({drop:'Yaba — 5 Herbert Macaulay Way', km:12}),
+      dropIkeja: ()=>this.save({drop:'Ikeja — 30 Allen Avenue', km:21}),
+      dropSurulere: ()=>this.save({drop:'Surulere — 14 Adeniran Ogunsanya', km:16}),
+      toNext: ()=>{ if(!whereReady) return; this.save({screen: s.service==='package' ? 'what' : 'price', km: s.km || 12}); },
+      toPrice: ()=>{ if(whatReady) this.save({screen:'price'}); },
+      confirmOrder: ()=>{ this.save({screen:'finding'}); setTimeout(()=>this.save({screen:'tracking', ordered:true, eta:4}), 2200); },
+      goBack: ()=>{
+        const back = s.screen==='where' ? (s.service==='package' ? 'home' : s.service==='gas' ? 'gas' : s.service==='food' ? 'food' : 'pharm')
+          : s.screen==='what' ? 'where'
+          : s.screen==='price' ? (s.service==='package' ? 'what' : 'where')
+          : 'home';
+        this.save({screen: back});
+      },
+      goHome: ()=>this.save({screen:'home'}),
+      goTracking: ()=>{ if(s.ordered) this.save({screen:'tracking'}); },
+    };
+  }
+}
+</script>
+</body>
+</html>

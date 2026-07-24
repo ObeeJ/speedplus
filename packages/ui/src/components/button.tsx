@@ -3,14 +3,14 @@ import { cn } from '../lib/utils';
 import { type ButtonHTMLAttributes, forwardRef } from 'react';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98]',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[13px] font-display font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98]',
   {
     variants: {
       variant: {
-        primary:   'bg-[#00C48C] text-white hover:bg-[#008F66] focus-visible:ring-[#00C48C]',
-        secondary: 'bg-[#1A1A2E] text-white hover:bg-[#1A1A2E]/90 focus-visible:ring-[#1A1A2E]',
-        outline:   'border-2 border-[#00C48C] text-[#00C48C] hover:bg-[#E0FBF4] focus-visible:ring-[#00C48C]',
-        ghost:     'text-[#1A1A2E] hover:bg-[#E0FBF4] focus-visible:ring-[#00C48C]',
+        primary:   'bg-[#C6F24E] text-[#0A3D2C] hover:bg-[#AEE032] active:bg-[#98C92B] focus-visible:ring-[#C6F24E]',
+        secondary: 'bg-[#0A3D2C] text-[#F7F5EF] hover:bg-[#0D4E38] active:bg-[#072D20] focus-visible:ring-[#0A3D2C]',
+        outline:   'border-2 border-[#0A3D2C] text-[#0A3D2C] hover:bg-[#E9F3D8] focus-visible:ring-[#0A3D2C]',
+        ghost:     'text-[#0A3D2C] hover:bg-[rgba(10,61,44,0.07)] focus-visible:ring-[#0A3D2C]',
         danger:    'bg-[#DC2626] text-white hover:bg-[#DC2626]/90 focus-visible:ring-[#DC2626]',
       },
       size: {

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+:root{--em:#0A3D2C;--li:#C6F24E;--lip:#AEE032;--sa:#F7F5EF;--pa:#FFFFFF;--ink:#121216;--mu:#63636E;--ln:#E4E0D6;--am:#E8B14E;--ti:#E9F3D8}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:#E9E6DD;color:var(--ink);font-family:'Instrument Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--em)}a:hover{color:#072D20}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.6);opacity:.5}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;justify-content:center;padding:24px 12px">
+<div style="width:100%;max-width:430px;background:var(--sa);border-radius:24px;overflow:hidden;box-shadow:0 24px 60px rgba(10,61,44,.18);display:flex;flex-direction:column;min-height:780px">
+
+  <!-- header -->
+  <div style="background:var(--em);padding:16px 20px;display:flex;align-items:center;gap:12px">
+    <span style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:18px;color:var(--sa);letter-spacing:-.4px">speed<span style="color:var(--li)">+</span> <span style="font-weight:500;font-size:12px;color:rgba(247,245,239,.6)">RIDER</span></span>
+    <span style="flex:1"></span>
+    <span onClick="{{ toggleOnline }}" style="display:flex;align-items:center;gap:8px;background:{{ onlineBg }};border-radius:999px;padding:7px 14px;cursor:pointer">
+      <span style="width:8px;height:8px;border-radius:50%;background:{{ onlineDot }}"></span>
+      <span style="font-size:12px;font-weight:700;color:{{ onlineTxt }}">{{ onlineLabel }}</span>
+    </span>
+  </div>
+
+  <!-- HOME -->
+  <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+    <div style="flex:1;padding:18px 20px;display:flex;flex-direction:column;gap:13px">
+      <div style="display:flex;gap:10px">
+        <div style="flex:1;background:var(--pa);border:1px solid var(--ln);border-radius:14px;padding:13px;display:flex;flex-direction:column;gap:2px"><span style="font-size:10.5px;font-weight:600;color:var(--mu);letter-spacing:.5px">TODAY</span><span style="font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:700;color:var(--em)">₦{{ todayEarn }}</span></div>
+        <div style="flex:1;background:var(--pa);border:1px solid var(--ln);border-radius:14px;padding:13px;display:flex;flex-direction:column;gap:2px"><span style="font-size:10.5px;font-weight:600;color:var(--mu);letter-spacing:.5px">TRIPS</span><span style="font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:700;color:var(--ink)">{{ trips }}</span></div>
+        <div style="flex:1;background:var(--pa);border:1px solid var(--ln);border-radius:14px;padding:13px;display:flex;flex-direction:column;gap:2px"><span style="font-size:10.5px;font-weight:600;color:var(--mu);letter-spacing:.5px">RATING</span><span style="font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:700;color:var(--ink)">★ 4.9</span></div>
+      </div>
+      <sc-if value="{{ showOffer }}" hint-placeholder-val="{{ false }}">
+        <div style="background:var(--em);border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:12px;box-shadow:0 12px 30px rgba(10,61,44,.3)">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="width:8px;height:8px;border-radius:50%;background:var(--li);animation:pulse 1.5s infinite"></span>
+            <span style="font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:600;color:var(--sa)">New delivery — Package</span>
+            <span style="margin-left:auto;font-family:'Space Grotesk',sans-serif;font-size:18px;font-weight:700;color:var(--li)">₦840</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:7px;background:rgba(247,245,239,.08);border-radius:12px;padding:11px 13px">
+            <span style="display:flex;gap:9px;font-size:12px;color:var(--sa)"><b style="color:var(--li)">A</b> Lekki Phase 1 — 12 Admiralty Way <span style="margin-left:auto;color:rgba(247,245,239,.55)">2.1 km away</span></span>
+            <span style="display:flex;gap:9px;font-size:12px;color:var(--sa)"><b style="color:var(--am)">B</b> Yaba — 5 Herbert Macaulay Way <span style="margin-left:auto;color:rgba(247,245,239,.55)">12 km trip</span></span>
+          </div>
+          <span style="font-size:11px;color:rgba(247,245,239,.6)">Medium box · under 10 kg · bike OK · cash on delivery</span>
+          <div style="display:flex;gap:9px">
+            <span onClick="{{ declineJob }}" style="flex:1;text-align:center;font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600;color:var(--sa);border:1.5px solid rgba(247,245,239,.3);border-radius:12px;padding:12px 0;cursor:pointer" style-hover="background:rgba(247,245,239,.1)">Decline</span>
+            <span onClick="{{ acceptJob }}" style="flex:2;text-align:center;font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600;color:var(--em);background:var(--li);border-radius:12px;padding:12px 0;cursor:pointer" style-hover="background:var(--lip)">Accept — ₦840</span>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ showWaiting }}" hint-placeholder-val="{{ true }}">
+        <div style="border:1.5px dashed var(--ln);border-radius:16px;padding:22px;display:flex;flex-direction:column;align-items:center;gap:5px">
+          <span style="font-size:13px;font-weight:600;color:var(--mu)">{{ waitTitle }}</span>
+          <span style="font-size:11px;color:#9A968D;text-align:center">{{ waitSub }}</span>
+        </div>
+      </sc-if>
+      <span style="font-size:11px;font-weight:600;color:var(--mu);letter-spacing:.6px;margin-top:4px">EARLIER TODAY</span>
+      <div style="background:var(--pa);border:1px solid var(--ln);border-radius:14px;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:11px;padding:12px 14px;border-bottom:1px solid #EFECE3"><span style="font-size:16px">📦</span><span style="flex:1;display:flex;flex-direction:column"><span style="font-size:12.5px;font-weight:600">Package → Surulere</span><span style="font-size:10.5px;color:var(--mu)">14:22 · 16 km</span></span><b style="font-size:12.5px;color:var(--em)">₦920</b></div>
+        <div style="display:flex;align-items:center;gap:11px;padding:12px 14px;border-bottom:1px solid #EFECE3"><span style="font-size:16px">🔥</span><span style="flex:1;display:flex;flex-direction:column"><span style="font-size:12.5px;font-weight:600">Gas 12.5kg → Lekki</span><span style="font-size:10.5px;color:var(--mu)">11:05 · 4 km</span></span><b style="font-size:12.5px;color:var(--em)">₦480</b></div>
+        <div style="display:flex;align-items:center;gap:11px;padding:12px 14px"><span style="font-size:16px">💊</span><span style="flex:1;display:flex;flex-direction:column"><span style="font-size:12.5px;font-weight:600">Medicine → Ikoyi</span><span style="font-size:10.5px;color:var(--mu)">09:40 · 7 km</span></span><b style="font-size:12.5px;color:var(--em)">₦610</b></div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ACTIVE DELIVERY -->
+  <sc-if value="{{ isJob }}" hint-placeholder-val="{{ false }}">
+    <div style="position:relative;height:170px;background:linear-gradient(160deg,#0D4E38,#08301F);overflow:hidden;flex:none">
+      <svg width="430" height="170" viewBox="0 0 430 170" fill="none" style="position:absolute;inset:0;opacity:.5"><path d="M-10 50 L130 50 L130 -10" stroke="#1C6146" stroke-width="10"></path><path d="M0 115 L230 115 L230 180" stroke="#1C6146" stroke-width="10"></path><path d="M290 -10 L290 80 L440 80" stroke="#1C6146" stroke-width="10"></path></svg>
+      <svg width="430" height="170" viewBox="0 0 430 170" fill="none" style="position:absolute;inset:0"><path d="M130 50 C180 80 210 100 230 115" stroke="#C6F24E" stroke-width="3" stroke-dasharray="2 7" stroke-linecap="round"></path></svg>
+      <span style="position:absolute;left:122px;top:42px;width:14px;height:14px;border-radius:50%;background:#C6F24E;border:3px solid #0A3D2C;animation:pulse 2s infinite"></span>
+      <span style="position:absolute;left:224px;top:109px;width:11px;height:11px;border-radius:50%;background:#F7F5EF;border:3px solid #0A3D2C"></span>
+      <div style="position:absolute;left:14px;bottom:12px;background:rgba(8,48,31,.85);border:1px solid rgba(198,242,78,.3);border-radius:999px;padding:7px 13px"><span style="font-size:11px;font-weight:600;color:#F7F5EF">{{ navHint }}</span></div>
+    </div>
+    <div style="flex:1;padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;gap:12px;background:var(--pa);border:1px solid var(--ln);border-radius:14px;padding:13px 15px">
+        <span style="width:40px;height:40px;border-radius:50%;background:var(--ti);display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-weight:700;color:var(--em)">K</span>
+        <span style="flex:1;display:flex;flex-direction:column"><span style="font-size:13px;font-weight:600">Ken A. — customer</span><span style="font-size:10.5px;color:var(--mu)">Package R-7458 · pays ₦840 cash on delivery</span></span>
+        <span style="width:38px;height:38px;border-radius:11px;background:var(--ti);display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:#DCEDC2"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0A3D2C" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6c0 8 6 14 14 14l2.5-3-4-2-2 2c-2.5-1.2-4.3-3-5.5-5.5l2-2-2-4L6 4"></path></svg></span>
+      </div>
+      <div style="background:var(--pa);border:1px solid var(--ln);border-radius:14px;padding:14px 15px;display:flex;flex-direction:column;gap:9px">
+        <sc-for list="{{ jobSteps }}" as="j" hint-placeholder-count="4">
+          <span style="display:flex;align-items:center;gap:10px"><span style="width:10px;height:10px;border-radius:50%;background:{{ j.bg }};border:2.5px solid {{ j.bd }}"></span><span style="font-size:12.5px;font-weight:600;color:{{ j.co }}">{{ j.label }}</span></span>
+        </sc-for>
+      </div>
+      <sc-if value="{{ showPod }}" hint-placeholder-val="{{ false }}">
+        <div style="background:#FFF7E6;border:1px solid #F0DFB4;border-radius:14px;padding:13px 15px;display:flex;flex-direction:column;gap:8px">
+          <span style="font-size:12.5px;font-weight:700">Proof of delivery</span>
+          <span style="font-size:11px;color:var(--mu)">Ask Ken for the 4-digit code, or snap a photo of the handover.</span>
+          <div style="display:flex;gap:8px">
+            <span style="flex:1;text-align:center;font-family:'Space Grotesk',sans-serif;letter-spacing:6px;font-size:16px;font-weight:700;background:var(--pa);border:1.5px solid var(--ln);border-radius:10px;padding:9px 0;color:var(--em)">7 4 2 9</span>
+            <span style="width:44px;display:flex;align-items:center;justify-content:center;background:var(--pa);border:1.5px solid var(--ln);border-radius:10px;cursor:pointer" style-hover="border-color:var(--em)">📷</span>
+          </div>
+        </div>
+      </sc-if>
+      <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px">
+        <span onClick="{{ advanceJob }}" style="text-align:center;font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;color:var(--em);background:var(--li);border-radius:13px;padding:15px 0;cursor:pointer" style-hover="background:var(--lip)">{{ jobCta }}</span>
+        <span style="font-size:10.5px;color:#9A968D;text-align:center">{{ jobHint }}</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- EARNINGS -->
+  <sc-if value="{{ isEarn }}" hint-placeholder-val="{{ false }}">
+    <div style="flex:1;padding:18px 20px;display:flex;flex-direction:column;gap:13px">
+      <div style="background:var(--em);border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:4px">
+        <span style="font-size:11px;font-weight:600;color:rgba(247,245,239,.6);letter-spacing:.6px">THIS WEEK</span>
+        <span style="font-family:'Space Grotesk',sans-serif;font-size:34px;font-weight:700;color:var(--li);letter-spacing:-1px">₦{{ weekEarn }}</span>
+        <span style="font-size:11.5px;color:rgba(247,245,239,.6)">{{ weekTrips }} trips · ₦{{ todayEarn }} today</span>
+        <span onClick="{{ cashOut }}" style="margin-top:10px;text-align:center;font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600;color:var(--em);background:var(--li);border-radius:11px;padding:12px 0;cursor:pointer" style-hover="background:var(--lip)">{{ cashLabel }}</span>
+      </div>
+      <span style="font-size:11px;font-weight:600;color:var(--mu);letter-spacing:.6px">BY DAY</span>
+      <div style="background:var(--pa);border:1px solid var(--ln);border-radius:14px;padding:14px;display:flex;align-items:flex-end;gap:8px;height:110px">
+        <sc-for list="{{ days }}" as="d" hint-placeholder-count="7">
+          <span style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end"><span style="width:100%;border-radius:5px 5px 2px 2px;background:{{ d.bg }};height:{{ d.h }}"></span><span style="font-size:9px;color:var(--mu)">{{ d.label }}</span></span>
+        </sc-for>
+      </div>
+      <div style="background:var(--pa);border:1px solid var(--ln);border-radius:14px;overflow:hidden">
+        <div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #EFECE3"><span style="font-size:12px;color:var(--mu)">Cash collected (to remit)</span><b style="font-size:12.5px;color:var(--am)">₦2,340</b></div>
+        <div style="display:flex;justify-content:space-between;padding:12px 14px"><span style="font-size:12px;color:var(--mu)">Paid to wallet</span><b style="font-size:12.5px;color:var(--em)">₦9,120</b></div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- PROFILE -->
+  <sc-if value="{{ isMe }}" hint-placeholder-val="{{ false }}">
+    <div style="flex:1;padding:18px 20px;display:flex;flex-direction:column;gap:13px">
+      <div style="display:flex;align-items:center;gap:14px;background:var(--pa);border:1px solid var(--ln);border-radius:16px;padding:16px">
+        <span style="width:54px;height:54px;border-radius:50%;background:var(--em);display:flex;align-items:center;justify-content:center;color:var(--li);font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:20px">M</span>
+        <span style="display:flex;flex-direction:column;gap:2px"><span style="font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:600">Musa Ibrahim</span><span style="font-size:11.5px;color:var(--mu)">Bike · Lagos · ★ 4.9 · 2,140 deliveries</span></span>
+      </div>
+      <span style="font-size:11px;font-weight:600;color:var(--mu);letter-spacing:.6px">YOUR DOCUMENTS</span>
+      <div style="background:var(--pa);border:1px solid var(--ln);border-radius:14px;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:11px;padding:12px 14px;border-bottom:1px solid #EFECE3"><span style="flex:1;font-size:12.5px;font-weight:600">Rider's licence</span><span style="font-size:11px;font-weight:700;color:var(--em);background:var(--ti);border-radius:999px;padding:4px 11px">✓ Verified</span></div>
+        <div style="display:flex;align-items:center;gap:11px;padding:12px 14px;border-bottom:1px solid #EFECE3"><span style="flex:1;font-size:12.5px;font-weight:600">Background check</span><span style="font-size:11px;font-weight:700;color:var(--em);background:var(--ti);border-radius:999px;padding:4px 11px">✓ Passed</span></div>
+        <div style="display:flex;align-items:center;gap:11px;padding:12px 14px"><span style="flex:1;font-size:12.5px;font-weight:600">Insurance</span><span style="font-size:11px;font-weight:700;color:#8A6A1B;background:#FFF3D6;border-radius:999px;padding:4px 11px">Renews in 12 days</span></div>
+      </div>
+      <span style="font-size:11px;font-weight:600;color:var(--mu);letter-spacing:.6px">TRAINED FOR</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <span style="font-size:11.5px;font-weight:600;color:var(--em);background:var(--ti);border-radius:999px;padding:7px 13px">📦 Packages</span>
+        <span style="font-size:11.5px;font-weight:600;color:var(--em);background:var(--ti);border-radius:999px;padding:7px 13px">🔥 Gas handling</span>
+        <span style="font-size:11.5px;font-weight:600;color:var(--em);background:var(--ti);border-radius:999px;padding:7px 13px">💊 Sealed medicine</span>
+        <span style="font-size:11.5px;font-weight:600;color:#9A968D;background:#EFECE3;border-radius:999px;padding:7px 13px">🍛 Food (take course)</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- bottom nav -->
+  <div style="background:var(--pa);border-top:1px solid var(--ln);padding:8px 20px 12px;display:flex;justify-content:space-around">
+    <span onClick="{{ navHome }}" style="display:flex;flex-direction:column;align-items:center;gap:2px;font-size:9.5px;font-weight:{{ wHome }};color:{{ cHome }};cursor:pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8v9a1 1 0 01-1 1h-5v-6h-6v6H4a1 1 0 01-1-1v-9z"></path></svg>Home</span>
+    <span onClick="{{ navJob }}" style="display:flex;flex-direction:column;align-items:center;gap:2px;font-size:9.5px;font-weight:{{ wJob }};color:{{ cJob }};cursor:pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-5.5-7-11a7 7 0 0114 0c0 5.5-7 11-7 11z"></path><circle cx="12" cy="10" r="2.5"></circle></svg>Delivery</span>
+    <span onClick="{{ navEarn }}" style="display:flex;flex-direction:column;align-items:center;gap:2px;font-size:9.5px;font-weight:{{ wEarn }};color:{{ cEarn }};cursor:pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="3"></rect><path d="M3 10h18"></path></svg>Earnings</span>
+    <span onClick="{{ navMe }}" style="display:flex;flex-direction:column;align-items:center;gap:2px;font-size:9.5px;font-weight:{{ wMe }};color:{{ cMe }};cursor:pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21a8 8 0 0116 0"></path></svg>Me</span>
+  </div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;430px&quot;,&quot;height&quot;:&quot;820px&quot;}}">
+class Component extends DCLogic {
+  state = { tab: 'home', online: true, jobStage: 0, cashed: false };
+  // jobStage: 0 none/offer, 1 accepted->to pickup, 2 picked up, 3 at dropoff, 4 delivered
+
+  save(p){ this.setState(p, ()=>localStorage.setItem('sp-driver', JSON.stringify(this.state))); }
+  componentDidMount(){ const s=localStorage.getItem('sp-driver'); if(s){try{this.setState(JSON.parse(s))}catch(e){}} }
+
+  renderVals() {
+    const s = this.state;
+    const stages = ['Accepted — ride to pickup','Arrived at pickup','Package picked up','Arrived at drop-off','Delivered ✓'];
+    const active = c => c ? '700' : '500';
+    const col = c => c ? '#0A3D2C' : '#63636E';
+    const mk = (label, done, cur) => ({ label, bg: done?'#0A3D2C':'#FFFFFF', bd: done?'#C6F24E':'#E4E0D6', co: cur?'#0A3D2C':(done?'#121216':'#9A968D') });
+    const ctas = ['','I\u2019ve arrived at pickup','I have the package','I\u2019ve arrived at drop-off','Confirm delivery — code entered','Done — back to home'];
+    const hints = ['','Tap when you reach 12 Admiralty Way','Check it matches: medium box, under 10 kg','Tap when you reach Herbert Macaulay Way','Collect ₦840 cash, then confirm','₦840 added to today\u2019s earnings 🎉'];
+    return {
+      isHome: s.tab==='home', isJob: s.tab==='job' && s.jobStage>0, isEarn: s.tab==='earn', isMe: s.tab==='me',
+      onlineLabel: s.online?'Online':'Offline', onlineBg: s.online?'#C6F24E':'rgba(247,245,239,.14)',
+      onlineDot: s.online?'#0A3D2C':'#9A968D', onlineTxt: s.online?'#0A3D2C':'rgba(247,245,239,.7)',
+      toggleOnline: ()=>this.save({online:!s.online}),
+      showOffer: s.online && s.jobStage===0, showWaiting: !s.online || s.jobStage>0,
+      waitTitle: s.online ? (s.jobStage>0?'You have an active delivery':'Waiting for jobs…') : 'You are offline',
+      waitSub: s.online ? (s.jobStage>0?'Open the Delivery tab to continue it.':'Stay near busy areas — Lekki and Yaba are hot right now.') : 'Go online to receive delivery offers.',
+      todayEarn: (2010 + (s.jobStage>=5?840:0)).toLocaleString(), trips: s.jobStage>=5?4:3,
+      weekEarn: (11460 + (s.jobStage>=5?840:0)).toLocaleString(), weekTrips: 19,
+      acceptJob: ()=>this.save({jobStage:1, tab:'job'}),
+      declineJob: ()=>this.save({jobStage:0}),
+      jobSteps: stages.map((l,i)=>mk(l, s.jobStage>i, s.jobStage===i+1)).slice(0,5),
+      jobCta: ctas[Math.min(s.jobStage,5)], jobHint: hints[Math.min(s.jobStage,5)],
+      showPod: s.jobStage===4,
+      navHint: s.jobStage<=1?'Navigate: 2.1 km to pickup':s.jobStage===2?'Navigate: 12 km to Yaba':'Almost there',
+      advanceJob: ()=>{ if(s.jobStage>=5){ this.save({jobStage:0, tab:'home'}); } else this.save({jobStage:s.jobStage+1}); },
+      cashLabel: s.cashed?'✓ Sent to your bank':'Cash out ₦9,120 to bank',
+      cashOut: ()=>this.save({cashed:true}),
+      days: [38,52,44,70,58,90,64].map((h,i)=>({ h:h+'%', bg:i===5?'#C6F24E':'#0A3D2C', label:['M','T','W','T','F','S','S'][i] })),
+      navHome: ()=>this.save({tab:'home'}), navJob: ()=>this.save({tab: s.jobStage>0?'job':'home'}),
+      navEarn: ()=>this.save({tab:'earn'}), navMe: ()=>this.save({tab:'me'}),
+      wHome: active(s.tab==='home'), cHome: col(s.tab==='home'),
+      wJob: active(s.tab==='job'), cJob: col(s.tab==='job'),
+      wEarn: active(s.tab==='earn'), cEarn: col(s.tab==='earn'),
+      wMe: active(s.tab==='me'), cMe: col(s.tab==='me'),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+:root{--em:#0A3D2C;--li:#C6F24E;--lip:#AEE032;--sa:#F7F5EF;--pa:#FFFFFF;--ink:#121216;--mu:#63636E;--ln:#E4E0D6;--am:#E8B14E;--ti:#E9F3D8}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:var(--sa);color:var(--ink);font-family:'Instrument Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--em)}a:hover{color:#072D20}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.6);opacity:.5}}
+.nav{display:flex;align-items:center;gap:11px;padding:11px 16px;border-radius:12px;font-size:13.5px;font-weight:500;color:rgba(247,245,239,.72);cursor:pointer}
+.nav:hover{background:rgba(247,245,239,.08);color:var(--sa)}
+.nav.on{background:rgba(198,242,78,.14);color:var(--li);font-weight:600}
+.card{background:var(--pa);border:1px solid var(--ln);border-radius:16px}
+.chip{font-size:11px;font-weight:700;border-radius:999px;padding:4px 11px}
+.btn{font-family:'Space Grotesk',sans-serif;font-size:12.5px;font-weight:600;border-radius:10px;padding:8px 15px;cursor:pointer;text-align:center}
+.btn.p{color:var(--em);background:var(--li)}.btn.p:hover{background:var(--lip)}
+.btn.o{color:var(--em);border:1.5px solid var(--em)}.btn.o:hover{background:rgba(10,61,44,.07)}
+.btn.d{color:#B4231F;border:1.5px solid #E5B5B3}.btn.d:hover{background:#FBEFEE}
+.th{font-size:10.5px;font-weight:600;color:var(--mu);letter-spacing:.5px}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex" data-screen-label="Admin dispatch">
+
+  <!-- SIDEBAR -->
+  <div style="width:240px;flex:none;background:#08301F;padding:24px 16px;display:flex;flex-direction:column;gap:24px;min-height:100vh">
+    <div style="padding:0 8px;display:flex;flex-direction:column;gap:3px">
+      <span style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:20px;color:var(--sa);letter-spacing:-.4px">speed<span style="color:var(--li)">+</span> <span style="font-weight:500;font-size:11px;color:rgba(247,245,239,.55)">OPS</span></span>
+      <span style="font-size:11px;color:rgba(247,245,239,.55)">Lagos region · live</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:3px">
+      <span class="nav {{ nDisp }}" onClick="{{ goDisp }}">🗺 Dispatch <span style="margin-left:auto;font-size:10.5px;font-weight:700;color:#3B2E10;background:var(--am);border-radius:999px;padding:1px 8px">{{ unassigned }}</span></span>
+      <span class="nav {{ nOrd }}" onClick="{{ goOrd }}">🛒 Orders</span>
+      <span class="nav {{ nRid }}" onClick="{{ goRid }}">🛵 Riders <span style="margin-left:auto;font-size:10.5px;font-weight:700;color:var(--em);background:var(--li);border-radius:999px;padding:1px 8px">{{ ridApps }}</span></span>
+      <span class="nav {{ nMer }}" onClick="{{ goMer }}">🏪 Partners <span style="margin-left:auto;font-size:10.5px;font-weight:700;color:var(--em);background:var(--li);border-radius:999px;padding:1px 8px">{{ merApps }}</span></span>
+      <span class="nav {{ nAna }}" onClick="{{ goAna }}">📈 Analytics</span>
+    </div>
+    <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px;background:rgba(247,245,239,.06);border-radius:13px;padding:13px">
+      <span style="font-size:10.5px;font-weight:600;color:rgba(247,245,239,.55);letter-spacing:.5px">NETWORK NOW</span>
+      <span style="display:flex;justify-content:space-between;font-size:12px;color:var(--sa)"><span>Riders online</span><b style="color:var(--li)">142</b></span>
+      <span style="display:flex;justify-content:space-between;font-size:12px;color:var(--sa)"><span>Orders in motion</span><b style="color:var(--li)">87</b></span>
+      <span style="display:flex;justify-content:space-between;font-size:12px;color:var(--sa)"><span>Avg. delivery</span><b style="color:var(--li)">23 min</b></span>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+
+    <!-- DISPATCH -->
+    <sc-if value="{{ isDisp }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:1;display:flex;min-height:0">
+        <div style="flex:1;position:relative;background:linear-gradient(160deg,#0D4E38,#08301F);overflow:hidden;min-height:100vh">
+          <svg width="100%" height="100%" viewBox="0 0 800 800" fill="none" preserveAspectRatio="xMidYMid slice" style="position:absolute;inset:0;opacity:.5"><g stroke="#1C6146" stroke-width="20"><path d="M-20 190 H820"></path><path d="M-20 470 H820"></path><path d="M180 -20 V820"></path><path d="M480 -20 V820"></path><path d="M680 -20 V820"></path></g><g stroke="#12583F" stroke-width="8"><path d="M-20 330 H820"></path><path d="M320 -20 V820"></path><path d="M600 -20 V820"></path></g></svg>
+          <span style="position:absolute;left:24%;top:22%;width:12px;height:12px;border-radius:50%;background:var(--li);border:3px solid #08301F;animation:pulse 2s infinite"></span>
+          <span style="position:absolute;left:52%;top:38%;width:12px;height:12px;border-radius:50%;background:var(--li);border:3px solid #08301F"></span>
+          <span style="position:absolute;left:38%;top:62%;width:12px;height:12px;border-radius:50%;background:var(--li);border:3px solid #08301F;animation:pulse 2.4s infinite"></span>
+          <span style="position:absolute;left:66%;top:55%;width:12px;height:12px;border-radius:50%;background:var(--am);border:3px solid #08301F;animation:pulse 1.6s infinite"></span>
+          <span style="position:absolute;left:30%;top:44%;width:12px;height:12px;border-radius:50%;background:var(--am);border:3px solid #08301F;animation:pulse 1.6s infinite"></span>
+          <div style="position:absolute;top:18px;left:22px;display:flex;gap:8px">
+            <span style="display:flex;align-items:center;gap:7px;background:rgba(8,48,31,.85);border:1px solid rgba(198,242,78,.3);border-radius:999px;padding:7px 13px"><span style="width:7px;height:7px;border-radius:50%;background:var(--li)"></span><span style="font-size:11.5px;font-weight:600;color:var(--sa)">87 moving</span></span>
+            <span style="display:flex;align-items:center;gap:7px;background:rgba(8,48,31,.85);border:1px solid rgba(232,177,78,.4);border-radius:999px;padding:7px 13px"><span style="width:7px;height:7px;border-radius:50%;background:var(--am)"></span><span style="font-size:11.5px;font-weight:600;color:var(--sa)">{{ unassigned }} unassigned</span></span>
+          </div>
+        </div>
+        <div style="width:400px;flex:none;padding:24px 22px;display:flex;flex-direction:column;gap:12px;overflow-y:auto">
+          <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:19px;letter-spacing:-.4px">Needs a rider</span>
+          <sc-for list="{{ queue }}" as="q" hint-placeholder-count="2">
+            <div class="card" style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;align-items:center;gap:9px"><span style="width:7px;height:7px;border-radius:50%;background:var(--am);animation:pulse 1.5s infinite"></span><span style="flex:1;font-size:13px;font-weight:600">{{ q.title }}</span><span style="font-size:11px;color:#B4231F;font-weight:600">{{ q.wait }}</span></div>
+              <span style="font-size:11.5px;color:var(--mu)">{{ q.route }}</span>
+              <sc-if value="{{ q.open }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <span class="th">NEAREST TRAINED RIDERS</span>
+                  <sc-for list="{{ q.riders }}" as="r" hint-placeholder-count="2">
+                    <div style="display:flex;align-items:center;gap:10px;background:var(--sa);border-radius:10px;padding:9px 11px">
+                      <span style="width:28px;height:28px;border-radius:50%;background:var(--em);display:flex;align-items:center;justify-content:center;color:var(--li);font-size:11px;font-weight:700;font-family:'Space Grotesk',sans-serif">{{ r.init }}</span>
+                      <span style="flex:1;display:flex;flex-direction:column"><span style="font-size:12px;font-weight:600">{{ r.name }}</span><span style="font-size:10px;color:var(--mu)">{{ r.meta }}</span></span>
+                      <span class="btn p" onClick="{{ r.assign }}" style="padding:6px 13px;font-size:11.5px">Assign</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <sc-if value="{{ q.assigned }}" hint-placeholder-val="{{ false }}">
+                <span style="font-size:12px;font-weight:600;color:var(--em);background:var(--ti);border-radius:9px;padding:8px 11px">✓ Assigned to {{ q.assignedTo }} — notified, en route</span>
+              </sc-if>
+            </div>
+          </sc-for>
+          <span style="font-size:11px;color:#9A968D">Auto-dispatch handles 94% of orders. These needed a human because of rider shortage in the zone.</span>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ORDERS -->
+    <sc-if value="{{ isOrd }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:30px 34px;display:flex;flex-direction:column;gap:16px">
+        <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:26px;letter-spacing:-.6px">All orders — today</span>
+        <div style="display:flex;gap:8px">
+          <span class="chip" style="color:var(--em);background:var(--li);cursor:pointer">All · 412</span>
+          <span class="chip" style="color:var(--mu);background:var(--pa);border:1px solid var(--ln);cursor:pointer">📦 Package · 203</span>
+          <span class="chip" style="color:var(--mu);background:var(--pa);border:1px solid var(--ln);cursor:pointer">🔥 Gas · 88</span>
+          <span class="chip" style="color:var(--mu);background:var(--pa);border:1px solid var(--ln);cursor:pointer">🍛 Food · 79</span>
+          <span class="chip" style="color:var(--mu);background:var(--pa);border:1px solid var(--ln);cursor:pointer">💊 Medicine · 42</span>
+        </div>
+        <div class="card" style="overflow:hidden">
+          <div style="display:grid;grid-template-columns:90px 1fr 1fr 110px 90px 110px;gap:10px;padding:12px 18px;border-bottom:1px solid #EFECE3"><span class="th">ORDER</span><span class="th">ROUTE</span><span class="th">RIDER</span><span class="th">STATUS</span><span class="th">TOTAL</span><span class="th">TIME</span></div>
+          <div style="display:grid;grid-template-columns:90px 1fr 1fr 110px 90px 110px;gap:10px;padding:13px 18px;border-bottom:1px solid #EFECE3;font-size:12.5px;align-items:center"><b>#2841</b><span>HealthPlus → Ikoyi 💊</span><span>Musa I.</span><span class="chip" style="color:var(--em);background:var(--ti);justify-self:start">In transit</span><b>₦3,940</b><span style="color:var(--mu)">4 min left</span></div>
+          <div style="display:grid;grid-template-columns:90px 1fr 1fr 110px 90px 110px;gap:10px;padding:13px 18px;border-bottom:1px solid #EFECE3;font-size:12.5px;align-items:center"><b>#2840</b><span>Lekki → Yaba 📦</span><span>Tunde K.</span><span class="chip" style="color:var(--em);background:var(--ti);justify-self:start">In transit</span><b>₦840</b><span style="color:var(--mu)">11 min left</span></div>
+          <div style="display:grid;grid-template-columns:90px 1fr 1fr 110px 90px 110px;gap:10px;padding:13px 18px;border-bottom:1px solid #EFECE3;font-size:12.5px;align-items:center"><b>#2839</b><span>NNPC depot → Surulere 🔥</span><span style="color:#B4231F;font-weight:600">Unassigned</span><span class="chip" style="color:#8A6A1B;background:#FFF3D6;justify-self:start">Waiting</span><b>₦12,340</b><span style="color:#B4231F">7 min waiting</span></div>
+          <div style="display:grid;grid-template-columns:90px 1fr 1fr 110px 90px 110px;gap:10px;padding:13px 18px;font-size:12.5px;align-items:center"><b>#2838</b><span>Kilimanjaro → Lekki 🍛</span><span>Ada N.</span><span class="chip" style="color:var(--mu);background:#EFECE3;justify-self:start">Delivered</span><b>₦4,150</b><span style="color:var(--mu)">16:44 ✓</span></div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- RIDERS -->
+    <sc-if value="{{ isRid }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:30px 34px;display:flex;flex-direction:column;gap:16px">
+        <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:26px;letter-spacing:-.6px">Rider applications</span>
+        <sc-for list="{{ riderApps }}" as="a" hint-placeholder-count="2">
+          <div class="card" style="padding:16px 18px;display:flex;align-items:center;gap:14px">
+            <span style="width:44px;height:44px;border-radius:50%;background:var(--em);display:flex;align-items:center;justify-content:center;color:var(--li);font-family:'Space Grotesk',sans-serif;font-weight:700">{{ a.init }}</span>
+            <span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font-size:13.5px;font-weight:600">{{ a.name }}</span><span style="font-size:11px;color:var(--mu)">{{ a.meta }}</span></span>
+            <span style="display:flex;gap:6px;flex-wrap:wrap;max-width:320px">
+              <sc-for list="{{ a.checks }}" as="c" hint-placeholder-count="3"><span class="chip" style="color:{{ c.co }};background:{{ c.bg }}">{{ c.label }}</span></sc-for>
+            </span>
+            <sc-if value="{{ a.pending }}" hint-placeholder-val="{{ true }}"><span style="display:flex;gap:8px"><span class="btn p" onClick="{{ a.approve }}">Approve</span><span class="btn d" onClick="{{ a.reject }}">Reject</span></span></sc-if>
+            <sc-if value="{{ a.decided }}" hint-placeholder-val="{{ false }}"><span class="chip" style="color:{{ a.decC }};background:{{ a.decB }}">{{ a.decision }}</span></sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <!-- PARTNERS -->
+    <sc-if value="{{ isMer }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:30px 34px;display:flex;flex-direction:column;gap:16px">
+        <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:26px;letter-spacing:-.6px">Partner applications</span>
+        <span style="font-size:13px;color:var(--mu);max-width:60ch">Pharmacies require PCN premises + superintendent licences and a background check before approval. Kitchens and gas vendors require food-safety / DPR certificates respectively.</span>
+        <sc-for list="{{ merchApps }}" as="m" hint-placeholder-count="2">
+          <div class="card" style="padding:16px 18px;display:flex;align-items:center;gap:14px">
+            <span style="font-size:22px">{{ m.emoji }}</span>
+            <span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font-size:13.5px;font-weight:600">{{ m.name }}</span><span style="font-size:11px;color:var(--mu)">{{ m.meta }}</span></span>
+            <span style="display:flex;gap:6px;flex-wrap:wrap;max-width:340px">
+              <sc-for list="{{ m.checks }}" as="c" hint-placeholder-count="3"><span class="chip" style="color:{{ c.co }};background:{{ c.bg }}">{{ c.label }}</span></sc-for>
+            </span>
+            <sc-if value="{{ m.pending }}" hint-placeholder-val="{{ true }}"><span style="display:flex;gap:8px"><span class="btn p" onClick="{{ m.approve }}">Approve</span><span class="btn o">Request docs</span></span></sc-if>
+            <sc-if value="{{ m.decided }}" hint-placeholder-val="{{ false }}"><span class="chip" style="color:var(--em);background:var(--ti)">✓ Approved — live</span></sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <!-- ANALYTICS -->
+    <sc-if value="{{ isAna }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:30px 34px;display:flex;flex-direction:column;gap:16px">
+        <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:26px;letter-spacing:-.6px">Network analytics — this week</span>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px">
+          <div style="background:var(--em);border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:3px"><span style="font-size:10.5px;font-weight:600;color:rgba(247,245,239,.6)">GMV</span><span style="font-family:'Space Grotesk',sans-serif;font-size:26px;font-weight:700;color:var(--li)">₦18.4M</span><span style="font-size:11px;color:rgba(247,245,239,.6)">▲ 22% wk/wk</span></div>
+          <div class="card" style="padding:18px;display:flex;flex-direction:column;gap:3px"><span class="th">DELIVERIES</span><span style="font-family:'Space Grotesk',sans-serif;font-size:26px;font-weight:700">2,847</span><span style="font-size:11px;color:var(--em)">▲ 18%</span></div>
+          <div class="card" style="padding:18px;display:flex;flex-direction:column;gap:3px"><span class="th">ON-TIME RATE</span><span style="font-family:'Space Grotesk',sans-serif;font-size:26px;font-weight:700">96.2%</span><span style="font-size:11px;color:var(--mu)">target 95%</span></div>
+          <div class="card" style="padding:18px;display:flex;flex-direction:column;gap:3px"><span class="th">RX APPROVAL TIME</span><span style="font-family:'Space Grotesk',sans-serif;font-size:26px;font-weight:700">3.1 min</span><span style="font-size:11px;color:var(--mu)">median</span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:14px">
+          <div class="card" style="padding:18px;display:flex;flex-direction:column;gap:12px">
+            <span class="th">DELIVERIES BY VERTICAL</span>
+            <div style="display:flex;flex-direction:column;gap:9px">
+              <span style="display:flex;align-items:center;gap:10px;font-size:12.5px"><span style="width:86px">📦 Package</span><span style="flex:1;height:10px;border-radius:5px;background:#EFECE3;position:relative"><span style="position:absolute;inset:0;width:72%;border-radius:5px;background:var(--em)"></span></span><b>1,398</b></span>
+              <span style="display:flex;align-items:center;gap:10px;font-size:12.5px"><span style="width:86px">🔥 Gas</span><span style="flex:1;height:10px;border-radius:5px;background:#EFECE3;position:relative"><span style="position:absolute;inset:0;width:38%;border-radius:5px;background:var(--em)"></span></span><b>612</b></span>
+              <span style="display:flex;align-items:center;gap:10px;font-size:12.5px"><span style="width:86px">🍛 Food</span><span style="flex:1;height:10px;border-radius:5px;background:#EFECE3;position:relative"><span style="position:absolute;inset:0;width:31%;border-radius:5px;background:var(--em)"></span></span><b>509</b></span>
+              <span style="display:flex;align-items:center;gap:10px;font-size:12.5px"><span style="width:86px">💊 Medicine</span><span style="flex:1;height:10px;border-radius:5px;background:#EFECE3;position:relative"><span style="position:absolute;inset:0;width:20%;border-radius:5px;background:var(--li)"></span></span><b>328</b></span>
+            </div>
+          </div>
+          <div class="card" style="padding:18px;display:flex;flex-direction:column;gap:10px">
+            <span class="th">WATCHLIST</span>
+            <span style="display:flex;justify-content:space-between;font-size:12.5px"><span>Surulere zone — rider shortage 5–7pm</span><b style="color:#8A6A1B">⚠</b></span>
+            <span style="display:flex;justify-content:space-between;font-size:12.5px"><span>Rx rejections up 2% (fake scripts)</span><b style="color:#8A6A1B">⚠</b></span>
+            <span style="display:flex;justify-content:space-between;font-size:12.5px"><span>Gas cylinder returns on time</span><b style="color:var(--em)">✓</b></span>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;1360px&quot;,&quot;height&quot;:&quot;860px&quot;}}">
+class Component extends DCLogic {
+  state = { tab:'disp', q1:'', q2:'', riderDec:{}, merchDec:{} };
+
+  save(p){ this.setState(p, ()=>localStorage.setItem('sp-admin', JSON.stringify(this.state))); }
+  componentDidMount(){ const s=localStorage.getItem('sp-admin'); if(s){try{this.setState(JSON.parse(s))}catch(e){}} }
+
+  renderVals() {
+    const s = this.state;
+    const on = t => s.tab===t ? 'on' : '';
+    const ok = l => ({label:'✓ '+l, co:'#0A3D2C', bg:'#E9F3D8'});
+    const warn = l => ({label:l, co:'#8A6A1B', bg:'#FFF3D6'});
+    const queue = [
+      { id:'q1', title:'Gas 25kg → Surulere', wait:'waiting 7 min', route:'NNPC depot → 14 Adeniran Ogunsanya · needs tricycle/van',
+        riders:[{init:'TK', name:'Tunde K.', meta:'Tricycle · 1.8 km · gas-trained ✓'},{init:'SO', name:'Sola O.', meta:'Van · 3.2 km · gas-trained ✓'}] },
+      { id:'q2', title:'Medicine (Rx) → Ikoyi', wait:'waiting 4 min', route:'HealthPlus Lekki → Bourdillon Rd · sealed pack',
+        riders:[{init:'AN', name:'Ada N.', meta:'Bike · 0.9 km · medicine-trained ✓'},{init:'EJ', name:'Emeka J.', meta:'Bike · 2.4 km · medicine-trained ✓'}] },
+    ].map(q => ({ ...q,
+      open: !s[q.id], assigned: !!s[q.id], assignedTo: s[q.id],
+      riders: q.riders.map(r => ({...r, assign: ()=>this.save({[q.id]: r.name}) })),
+    }));
+    const unassigned = queue.filter(q=>q.open).length;
+    const riderApps = [
+      { id:'r1', init:'IB', name:'Ibrahim B.', meta:'Bike · Yaba · applied 2 days ago', checks:[ok('Licence'), ok('Background'), warn('Gas training pending')] },
+      { id:'r2', init:'FA', name:'Fatima A.', meta:'Tricycle · Surulere · applied today', checks:[ok('Licence'), warn('Background running'), warn('Not started')] },
+    ].map(a => { const d = s.riderDec[a.id]; return {...a,
+      pending: !d, decided: !!d, decision: d==='ok'?'✓ Approved':'Rejected',
+      decC: d==='ok'?'#0A3D2C':'#B4231F', decB: d==='ok'?'#E9F3D8':'#FBEFEE',
+      approve: ()=>this.save({riderDec:{...s.riderDec,[a.id]:'ok'}}),
+      reject: ()=>this.save({riderDec:{...s.riderDec,[a.id]:'no'}}) }; });
+    const merchApps = [
+      { id:'m1', emoji:'💊', name:'MedPoint Pharmacy — Ikeja', meta:'Pharmacy · applied 1 day ago', checks:[ok('PCN premises'), ok('Superintendent'), ok('Background')] },
+      { id:'m2', emoji:'🍛', name:'Mama Ronke Kitchen — Yaba', meta:'Food · applied 3 days ago', checks:[ok('Food safety cert'), warn('Kitchen inspection 15 Jul')] },
+      { id:'m3', emoji:'🔥', name:'GasDirect — Surulere', meta:'LPG vendor · applied today', checks:[warn('DPR licence uploaded — verifying'), warn('Background running')] },
+    ].map(m => { const d = s.merchDec[m.id]; return {...m,
+      pending: !d, decided: !!d,
+      approve: ()=>this.save({merchDec:{...s.merchDec,[m.id]:'ok'}}) }; });
+    return {
+      isDisp:s.tab==='disp', isOrd:s.tab==='ord', isRid:s.tab==='rid', isMer:s.tab==='mer', isAna:s.tab==='ana',
+      nDisp:on('disp'), nOrd:on('ord'), nRid:on('rid'), nMer:on('mer'), nAna:on('ana'),
+      goDisp:()=>this.save({tab:'disp'}), goOrd:()=>this.save({tab:'ord'}), goRid:()=>this.save({tab:'rid'}),
+      goMer:()=>this.save({tab:'mer'}), goAna:()=>this.save({tab:'ana'}),
+      unassigned, ridApps: riderApps.filter(a=>a.pending).length, merApps: merchApps.filter(m=>m.pending).length,
+      queue, riderApps, merchApps,
+    };
+  }
+}
+</script>
+</body>
+</html>
