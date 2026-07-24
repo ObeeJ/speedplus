@@ -42,6 +42,8 @@ export function createApiClient(baseURL: string): AxiosInstance {
   return client;
 }
 
+const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
+
 export const apiClient = createApiClient(
-  process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:8000/api/v1',
+  env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:8000/api/v1',
 );

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+:root{--em:#0A3D2C;--li:#C6F24E;--lip:#AEE032;--sa:#F7F5EF;--pa:#FFFFFF;--ink:#121216;--mu:#63636E;--ln:#E4E0D6;--am:#E8B14E;--ti:#E9F3D8}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:var(--sa);color:var(--ink);font-family:'Instrument Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--em)}a:hover{color:#072D20}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.6);opacity:.5}}
+.nav{display:flex;align-items:center;gap:11px;padding:11px 16px;border-radius:12px;font-size:13.5px;font-weight:500;color:rgba(247,245,239,.72);cursor:pointer}
+.nav:hover{background:rgba(247,245,239,.08);color:var(--sa)}
+.nav.on{background:rgba(198,242,78,.14);color:var(--li);font-weight:600}
+.card{background:var(--pa);border:1px solid var(--ln);border-radius:16px}
+.chip{font-size:11px;font-weight:700;border-radius:999px;padding:4px 11px}
+.btn{font-family:'Space Grotesk',sans-serif;font-size:12.5px;font-weight:600;border-radius:10px;padding:9px 16px;cursor:pointer;text-align:center}
+.btn.p{color:var(--em);background:var(--li)}.btn.p:hover{background:var(--lip)}
+.btn.o{color:var(--em);border:1.5px solid var(--em)}.btn.o:hover{background:rgba(10,61,44,.07)}
+.btn.d{color:#B4231F;border:1.5px solid #E5B5B3}.btn.d:hover{background:#FBEFEE}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex" data-screen-label="Merchant portal">
+
+  <!-- SIDEBAR -->
+  <div style="width:240px;flex:none;background:var(--em);padding:24px 16px;display:flex;flex-direction:column;gap:24px;min-height:100vh">
+    <div style="padding:0 8px;display:flex;flex-direction:column;gap:3px">
+      <span style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:20px;color:var(--sa);letter-spacing:-.4px">speed<span style="color:var(--li)">+</span> <span style="font-weight:500;font-size:11px;color:rgba(247,245,239,.55)">PARTNER</span></span>
+      <span style="font-size:11px;color:rgba(247,245,239,.55)">HealthPlus Pharmacy · Lekki</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:3px">
+      <span class="nav {{ nDash }}" onClick="{{ goDash }}">▦ Dashboard</span>
+      <span class="nav {{ nOrders }}" onClick="{{ goOrders }}">🛒 Orders <span style="margin-left:auto;font-size:10.5px;font-weight:700;color:var(--em);background:var(--li);border-radius:999px;padding:1px 8px">{{ newCount }}</span></span>
+      <span class="nav {{ nRx }}" onClick="{{ goRx }}">💊 Prescriptions <span style="margin-left:auto;font-size:10.5px;font-weight:700;color:#3B2E10;background:var(--am);border-radius:999px;padding:1px 8px">{{ rxCount }}</span></span>
+      <span class="nav {{ nProd }}" onClick="{{ goProd }}">📋 Products</span>
+      <span class="nav {{ nEarn }}" onClick="{{ goEarn }}">₦ Earnings</span>
+      <span class="nav {{ nSet }}" onClick="{{ goSet }}">⚙ Verification</span>
+    </div>
+    <div style="margin-top:auto;display:flex;align-items:center;gap:10px;background:rgba(247,245,239,.06);border-radius:13px;padding:11px">
+      <span style="width:36px;height:36px;border-radius:50%;background:var(--li);display:flex;align-items:center;justify-content:center;color:var(--em);font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px">A</span>
+      <span style="display:flex;flex-direction:column"><span style="font-size:12.5px;font-weight:600;color:var(--sa)">Adaeze O.</span><span style="font-size:10px;color:rgba(247,245,239,.55)">Pharmacist · PCN verified ✓</span></span>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div style="flex:1;padding:30px 34px;display:flex;flex-direction:column;gap:18px;min-width:0">
+
+    <!-- DASHBOARD -->
+    <sc-if value="{{ isDash }}" hint-placeholder-val="{{ true }}">
+      <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:26px;letter-spacing:-.6px">Good evening, HealthPlus</span>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px">
+        <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:3px"><span style="font-size:10.5px;font-weight:600;color:var(--mu);letter-spacing:.5px">TODAY'S SALES</span><span style="font-family:'Space Grotesk',sans-serif;font-size:24px;font-weight:700;color:var(--em)">₦86,400</span><span style="font-size:11px;color:var(--em)">▲ 12% vs yesterday</span></div>
+        <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:3px"><span style="font-size:10.5px;font-weight:600;color:var(--mu);letter-spacing:.5px">ORDERS</span><span style="font-family:'Space Grotesk',sans-serif;font-size:24px;font-weight:700">31</span><span style="font-size:11px;color:var(--mu)">{{ newCount }} need action</span></div>
+        <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:3px"><span style="font-size:10.5px;font-weight:600;color:var(--mu);letter-spacing:.5px">RX QUEUE</span><span style="font-family:'Space Grotesk',sans-serif;font-size:24px;font-weight:700;color:#8A6A1B">{{ rxCount }}</span><span style="font-size:11px;color:var(--mu)">avg review 3 min</span></div>
+        <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:3px"><span style="font-size:10.5px;font-weight:600;color:var(--mu);letter-spacing:.5px">RATING</span><span style="font-family:'Space Grotesk',sans-serif;font-size:24px;font-weight:700">★ 4.8</span><span style="font-size:11px;color:var(--mu)">last 30 days</span></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:14px">
+        <div class="card" style="padding:18px;display:flex;flex-direction:column;gap:12px">
+          <span style="font-size:11px;font-weight:600;color:var(--mu);letter-spacing:.6px">NEEDS YOUR ACTION NOW</span>
+          <div style="display:flex;align-items:center;gap:11px;padding:11px 13px;background:#FFF7E6;border:1px solid #F0DFB4;border-radius:12px"><span style="width:7px;height:7px;border-radius:50%;background:var(--am);animation:pulse 1.5s infinite"></span><span style="flex:1;font-size:12.5px;font-weight:600">Prescription from Ken A. — waiting {{ rxWait }}</span><span class="btn p" onClick="{{ goRx }}" style="padding:7px 13px">Review</span></div>
+          <div style="display:flex;align-items:center;gap:11px;padding:11px 13px;background:var(--ti);border-radius:12px"><span style="width:7px;height:7px;border-radius:50%;background:var(--em)"></span><span style="flex:1;font-size:12.5px;font-weight:600">2 new orders to confirm</span><span class="btn o" onClick="{{ goOrders }}" style="padding:7px 13px">Open</span></div>
+        </div>
+        <div class="card" style="padding:18px;display:flex;flex-direction:column;gap:10px">
+          <span style="font-size:11px;font-weight:600;color:var(--mu);letter-spacing:.6px">LOW STOCK</span>
+          <span style="display:flex;justify-content:space-between;font-size:12.5px"><span>Paracetamol 500mg</span><b style="color:#B4231F">4 left</b></span>
+          <span style="display:flex;justify-content:space-between;font-size:12.5px"><span>Malaria kits (ACT)</span><b style="color:#8A6A1B">9 left</b></span>
+          <span style="display:flex;justify-content:space-between;font-size:12.5px"><span>Vitamin C 1000mg</span><b style="color:#8A6A1B">11 left</b></span>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ORDERS -->
+    <sc-if value="{{ isOrders }}" hint-placeholder-val="{{ false }}">
+      <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:26px;letter-spacing:-.6px">Orders</span>
+      <sc-for list="{{ orders }}" as="o" hint-placeholder-count="4">
+        <div class="card" style="padding:15px 18px;display:flex;align-items:center;gap:14px">
+          <span style="width:8px;height:8px;flex:none;border-radius:50%;background:{{ o.dot }}"></span>
+          <span style="flex:1;display:flex;flex-direction:column;min-width:0"><span style="font-size:13.5px;font-weight:600">{{ o.title }}</span><span style="font-size:11px;color:var(--mu)">{{ o.sub }}</span></span>
+          <span class="chip" style="color:{{ o.chipC }};background:{{ o.chipB }}">{{ o.status }}</span>
+          <b style="font-family:'Space Grotesk',sans-serif;font-size:15px;color:var(--em);width:78px;text-align:right">₦{{ o.total }}</b>
+          <sc-if value="{{ o.actionable }}" hint-placeholder-val="{{ false }}"><span class="btn p" onClick="{{ o.act }}" style="width:150px">{{ o.actLabel }}</span></sc-if>
+          <sc-if value="{{ o.done }}" hint-placeholder-val="{{ true }}"><span style="width:150px;text-align:center;font-size:11.5px;color:#9A968D">{{ o.doneLabel }}</span></sc-if>
+        </div>
+      </sc-for>
+    </sc-if>
+
+    <!-- RX QUEUE -->
+    <sc-if value="{{ isRx }}" hint-placeholder-val="{{ false }}">
+      <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:26px;letter-spacing:-.6px">Prescription review</span>
+      <div style="display:grid;grid-template-columns:1fr 1.1fr;gap:16px">
+        <div class="card" style="padding:0;overflow:hidden">
+          <div style="height:280px;background:repeating-linear-gradient(0deg,#EFEDE6,#EFEDE6 26px,#E7E4DB 27px);display:flex;align-items:center;justify-content:center;position:relative">
+            <span style="font-size:12px;color:#9A968D;background:var(--pa);border:1px solid var(--ln);border-radius:9px;padding:8px 14px">📄 Rx photo — Dr. T. Balogun, Reddington Hospital</span>
+          </div>
+          <div style="padding:13px 16px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--ln)">
+            <span style="font-size:12px;color:var(--mu)">Uploaded by <b style="color:var(--ink)">Ken A.</b> · {{ rxWait }} ago</span>
+            <span style="font-size:11.5px;color:var(--em);font-weight:600;cursor:pointer">Zoom ⤢</span>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <sc-if value="{{ rxPending }}" hint-placeholder-val="{{ true }}">
+            <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:10px">
+              <span style="font-size:11px;font-weight:600;color:var(--mu);letter-spacing:.6px">WHAT THE DOCTOR PRESCRIBED</span>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--sa);border-radius:10px"><span style="font-size:13px;font-weight:600">Amoxicillin 500mg</span><span style="font-size:12px;color:var(--mu)">14 capsules · 2× daily</span><b style="font-size:13px;color:var(--em)">₦3,200</b></div>
+              <span style="font-size:11.5px;color:var(--mu)">In stock ✓ · No interaction flags · Dosage within adult range</span>
+            </div>
+            <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:10px">
+              <span style="font-size:11px;font-weight:600;color:var(--mu);letter-spacing:.6px">YOUR DECISION — LOGGED UNDER YOUR PCN LICENCE</span>
+              <div style="display:flex;gap:10px">
+                <span class="btn p" onClick="{{ approveRx }}" style="flex:2;padding:13px 0">✓ Approve &amp; prepare — ₦3,200</span>
+                <span class="btn d" onClick="{{ rejectRx }}" style="flex:1;padding:13px 0">Reject…</span>
+              </div>
+              <span style="font-size:11px;color:#9A968D">Need to talk to the patient first? <a href="#" style="font-weight:600">Start a live consult</a></span>
+            </div>
+          </sc-if>
+          <sc-if value="{{ rxDone }}" hint-placeholder-val="{{ false }}">
+            <div class="card" style="padding:18px;display:flex;flex-direction:column;gap:8px;background:var(--ti);border-color:#C9E0A8">
+              <span style="font-size:15px;font-weight:700;color:var(--em)">{{ rxOutcome }}</span>
+              <span style="font-size:12px;color:var(--mu)">{{ rxOutcomeSub }}</span>
+              <span class="btn o" onClick="{{ resetRx }}" style="align-self:flex-start;margin-top:4px">Next in queue ({{ rxCount }})</span>
+            </div>
+          </sc-if>
+          <div class="card" style="padding:14px 16px;display:flex;flex-direction:column;gap:8px">
+            <span style="font-size:11px;font-weight:600;color:var(--mu);letter-spacing:.6px">UP NEXT</span>
+            <span style="display:flex;justify-content:space-between;font-size:12.5px"><span>Metformin 850mg — Bisi O.</span><span style="color:#9A968D">2 min</span></span>
+            <span style="display:flex;justify-content:space-between;font-size:12.5px"><span>Ventolin inhaler — Chuka E.</span><span style="color:#9A968D">6 min</span></span>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- PRODUCTS -->
+    <sc-if value="{{ isProd }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:26px;letter-spacing:-.6px">Products</span>
+        <span class="btn p">+ Add product</span>
+      </div>
+      <sc-for list="{{ products }}" as="p" hint-placeholder-count="4">
+        <div class="card" style="padding:13px 18px;display:flex;align-items:center;gap:14px">
+          <span style="font-size:18px">{{ p.emoji }}</span>
+          <span style="flex:1;display:flex;flex-direction:column"><span style="font-size:13px;font-weight:600">{{ p.name }}</span><span style="font-size:11px;color:var(--mu)">{{ p.cat }}</span></span>
+          <span style="font-size:12px;color:{{ p.stockC }};width:70px">{{ p.stock }}</span>
+          <b style="font-family:'Space Grotesk',sans-serif;font-size:14px;width:80px;text-align:right">₦{{ p.price }}</b>
+          <span onClick="{{ p.toggle }}" style="width:44px;height:24px;flex:none;border-radius:999px;background:{{ p.swBg }};position:relative;cursor:pointer;transition:background .15s"><span style="position:absolute;top:3px;left:{{ p.swL }};width:18px;height:18px;border-radius:50%;background:#fff;transition:left .15s;box-shadow:0 1px 3px rgba(0,0,0,.2)"></span></span>
+        </div>
+      </sc-for>
+    </sc-if>
+
+    <!-- EARNINGS -->
+    <sc-if value="{{ isEarn }}" hint-placeholder-val="{{ false }}">
+      <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:26px;letter-spacing:-.6px">Earnings</span>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+        <div style="background:var(--em);border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:3px"><span style="font-size:10.5px;font-weight:600;color:rgba(247,245,239,.6);letter-spacing:.5px">THIS WEEK</span><span style="font-family:'Space Grotesk',sans-serif;font-size:28px;font-weight:700;color:var(--li)">₦512,300</span><span style="font-size:11px;color:rgba(247,245,239,.6)">168 orders</span></div>
+        <div class="card" style="padding:18px;display:flex;flex-direction:column;gap:3px"><span style="font-size:10.5px;font-weight:600;color:var(--mu);letter-spacing:.5px">PENDING PAYOUT</span><span style="font-family:'Space Grotesk',sans-serif;font-size:28px;font-weight:700">₦86,400</span><span style="font-size:11px;color:var(--mu)">pays out tonight, 11pm</span></div>
+        <div class="card" style="padding:18px;display:flex;flex-direction:column;gap:3px"><span style="font-size:10.5px;font-weight:600;color:var(--mu);letter-spacing:.5px">SPEEDPLUS FEE</span><span style="font-family:'Space Grotesk',sans-serif;font-size:28px;font-weight:700">8%</span><span style="font-size:11px;color:var(--mu)">flat, no hidden charges</span></div>
+      </div>
+      <div class="card" style="overflow:hidden">
+        <div style="display:flex;justify-content:space-between;padding:13px 18px;border-bottom:1px solid #EFECE3;font-size:11px;font-weight:600;color:var(--mu);letter-spacing:.5px"><span>PAYOUT</span><span>AMOUNT</span></div>
+        <div style="display:flex;justify-content:space-between;padding:13px 18px;border-bottom:1px solid #EFECE3;font-size:13px"><span>Thu 9 Jul · GTBank ••4821</span><b style="color:var(--em)">₦94,150 ✓</b></div>
+        <div style="display:flex;justify-content:space-between;padding:13px 18px;border-bottom:1px solid #EFECE3;font-size:13px"><span>Wed 8 Jul · GTBank ••4821</span><b style="color:var(--em)">₦71,900 ✓</b></div>
+        <div style="display:flex;justify-content:space-between;padding:13px 18px;font-size:13px"><span>Tue 7 Jul · GTBank ••4821</span><b style="color:var(--em)">₦88,220 ✓</b></div>
+      </div>
+    </sc-if>
+
+    <!-- VERIFICATION -->
+    <sc-if value="{{ isSet }}" hint-placeholder-val="{{ false }}">
+      <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:26px;letter-spacing:-.6px">Verification &amp; onboarding</span>
+      <span style="font-size:13px;color:var(--mu);max-width:56ch">Pharmacies must pass all checks before selling on SpeedPlus. Your customers see the badges — trust is the product.</span>
+      <div class="card" style="overflow:hidden;max-width:760px">
+        <div style="display:flex;align-items:center;gap:13px;padding:15px 18px;border-bottom:1px solid #EFECE3"><span style="font-size:17px">🏥</span><span style="flex:1;display:flex;flex-direction:column"><span style="font-size:13.5px;font-weight:600">Premises licence (PCN)</span><span style="font-size:11px;color:var(--mu)">HealthPlus Lekki · exp. Mar 2027</span></span><span class="chip" style="color:var(--em);background:var(--ti)">✓ Verified</span></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:15px 18px;border-bottom:1px solid #EFECE3"><span style="font-size:17px">👩🏾‍⚕️</span><span style="flex:1;display:flex;flex-direction:column"><span style="font-size:13.5px;font-weight:600">Superintendent pharmacist licence</span><span style="font-size:11px;color:var(--mu)">Adaeze O. · PCN #A-48812 · annual renewal</span></span><span class="chip" style="color:var(--em);background:var(--ti)">✓ Verified</span></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:15px 18px;border-bottom:1px solid #EFECE3"><span style="font-size:17px">🔎</span><span style="flex:1;display:flex;flex-direction:column"><span style="font-size:13.5px;font-weight:600">Background check</span><span style="font-size:11px;color:var(--mu)">Directors + superintendent · renewed yearly</span></span><span class="chip" style="color:var(--em);background:var(--ti)">✓ Passed</span></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:15px 18px;border-bottom:1px solid #EFECE3"><span style="font-size:17px">🧊</span><span style="flex:1;display:flex;flex-direction:column"><span style="font-size:13.5px;font-weight:600">Cold-chain capability</span><span style="font-size:11px;color:var(--mu)">Needed to sell insulin &amp; vaccines</span></span><span class="chip" style="color:#8A6A1B;background:#FFF3D6">Inspection booked — 18 Jul</span></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:15px 18px"><span style="font-size:17px">🎥</span><span style="flex:1;display:flex;flex-direction:column"><span style="font-size:13.5px;font-weight:600">Live consult setup</span><span style="font-size:11px;color:var(--mu)">Video consults — pharmacist can prescribe after live diagnosis</span></span><span class="btn o" style="padding:7px 14px">Set up</span></div>
+      </div>
+    </sc-if>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;1280px&quot;,&quot;height&quot;:&quot;820px&quot;}}">
+class Component extends DCLogic {
+  state = { tab: 'dash', rxState: 'pending', orderStates: {o1:'new', o2:'new', o3:'preparing', o4:'done'}, prodOff: {} };
+
+  save(p){ this.setState(p, ()=>localStorage.setItem('sp-merchant', JSON.stringify(this.state))); }
+  componentDidMount(){ const s=localStorage.getItem('sp-merchant'); if(s){try{this.setState(JSON.parse(s))}catch(e){}} }
+
+  renderVals() {
+    const s = this.state;
+    const on = t => s.tab===t ? 'on' : '';
+    const os = s.orderStates;
+    const orderDefs = [
+      { id:'o1', title:'Ken A. — Amoxicillin 500mg ×14 (Rx approved)', sub:'#2841 · rider assigns after you confirm', total:'3,200' },
+      { id:'o2', title:'Bisi O. — Malaria kit + Paracetamol', sub:'#2842 · OTC · pay on delivery', total:'5,300' },
+      { id:'o3', title:'Chuka E. — First aid pack ×2', sub:'#2839 · rider Musa arrives ~6 min', total:'6,000' },
+      { id:'o4', title:'Tola F. — Vitamin C 1000mg', sub:'#2833 · delivered 16:02 ✓', total:'2,100' },
+    ];
+    const stMap = {
+      new:       { status:'NEW', chipC:'#0A3D2C', chipB:'#C6F24E', dot:'#C6F24E', actLabel:'Confirm & prepare', next:'preparing' },
+      preparing: { status:'PREPARING', chipC:'#8A6A1B', chipB:'#FFF3D6', dot:'#E8B14E', actLabel:'Mark ready for rider', next:'ready' },
+      ready:     { status:'AWAITING RIDER', chipC:'#0A3D2C', chipB:'#E9F3D8', dot:'#0A3D2C', actLabel:null, doneLabel:'Rider on the way' },
+      done:      { status:'DELIVERED', chipC:'#63636E', chipB:'#EFECE3', dot:'#BDBAB2', actLabel:null, doneLabel:'Completed' },
+    };
+    const orders = orderDefs.map(o => {
+      const m = stMap[os[o.id]];
+      return { ...o, status:m.status, chipC:m.chipC, chipB:m.chipB, dot:m.dot,
+        actionable: !!m.actLabel, done: !m.actLabel, actLabel: m.actLabel||'', doneLabel: m.doneLabel||'',
+        act: ()=>this.save({orderStates: {...os, [o.id]: m.next}}) };
+    });
+    const newCount = Object.values(os).filter(v=>v==='new').length;
+    const prodDefs = [
+      { id:'p1', emoji:'💊', name:'Paracetamol 500mg ×24', cat:'Pain & fever · OTC', stockN:4, price:'800' },
+      { id:'p2', emoji:'🦟', name:'Malaria kit (test + ACT)', cat:'Anti-malarial · OTC', stockN:9, price:'4,500' },
+      { id:'p3', emoji:'🩹', name:'First aid pack', cat:'First aid · OTC', stockN:26, price:'3,000' },
+      { id:'p4', emoji:'💉', name:'Amoxicillin 500mg ×14', cat:'Antibiotic · Rx only', stockN:41, price:'3,200' },
+    ];
+    const products = prodDefs.map(p => {
+      const off = !!s.prodOff[p.id];
+      return { ...p, stock: p.stockN+' in stock', stockC: p.stockN<5?'#B4231F':(p.stockN<12?'#8A6A1B':'#63636E'),
+        swBg: off?'#D5D2C8':'#0A3D2C', swL: off?'3px':'23px',
+        toggle: ()=>this.save({prodOff:{...s.prodOff,[p.id]:!off}}) };
+    });
+    return {
+      isDash:s.tab==='dash', isOrders:s.tab==='orders', isRx:s.tab==='rx', isProd:s.tab==='prod', isEarn:s.tab==='earn', isSet:s.tab==='set',
+      nDash:on('dash'), nOrders:on('orders'), nRx:on('rx'), nProd:on('prod'), nEarn:on('earn'), nSet:on('set'),
+      goDash:()=>this.save({tab:'dash'}), goOrders:()=>this.save({tab:'orders'}), goRx:()=>this.save({tab:'rx'}),
+      goProd:()=>this.save({tab:'prod'}), goEarn:()=>this.save({tab:'earn'}), goSet:()=>this.save({tab:'set'}),
+      newCount, rxCount: s.rxState==='pending' ? 3 : 2, rxWait: '2 min',
+      orders, products,
+      rxPending: s.rxState==='pending', rxDone: s.rxState!=='pending',
+      rxOutcome: s.rxState==='approved' ? '✓ Approved — order created for Ken A.' : 'Rejected — customer notified kindly',
+      rxOutcomeSub: s.rxState==='approved' ? 'Logged under PCN #A-48812. Prepare and seal it — a rider is being matched.' : '“We couldn\u2019t verify this prescription. Please ask your doctor to re-issue it.”',
+      approveRx: ()=>this.save({rxState:'approved'}),
+      rejectRx: ()=>this.save({rxState:'rejected'}),
+      resetRx: ()=>this.save({rxState:'pending'}),
+    };
+  }
+}
+</script>
+</body>
+</html>
