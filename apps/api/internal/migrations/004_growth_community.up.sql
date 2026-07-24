@@ -29,7 +29,9 @@ CREATE TABLE loyalty_events (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX idx_loyalty_events_user ON loyalty_events(user_id);
-CREATE INDEX idx_loyalty_events_user_day ON loyalty_events(user_id, DATE(created_at));
+-- DATE(timestamptz) is STABLE (session-tz dependent) and cannot be indexed (42P17).
+-- (created_at AT TIME ZONE 'UTC')::date is IMMUTABLE — deterministic UTC day bucket.
+CREATE INDEX idx_loyalty_events_user_day ON loyalty_events(user_id, ((created_at AT TIME ZONE 'UTC')::date));
 
 CREATE TABLE loyalty_balances (
     user_id     UUID PRIMARY KEY REFERENCES users(id),

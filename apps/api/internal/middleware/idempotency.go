@@ -56,7 +56,11 @@ func Idempotency(rdb *redis.Client, ttl time.Duration) gin.HandlerFunc {
 		sum := sha256.Sum256(body)
 		fingerprint := hex.EncodeToString(sum[:])
 
-		redisKey := "idem:" + key
+		// Scope the key to the authenticated user so two users sharing an
+		// Idempotency-Key value can't collide (cross-user cached response leak).
+		// All idempotency-protected routes sit behind Auth, so CtxUserID is set.
+		userID := c.GetString(CtxUserID)
+		redisKey := "idem:" + userID + ":" + key
 		ctx := context.Background()
 
 		claimed, err := rdb.SetNX(ctx, redisKey, idemProcessingSentinel, idemProcessingWaitTTL).Result()
