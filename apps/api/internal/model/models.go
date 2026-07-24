@@ -36,21 +36,22 @@ type Product struct {
 }
 
 type PricingQuote struct {
-	ID            uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	CustomerID    uuid.UUID `gorm:"type:uuid;not null"`
-	MerchantID    uuid.UUID `gorm:"type:uuid;not null"`
-	DistanceKm    float64
-	ETAMinutes    int       // driving time from OSRM + pickup buffer
-	WeightKg      float64   // package vertical only
-	SizeCategory  string    `gorm:"type:varchar(10)"` // small|medium|large
-	SubtotalKobo  int64
-	DeliveryKobo  int64
-	ServiceKobo   int64
-	TotalKobo     int64
-	QuoteHash     string    `gorm:"uniqueIndex;not null"` // HMAC of fields — tamper-proof
-	ExpiresAt     time.Time `gorm:"not null"`
-	UsedAt        *time.Time
-	CreatedAt     time.Time
+	ID              uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	CustomerID      uuid.UUID `gorm:"type:uuid;not null"`
+	MerchantID      uuid.UUID `gorm:"type:uuid;not null"`
+	DistanceKm      float64
+	ETAMinutes      int       // driving time from OSRM + pickup buffer
+	WeightKg        float64   // package vertical only
+	SizeCategory    string    `gorm:"type:varchar(10)"` // small|medium|large
+	SubtotalKobo    int64
+	DeliveryKobo    int64
+	ServiceKobo     int64
+	TotalKobo       int64
+	WeatherAdvisory string    `gorm:"type:text"` // informational only, no fee
+	QuoteHash       string    `gorm:"uniqueIndex;not null"` // HMAC of fields — tamper-proof
+	ExpiresAt       time.Time `gorm:"not null"`
+	UsedAt          *time.Time
+	CreatedAt       time.Time
 }
 
 // ── Phase 3: Orders ───────────────────────────────────────────────────────────
@@ -97,11 +98,14 @@ type Order struct {
 	TipKobo           int64       `gorm:"default:0"`
 	TotalKobo         int64
 	DeliveryAddressID uuid.UUID   `gorm:"type:uuid;not null"`
+	RecipientName     *string     `gorm:"type:text"`
+	RecipientPhone    *string     `gorm:"type:text"`
 	PrescriptionID    *uuid.UUID  `gorm:"type:uuid"`
 	ScheduledFor      *time.Time
 	EstimatedAt       *time.Time
 	DeliveredAt       *time.Time
 	CancelReason      *string
+	PaymentMethod     string      `gorm:"type:varchar(20);default:'wallet'"` // wallet|pay_on_arrival
 	IdempotencyKey    string      `gorm:"uniqueIndex;not null"`
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
@@ -137,13 +141,16 @@ type OrderEvent struct {
 }
 
 type OrderStop struct {
-	ID          uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	OrderID     uuid.UUID  `gorm:"type:uuid;not null;index"`
-	Sequence    int        `gorm:"not null"`
-	AddressID   uuid.UUID  `gorm:"type:uuid;not null"`
-	QRCode      string     `gorm:"not null"` // signed paycode
-	Status      string     `gorm:"default:'pending'"` // pending|confirmed|skipped
-	ConfirmedAt *time.Time
+	ID             uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	OrderID        uuid.UUID  `gorm:"type:uuid;not null;index"`
+	Sequence       int        `gorm:"not null"`
+	AddressID      uuid.UUID  `gorm:"type:uuid;not null"`
+	RecipientName  *string    `gorm:"type:text"`
+	RecipientPhone *string    `gorm:"type:text"`
+	Notes          *string    `gorm:"type:text"`
+	QRCode         string     `gorm:"not null"` // signed paycode per stop
+	Status         string     `gorm:"default:'pending'"` // pending|confirmed|skipped
+	ConfirmedAt    *time.Time
 }
 
 type Prescription struct {
@@ -320,6 +327,13 @@ type DeliveryCode struct {
 	ExpiresAt   time.Time  `gorm:"not null"`
 	UsedAt      *time.Time
 	CreatedAt   time.Time
+
+	// GPS evidence captured at successful confirmation. Flag-only — a far or
+	// missing location never blocks settlement, it queues the order for review.
+	ConfirmLat       *float64
+	ConfirmLng       *float64
+	ConfirmDistanceM *float64
+	LocationFlagged  bool `gorm:"not null;default:false"`
 }
 
 type DriverEarning struct {
@@ -465,11 +479,31 @@ type CancellationRule struct {
 type AdminAuditLog struct {
 	ID         uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
 	AdminID    uuid.UUID `gorm:"type:uuid;not null;index"`
-	Action     string    `gorm:"not null"` // merchant_status_change|driver_status_change|escrow_freeze|escrow_release
-	TargetType string    `gorm:"not null"` // merchant_profile|driver_profile|escrow_hold
+	Action     string    `gorm:"not null"` // merchant_status_change|driver_status_change|escrow_freeze|escrow_release|fee_config_change
+	TargetType string    `gorm:"not null"` // merchant_profile|driver_profile|escrow_hold|fee_config
 	TargetID   uuid.UUID `gorm:"type:uuid;not null"`
 	Reason     string    `gorm:"not null"`
 	CreatedAt  time.Time `gorm:"index"`
+}
+
+// FeeConfig is a versioned, append-only pricing configuration row per vertical.
+// The row with the greatest effective_at <= now is live; settlement pins to the
+// row effective at order creation. Insert-only — the DB rules no-op UPDATE/DELETE.
+type FeeConfig struct {
+	ID               uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	Vertical         string    `gorm:"not null"                                      json:"vertical"` // food|grocery|pharmacy|gas|package
+	BaseFeeKobo      int64     `gorm:"not null"                                      json:"baseFeeKobo"`
+	PerKmKobo        int64     `gorm:"not null;default:0"                            json:"perKmKobo"`
+	PerKgKobo        int64     `gorm:"not null;default:0"                            json:"perKgKobo"`
+	ServicePct       float64   `gorm:"not null"                                      json:"servicePct"`
+	MerchantTakeRate float64   `gorm:"not null"                                      json:"merchantTakeRate"`
+	DriverTakeRate   float64   `gorm:"not null"                                      json:"driverTakeRate"`
+	PlatformTakeRate float64   `gorm:"not null"                                      json:"platformTakeRate"`
+	FuelPriceRefKobo int64     `gorm:"not null;default:0"                            json:"fuelPriceRefKobo"`
+	EffectiveAt      time.Time `gorm:"not null;index"                                json:"effectiveAt"`
+	UpdatedBy        uuid.UUID `gorm:"type:uuid;not null"                            json:"updatedBy"`
+	Reason           string    `gorm:"not null;default:''"                           json:"reason"`
+	CreatedAt        time.Time `json:"createdAt"`
 }
 
 

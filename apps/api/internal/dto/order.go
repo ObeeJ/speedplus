@@ -23,16 +23,17 @@ type QuoteRequest struct {
 }
 
 type QuoteResponse struct {
-	ID           uuid.UUID `json:"id"`
-	SubtotalKobo int64     `json:"subtotalKobo"`
-	DeliveryKobo int64     `json:"deliveryKobo"`
-	ServiceKobo  int64     `json:"serviceKobo"`
-	TotalKobo    int64     `json:"totalKobo"`
-	DistanceKm   float64   `json:"distanceKm"`
-	ETAMinutes   int       `json:"etaMinutes"`
-	WeightKg     float64   `json:"weightKg,omitempty"`
-	SizeCategory string    `json:"sizeCategory,omitempty"`
-	ExpiresAt    time.Time `json:"expiresAt"`
+	ID              uuid.UUID `json:"id"`
+	SubtotalKobo    int64     `json:"subtotalKobo"`
+	DeliveryKobo    int64     `json:"deliveryKobo"`
+	ServiceKobo     int64     `json:"serviceKobo"`
+	TotalKobo       int64     `json:"totalKobo"`
+	DistanceKm      float64   `json:"distanceKm"`
+	ETAMinutes      int       `json:"etaMinutes"`
+	WeightKg        float64   `json:"weightKg,omitempty"`
+	SizeCategory    string    `json:"sizeCategory,omitempty"`
+	WeatherAdvisory string    `json:"weatherAdvisory,omitempty"` // informational only
+	ExpiresAt       time.Time `json:"expiresAt"`
 }
 
 // ── Orders ────────────────────────────────────────────────────────────────────

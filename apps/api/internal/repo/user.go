@@ -15,6 +15,7 @@ type UserRepo interface {
 	FindByPhone(ctx context.Context, phone string) (*model.User, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*model.User, error)
 	FindByUsername(ctx context.Context, username string) (*model.User, error)
+	FindByReferralCode(ctx context.Context, code string) (*model.User, error)
 	Update(ctx context.Context, u *model.User) error
 
 	CreateRefreshToken(ctx context.Context, rt *model.RefreshToken) error
@@ -67,6 +68,12 @@ func (r *userRepo) FindByID(ctx context.Context, id uuid.UUID) (*model.User, err
 func (r *userRepo) FindByUsername(ctx context.Context, username string) (*model.User, error) {
 	var u model.User
 	err := r.db.WithContext(ctx).Where("username = ? AND is_active = true", username).First(&u).Error
+	return &u, err
+}
+
+func (r *userRepo) FindByReferralCode(ctx context.Context, code string) (*model.User, error) {
+	var u model.User
+	err := r.db.WithContext(ctx).Where("referral_code = ? AND is_active = true", code).First(&u).Error
 	return &u, err
 }
 

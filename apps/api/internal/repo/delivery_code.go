@@ -25,6 +25,11 @@ type DeliveryCodeRepo interface {
 
 	// MarkUsed marks the code as used at the given time.
 	MarkUsed(ctx context.Context, tx *gorm.DB, id uuid.UUID, at time.Time) error
+
+	// RecordConfirmLocation stores the GPS evidence captured when the code was
+	// successfully entered (keyed by order — one code per order). Flag-only —
+	// never blocks settlement.
+	RecordConfirmLocation(ctx context.Context, tx *gorm.DB, orderID uuid.UUID, lat, lng, distanceM *float64, flagged bool) error
 }
 
 type deliveryCodeRepo struct{ db *gorm.DB }
@@ -55,6 +60,18 @@ func (r *deliveryCodeRepo) IncrementAttempts(ctx context.Context, tx *gorm.DB, i
 		Model(&model.DeliveryCode{}).
 		Where("id = ?", id).
 		UpdateColumn("attempts", gorm.Expr("attempts + 1")).Error
+}
+
+func (r *deliveryCodeRepo) RecordConfirmLocation(ctx context.Context, tx *gorm.DB, orderID uuid.UUID, lat, lng, distanceM *float64, flagged bool) error {
+	return tx.WithContext(ctx).
+		Model(&model.DeliveryCode{}).
+		Where("order_id = ?", orderID).
+		Updates(map[string]any{
+			"confirm_lat":        lat,
+			"confirm_lng":        lng,
+			"confirm_distance_m": distanceM,
+			"location_flagged":   flagged,
+		}).Error
 }
 
 func (r *deliveryCodeRepo) MarkUsed(ctx context.Context, tx *gorm.DB, id uuid.UUID, at time.Time) error {
