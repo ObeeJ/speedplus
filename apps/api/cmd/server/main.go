@@ -344,7 +344,12 @@ func main() {
 
 	// Admin
 	admin := authed.Group("/admin")
-	admin.Use(middleware.RequireRole("admin"))
+	// Rate-limited in addition to RequireRole: an admin token is a
+	// high-value target (escrow release, driver/merchant suspension). A
+	// compromised or leaked admin token should not be able to hammer
+	// destructive endpoints at unlimited rate — this bounds the blast
+	// radius even after auth is bypassed.
+	admin.Use(middleware.RequireRole("admin"), middleware.RateLimit(rdb, "admin", 60, time.Minute))
 	{
 		// KYC
 		admin.GET("/kyc/queue", kycH.AdminQueue)

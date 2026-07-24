@@ -85,25 +85,19 @@ func (s *SubscriptionService) ProcessDue(ctx context.Context) error {
 	return nil
 }
 
+// chargeOne is intentionally unimplemented — it does NOT debit the wallet or
+// create an order. Order creation via OrderService (pricing quote, escrow
+// fund, dispatch) is not wired yet. Returning an error here (rather than a
+// silent nil "success") is deliberate: ProcessDue's existing dunning logic
+// treats every call as a failed attempt, incrementing dunning_count and
+// auto-pausing the subscription after 3 consecutive cron cycles — so every
+// currently-active subscription self-pauses within a few days instead of
+// cycling forever as a phantom "active" subscription that never charges and
+// never delivers. Do not add a wallet debit here without also wiring the
+// order-creation call in the same transaction — a debit with no order is a
+// direct money-loss bug for the customer.
 func (s *SubscriptionService) chargeOne(ctx context.Context, sub model.Subscription) error {
-	wallet, err := s.ledger.EnsureWallet(ctx, nil, sub.CustomerID)
-	if err != nil {
-		return err
-	}
-	bal, err := s.ledger.GetBalance(ctx, sub.CustomerID)
-	if err != nil {
-		return err
-	}
-
-	// Estimate cost — use last order price as proxy; real impl queries pricing service
-	const estimatedKobo int64 = 500000 // ₦5,000 placeholder
-	if bal < estimatedKobo {
-		return fmt.Errorf("insufficient wallet balance for subscription %s", sub.ID)
-	}
-	_ = wallet
-
-	// TODO: create order via OrderService using sub.MerchantID + sub.AddressID
-	return nil
+	return fmt.Errorf("subscription order creation not implemented (subscription %s auto-pausing via dunning)", sub.ID)
 }
 
 func nextChargeTime(cadence string) time.Time {
