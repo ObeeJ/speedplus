@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { adminApi, type OrderDetail } from '@speedplus/api-client';
+import { adminApi, proofApi, type OrderDetail, type ProofMediaView } from '@speedplus/api-client';
 import { formatCurrency } from '@speedplus/utils';
 
 type PendingAction =
@@ -11,6 +11,7 @@ type PendingAction =
 export default function DisputesPage() {
   const [orderId, setOrderId] = useState('');
   const [order, setOrder] = useState<OrderDetail | null>(null);
+  const [media, setMedia] = useState<ProofMediaView[]>([]);
   const [lookupError, setLookupError] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -24,10 +25,17 @@ export default function DisputesPage() {
   function lookupOrder() {
     setLookupError('');
     setOrder(null);
+    setMedia([]);
     startLookup(async () => {
       try {
         const detail = await adminApi.getOrderDetail(orderId);
         setOrder(detail);
+        // Proof-of-delivery chain of custody — best-effort, doesn't block lookup.
+        try {
+          setMedia(await proofApi.getMedia(orderId));
+        } catch {
+          setMedia([]);
+        }
       } catch (e: unknown) {
         setLookupError(e instanceof Error ? e.message : 'Order not found');
       }
@@ -122,6 +130,47 @@ export default function DisputesPage() {
             <span className="text-mid">Merchant</span>
             <span className="font-mono">{order.merchantId}</span>
           </div>
+        </div>
+      )}
+
+      {order && (
+        <div className="border border-line rounded-xl px-4 py-3 flex flex-col gap-3">
+          <span className="text-[12px] font-semibold uppercase tracking-wide text-mid">
+            Proof of delivery — chain of custody
+          </span>
+          {media.length === 0 ? (
+            <span className="text-sm text-mid">No proof media recorded for this order.</span>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 min-[700px]:grid-cols-3">
+              {media.map((m) => (
+                <a
+                  key={m.id}
+                  href={m.viewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex flex-col gap-1 rounded-lg border border-line p-2 hover:bg-sand transition-colors"
+                >
+                  <span className="text-[11px] font-semibold capitalize">
+                    {m.kind.replace(/_/g, ' ')}
+                  </span>
+                  {m.kind.endsWith('_video') ? (
+                    <video src={m.viewUrl} controls className="w-full rounded aspect-square object-cover bg-black" />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.viewUrl} alt={m.kind} className="w-full rounded aspect-square object-cover bg-line" />
+                  )}
+                  <span className="text-[10px] text-mid">{new Date(m.capturedAt).toLocaleString()}</span>
+                  {m.sealSerial && <span className="text-[10px] text-mid">Seal #{m.sealSerial}</span>}
+                  <span className="text-[9px] font-mono text-mid break-all">sha256:{m.sha256.slice(0, 16)}…</span>
+                  {m.capturedLat != null && m.capturedLng != null && (
+                    <span className="text-[10px] text-mid">
+                      GPS {m.capturedLat.toFixed(4)}, {m.capturedLng.toFixed(4)}
+                    </span>
+                  )}
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

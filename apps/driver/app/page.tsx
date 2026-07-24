@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDriverStore } from '../lib/store/driver.store';
 import { dispatchApi, paycodesApi, walletApi } from '@speedplus/api-client';
+import { ProofCapture } from './components/proof-capture';
 import { useQuery } from '@tanstack/react-query';
 
 const WS_URL = process.env['NEXT_PUBLIC_WS_URL'] ?? 'ws://localhost:8000/api/v1/ws';
@@ -389,6 +390,11 @@ export default function DriverAppPage() {
                 ) : (
                   <span className="text-[12.5px] font-bold">Proof of delivery</span>
                 )}
+                <ProofCapture
+                  orderId={activeJob.orderId}
+                  kind="dropoff_photo"
+                  label="Photograph the sealed package at drop-off"
+                />
                 <span className="text-[11px] text-mid">
                   Ask the recipient for their 6-digit delivery code.
                 </span>

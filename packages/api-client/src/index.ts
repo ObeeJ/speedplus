@@ -14,6 +14,8 @@ export type { MerchantSummary, ProductSummary, PrescriptionRecord } from './endp
 export { ordersApi } from './endpoints/orders';
 export { dispatchApi } from './endpoints/dispatch';
 export { paycodesApi } from './endpoints/paycodes';
+export { proofApi, sha256Hex } from './endpoints/proof';
+export type { ProofKind, ProofMediaView } from './endpoints/proof';
 export type { Paycode } from './endpoints/paycodes';
 
 // Wallet & payments
