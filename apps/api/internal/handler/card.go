@@ -146,6 +146,7 @@ func tierView(t *model.UserTrustTier) gin.H {
 		"ordersToNext":    ordersToNext,
 		"nextTierName":    nextTierName,
 		"canPayOnArrival": canPayOnArrival,
+		"podCapKobo":      service.Tier1PODCapKobo,
 		"frozen":          t.Frozen,
 	}
 }

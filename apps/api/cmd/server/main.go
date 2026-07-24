@@ -88,21 +88,24 @@ func main() {
 	authSvc := service.NewAuthService(userRepo, cfg, onboardingSvc, emailClient)
 	kycProvider := kyc.NewPrembly(cfg.PremblyAPIKey, cfg.PremblyBaseURL, cfg.PremblyAppID)
 	kycSvc := service.NewKYCService(gormDB, kycProvider)
-	pricingSvc := service.NewPricingService(gormDB, cfg, os.Getenv("OSRM_URL"))
+	feeConfigSvc := service.NewFeeConfigService(gormDB)
+	pricingSvc := service.NewPricingService(gormDB, cfg, os.Getenv("OSRM_URL"), feeConfigSvc)
 	ledgerSvc := service.NewLedgerService(gormDB, ledgerRepo, pricingSvc)
-	orderSvc := service.NewOrderService(gormDB, pricingSvc, ledgerSvc)
-	walletSvc := service.NewWalletService(gormDB, ledgerSvc, authSvc, paystackProvider, emailClient, userRepo)
+	ledgerSvc.InjectFeeConfigs(feeConfigSvc)
 	tierSvc := service.NewTierService(gormDB, tierRepo)
+	orderSvc := service.NewOrderService(gormDB, pricingSvc, ledgerSvc, tierSvc)
+	walletSvc := service.NewWalletService(gormDB, ledgerSvc, authSvc, paystackProvider, emailClient, userRepo)
 	deliveryCodeSvc := service.NewDeliveryCodeService(gormDB, deliveryCodeRepo)
-	paycodeSvc := service.NewPaycodeService(gormDB, cfg, ledgerSvc, orderSvc, tierSvc, emailClient, userRepo, orderRepo, deliveryCodeSvc)
+	orderSvc.InjectDeliveryCodes(deliveryCodeSvc)
+	loyaltySvc := service.NewLoyaltyService(gormDB)
+	referralSvc := service.NewReferralService(gormDB, ledgerSvc, loyaltySvc)
+	authSvc.InjectReferrals(referralSvc)
+	paycodeSvc := service.NewPaycodeService(gormDB, cfg, ledgerSvc, orderSvc, tierSvc, emailClient, userRepo, orderRepo, deliveryCodeSvc, referralSvc)
 	dispatchSvc := service.NewDispatchService(gormDB)
 	paymentLinkSvc := service.NewPaymentLinkService(gormDB, ledgerSvc, paystackProvider, emailClient, userRepo)
 	ussdSvc := service.NewUSSDService(gormDB, monnifyProvider)
-	loyaltySvc := service.NewLoyaltyService(gormDB)
-	referralSvc := service.NewReferralService(gormDB, ledgerSvc, loyaltySvc)
 	giftCardSvc := service.NewGiftCardService(gormDB, ledgerSvc)
 	subscriptionSvc := service.NewSubscriptionService(gormDB, orderSvc, ledgerSvc)
-	_ = referralSvc
 	catalogSvc := service.NewCatalogService(catalogRepo)
 	adminSvc := service.NewAdminService(gormDB, ledgerSvc)
 	affordabilitySvc := service.NewAffordabilityService(ledgerSvc, affordabilityRepo)
@@ -135,6 +138,9 @@ func main() {
 	hub := ws.NewHub(rdb)
 	hub.Start(context.Background())
 
+	// Wire dispatch + hub into order service now that both are constructed.
+	orderSvc.InjectDispatch(dispatchSvc, hub)
+
 	// ── Handlers ───────────────────────────────────────────────────────────────
 	healthH := handler.NewHealthHandler(gormDB, rdb)
 	authH := handler.NewAuthHandler(authSvc)
@@ -151,7 +157,7 @@ func main() {
 	giftCardH := handler.NewGiftCardHandler(giftCardSvc)
 	subscriptionH := handler.NewSubscriptionHandler(subscriptionSvc)
 	catalogH := handler.NewCatalogHandler(catalogSvc)
-	adminH := handler.NewAdminHandler(adminSvc, ledgerSvc)
+	adminH := handler.NewAdminHandler(adminSvc, ledgerSvc, feeConfigSvc)
 	affordabilityH := handler.NewAffordabilityHandler(affordabilitySvc)
 	pricingH := handler.NewPricingHandler(pricingSvc)
 
@@ -252,6 +258,9 @@ func main() {
 	{
 		orders.POST("", middleware.Idempotency(rdb, 24*time.Hour), orderH.Create)
 		orders.GET("/:id", orderH.GetByID)
+		orders.GET("/:id/track", orderH.GetByID)
+		orders.GET("/:id/stops", orderH.GetStops)
+		orders.POST("/:id/stops/confirm", middleware.RequireRole("driver"), orderH.ConfirmStop)
 		orders.POST("/:id/cancel", orderH.Cancel)
 	}
 
@@ -383,6 +392,10 @@ func main() {
 		admin.GET("/settings/cancellation-rules", adminH.ListCancellationRules)
 		admin.PUT("/settings/cancellation-rules", adminH.UpsertCancellationRule)
 		admin.DELETE("/settings/cancellation-rules/:id", adminH.DeleteCancellationRule)
+
+		// Fee configs (pricing engine) — append-only, no DELETE
+		admin.GET("/settings/fees", adminH.ListFeeConfigs)
+		admin.PUT("/settings/fees", adminH.UpsertFeeConfig)
 
 		// Ledger viewer
 		admin.GET("/ledger", adminH.GetLedger)

@@ -13,13 +13,20 @@ import (
 )
 
 type LedgerService struct {
-	db      *gorm.DB // kept for transaction boundaries only
-	repo    repo.LedgerRepo
-	pricing *PricingService
+	db         *gorm.DB // kept for transaction boundaries only
+	repo       repo.LedgerRepo
+	pricing    *PricingService
+	feeConfigs *FeeConfigService // nil => DefaultFeeTable fallback
 }
 
 func NewLedgerService(db *gorm.DB, r repo.LedgerRepo, pricing *PricingService) *LedgerService {
 	return &LedgerService{db: db, repo: r, pricing: pricing}
+}
+
+// InjectFeeConfigs wires the FeeConfigService after construction to break the
+// circular dependency: LedgerService ← FeeConfigService ← (nothing).
+func (s *LedgerService) InjectFeeConfigs(fc *FeeConfigService) {
+	s.feeConfigs = fc
 }
 
 // ── Core journal writer ───────────────────────────────────────────────────────
@@ -98,9 +105,13 @@ func (s *LedgerService) HoldEscrow(ctx context.Context, tx *gorm.DB, orderID, cu
 // ── Settlement ────────────────────────────────────────────────────────────────
 
 func (s *LedgerService) Settle(ctx context.Context, tx *gorm.DB, order *model.Order, paycodeEventID uuid.UUID) error {
-	fees, ok := DefaultFeeTable[order.Vertical]
-	if !ok {
-		fees = DefaultFeeTable["package"]
+	// Pin the split to the fee config in force when the order was created —
+	// an admin rate change mid-delivery must never reallocate money in flight.
+	var fees FeeConfig
+	if s.feeConfigs != nil {
+		fees = s.feeConfigs.GetFeesAt(ctx, order.Vertical, order.CreatedAt)
+	} else {
+		fees = defaultFees(order.Vertical)
 	}
 
 	hold, err := s.repo.LockEscrowHold(ctx, tx, order.ID, model.EscrowHeld)

@@ -43,13 +43,16 @@ var sizeSurchargeKobo = map[SizeCategory]int64{
 	SizeLarge:  40000, // ₦400
 }
 
-// DefaultFeeTable — rates per vertical. Merchant 8% commission per existing UI.
+// DefaultFeeTable — 2026 rates per vertical, calibrated so a rider nets a
+// living wage after fuel/maintenance at ₦1,400/L (dead-km included).
+// Merchant 8% commission. Gas is a flat fee (per-km 0): fixed cylinder runs.
+// Fallback only once fee_configs rows exist — live rates come from FeeConfigService.
 var DefaultFeeTable = map[string]FeeConfig{
-	"food":     {BaseFeeKobo: 50000, PerKmKobo: 10000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
-	"grocery":  {BaseFeeKobo: 50000, PerKmKobo: 10000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
-	"pharmacy": {BaseFeeKobo: 50000, PerKmKobo: 10000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
-	"gas":      {BaseFeeKobo: 80000, PerKmKobo: 15000, ServicePct: 0.03, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
-	"package":  {BaseFeeKobo: 60000, PerKmKobo: 12000, PerKgKobo: 5000, ServicePct: 0.04, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
+	"food":     {BaseFeeKobo: 90000, PerKmKobo: 15000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
+	"grocery":  {BaseFeeKobo: 90000, PerKmKobo: 15000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
+	"pharmacy": {BaseFeeKobo: 100000, PerKmKobo: 15000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
+	"gas":      {BaseFeeKobo: 150000, PerKmKobo: 0, ServicePct: 0.03, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
+	"package":  {BaseFeeKobo: 90000, PerKmKobo: 17000, PerKgKobo: 7000, ServicePct: 0.04, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
 }
 
 type PricingService struct {
@@ -57,14 +60,16 @@ type PricingService struct {
 	cfg        *config.Config
 	osrmURL    string
 	httpClient *http.Client
+	feeConfigs *FeeConfigService // nil => DefaultFeeTable fallback
 }
 
-func NewPricingService(db *gorm.DB, cfg *config.Config, osrmURL string) *PricingService {
+func NewPricingService(db *gorm.DB, cfg *config.Config, osrmURL string, feeConfigs *FeeConfigService) *PricingService {
 	return &PricingService{
 		db:         db,
 		cfg:        cfg,
 		osrmURL:    osrmURL,
 		httpClient: &http.Client{Timeout: 5 * time.Second},
+		feeConfigs: feeConfigs,
 	}
 }
 
@@ -88,14 +93,17 @@ func (s *PricingService) Quote(ctx context.Context, req QuoteRequest) (*model.Pr
 		return nil, fmt.Errorf("osrm: %w", err)
 	}
 
-	fees, ok := DefaultFeeTable[req.Vertical]
-	if !ok {
-		fees = DefaultFeeTable["package"]
+	var fees FeeConfig
+	if s.feeConfigs != nil {
+		fees = s.feeConfigs.GetFees(ctx, req.Vertical)
+	} else {
+		fees = defaultFees(req.Vertical)
 	}
 
-	weatherSurcharge, _ := s.weatherSurcharge(ctx, req.DestLat, req.DestLng)
+	weatherAdvisory := s.weatherAdvisory(ctx, req.DestLat, req.DestLng)
 
-	deliveryKobo := fees.BaseFeeKobo + int64(distKm*float64(fees.PerKmKobo)) + weatherSurcharge
+	deliveryKobo := fees.BaseFeeKobo + int64(distKm*float64(fees.PerKmKobo))
+	// Weather surcharge disabled — advisory shown to all parties but no fee charged.
 
 	// Weight + size surcharge for package vertical
 	if req.Vertical == "package" {
@@ -107,18 +115,19 @@ func (s *PricingService) Quote(ctx context.Context, req QuoteRequest) (*model.Pr
 	totalKobo := req.SubtotalKobo + deliveryKobo + serviceKobo
 
 	quote := &model.PricingQuote{
-		ID:           uuid.New(),
-		CustomerID:   req.CustomerID,
-		MerchantID:   req.MerchantID,
-		DistanceKm:   distKm,
-		ETAMinutes:   etaMinutes,
-		WeightKg:     req.WeightKg,
-		SizeCategory: string(req.SizeCategory),
-		SubtotalKobo: req.SubtotalKobo,
-		DeliveryKobo: deliveryKobo,
-		ServiceKobo:  serviceKobo,
-		TotalKobo:    totalKobo,
-		ExpiresAt:    time.Now().Add(10 * time.Minute),
+		ID:              uuid.New(),
+		CustomerID:      req.CustomerID,
+		MerchantID:      req.MerchantID,
+		DistanceKm:      distKm,
+		ETAMinutes:      etaMinutes,
+		WeightKg:        req.WeightKg,
+		SizeCategory:    string(req.SizeCategory),
+		SubtotalKobo:    req.SubtotalKobo,
+		DeliveryKobo:    deliveryKobo,
+		ServiceKobo:     serviceKobo,
+		TotalKobo:       totalKobo,
+		WeatherAdvisory: weatherAdvisory,
+		ExpiresAt:       time.Now().Add(10 * time.Minute),
 	}
 	quote.QuoteHash = s.signQuote(quote)
 
@@ -193,14 +202,15 @@ func (s *PricingService) osrmRoute(ctx context.Context, oLat, oLng, dLat, dLng f
 	return distKm, etaMinutes, nil
 }
 
-// weatherSurcharge calls Open-Meteo for rain/heat flag.
-// Returns extra kobo surcharge (0 if no adverse weather).
-func (s *PricingService) weatherSurcharge(ctx context.Context, lat, lng float64) (int64, error) {
+// weatherAdvisory calls Open-Meteo for rain/heat flag.
+// Returns a human-readable advisory string (empty = clear conditions).
+// No fee is charged — this is informational only for all parties.
+func (s *PricingService) weatherAdvisory(ctx context.Context, lat, lng float64) string {
 	url := fmt.Sprintf("https://api.open-meteo.com/v1/forecast?latitude=%f&longitude=%f&current_weather=true", lat, lng)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return 0, nil // non-fatal
+		return ""
 	}
 	defer resp.Body.Close()
 
@@ -211,13 +221,21 @@ func (s *PricingService) weatherSurcharge(ctx context.Context, lat, lng float64)
 		} `json:"current_weather"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return 0, nil
+		return ""
 	}
 
-	// WMO codes 51-99 = precipitation/storm; temp > 38°C = heat surcharge
 	code := result.CurrentWeather.Weathercode
-	if (code >= 51 && code <= 99) || result.CurrentWeather.Temperature > 38 {
-		return 20000, nil // ₦200 surcharge
+	temp := result.CurrentWeather.Temperature
+	switch {
+	case code >= 95 && code <= 99:
+		return "Thunderstorm expected — allow extra time for delivery"
+	case code >= 71 && code <= 77:
+		return "Heavy rain expected — rider may take longer than usual"
+	case code >= 51 && code <= 67:
+		return "Light rain in the area — rider is on the way"
+	case temp > 38:
+		return "Extreme heat today — rider may need a short break"
+	default:
+		return ""
 	}
-	return 0, nil
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"time"
 
@@ -101,6 +102,35 @@ func (s *DeliveryCodeService) Verify(ctx context.Context, tx *gorm.DB, orderID u
 
 	// Correct — mark used
 	return s.repo.MarkUsed(ctx, tx, dc.ID, time.Now())
+}
+
+// confirmFlagRadiusM: code entered farther than this from the dropoff (or with
+// no location at all) flags the order for review. Never blocks settlement.
+const confirmFlagRadiusM = 500.0
+
+// RecordConfirmLocation persists GPS evidence for a just-confirmed code and
+// returns whether it was flagged. Call after Verify succeeds, in the same tx.
+func (s *DeliveryCodeService) RecordConfirmLocation(ctx context.Context, tx *gorm.DB, orderID uuid.UUID, lat, lng *float64, dropLat, dropLng float64) (flagged bool, err error) {
+	var distM *float64
+	if lat == nil || lng == nil {
+		flagged = true
+	} else {
+		d := haversineMeters(*lat, *lng, dropLat, dropLng)
+		distM = &d
+		flagged = d > confirmFlagRadiusM
+	}
+	return flagged, s.repo.RecordConfirmLocation(ctx, tx, orderID, lat, lng, distM, flagged)
+}
+
+// haversineMeters returns the great-circle distance between two points.
+func haversineMeters(lat1, lng1, lat2, lng2 float64) float64 {
+	const earthRadiusM = 6371000.0
+	toRad := func(deg float64) float64 { return deg * math.Pi / 180 }
+	dLat := toRad(lat2 - lat1)
+	dLng := toRad(lng2 - lng1)
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(toRad(lat1))*math.Cos(toRad(lat2))*math.Sin(dLng/2)*math.Sin(dLng/2)
+	return 2 * earthRadiusM * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 }
 
 func generateSixDigit() (string, error) {

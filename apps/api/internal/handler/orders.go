@@ -25,22 +25,32 @@ func (h *OrderHandler) Create(c *gin.Context) {
 	}
 
 	var req struct {
-		MerchantID     string `json:"merchantId" binding:"required"`
-		QuoteID        string `json:"quoteId" binding:"required"`
-		Vertical       string `json:"vertical" binding:"required"`
-		DeliveryAddrID string `json:"deliveryAddressId" binding:"required"`
+		MerchantID     string  `json:"merchantId" binding:"required"`
+		QuoteID        string  `json:"quoteId" binding:"required"`
+		Vertical       string  `json:"vertical" binding:"required"`
+		DeliveryAddrID string  `json:"deliveryAddressId" binding:"required"`
+		RecipientName  *string `json:"recipientName"`
+		RecipientPhone *string `json:"recipientPhone"`
+		PaymentMethod  string  `json:"paymentMethod"`
 		PrescriptionID *string `json:"prescriptionId"`
-		TipKobo        int64  `json:"tipKobo"`
+		TipKobo        int64   `json:"tipKobo"`
 		Items          []struct {
 			ProductID        string  `json:"productId" binding:"required"`
-			Name             string  `json:"name" binding:"required"`
+			Name             string  `json:"name"`
 			Quantity         int     `json:"quantity" binding:"required,min=1"`
-			UnitPriceKobo    int64   `json:"unitPriceKobo" binding:"required"`
+			UnitPriceKobo    int64   `json:"unitPriceKobo"`
 			WeightKg         float64 `json:"weightKg"`
 			SizeCategory     string  `json:"sizeCategory"`
 			Customizations   *string `json:"customizations"`
 			SubstitutionPref *string `json:"substitutionPreference"`
 		} `json:"items" binding:"required,min=1"`
+		Stops []struct {
+			Sequence       int     `json:"sequence" binding:"required,min=1"`
+			AddressID      string  `json:"addressId" binding:"required"`
+			RecipientName  *string `json:"recipientName"`
+			RecipientPhone *string `json:"recipientPhone"`
+			Notes          *string `json:"notes"`
+		} `json:"stops"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		validationError(c, err)
@@ -58,6 +68,9 @@ func (h *OrderHandler) Create(c *gin.Context) {
 		QuoteID:        quoteID,
 		Vertical:       req.Vertical,
 		DeliveryAddrID: addrID,
+		RecipientName:  req.RecipientName,
+		RecipientPhone: req.RecipientPhone,
+		PaymentMethod:  req.PaymentMethod,
 		TipKobo:        req.TipKobo,
 		IdempotencyKey: idempotencyKey,
 	}
@@ -78,6 +91,17 @@ func (h *OrderHandler) Create(c *gin.Context) {
 			SizeCategory:     item.SizeCategory,
 			Customizations:   item.Customizations,
 			SubstitutionPref: item.SubstitutionPref,
+		})
+	}
+
+	for _, stop := range req.Stops {
+		addrID, _ := uuid.Parse(stop.AddressID)
+		in.Stops = append(in.Stops, service.OrderStopInput{
+			Sequence:       stop.Sequence,
+			AddressID:      addrID,
+			RecipientName:  stop.RecipientName,
+			RecipientPhone: stop.RecipientPhone,
+			Notes:          stop.Notes,
 		})
 	}
 
@@ -116,6 +140,51 @@ func (h *OrderHandler) GetByID(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, successResp(order))
+}
+
+func (h *OrderHandler) GetStops(c *gin.Context) {
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Invalid order ID", "id"))
+		return
+	}
+	requesterID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	requesterRole := c.GetString(middleware.CtxUserRole)
+
+	// Ownership check via GetByID
+	if _, err := h.orders.GetByID(c.Request.Context(), orderID, requesterID, requesterRole); err != nil {
+		c.JSON(http.StatusForbidden, errResp("FORBIDDEN", "Access denied", ""))
+		return
+	}
+
+	stops, err := h.orders.GetStops(c.Request.Context(), orderID)
+	if err != nil {
+		internalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, successResp(gin.H{"stops": stops}))
+}
+
+func (h *OrderHandler) ConfirmStop(c *gin.Context) {
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Invalid order ID", "id"))
+		return
+	}
+	var req struct {
+		Sequence int    `json:"sequence" binding:"required,min=1"`
+		Code     string `json:"code" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		validationError(c, err)
+		return
+	}
+	driverID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	if err := h.orders.ConfirmStop(c.Request.Context(), orderID, driverID, req.Sequence, req.Code); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", err.Error(), ""))
+		return
+	}
+	c.JSON(http.StatusOK, successResp(gin.H{"message": "stop confirmed"}))
 }
 
 func (h *OrderHandler) Cancel(c *gin.Context) {
