@@ -239,6 +239,7 @@ func (h *AdminHandler) UpsertFeeConfig(c *gin.Context) {
 		BaseFeeKobo      int64   `json:"baseFeeKobo"      binding:"min=0"`
 		PerKmKobo        int64   `json:"perKmKobo"        binding:"min=0"`
 		PerKgKobo        int64   `json:"perKgKobo"        binding:"min=0"`
+		PerStopKobo      int64   `json:"perStopKobo"      binding:"min=0"`
 		ServicePct       float64 `json:"servicePct"       binding:"min=0,max=0.5"`
 		MerchantTakeRate float64 `json:"merchantTakeRate" binding:"required,gt=0.5,lte=1"`
 		DriverTakeRate   float64 `json:"driverTakeRate"   binding:"required,gte=0.5,lte=1"`
@@ -256,6 +257,7 @@ func (h *AdminHandler) UpsertFeeConfig(c *gin.Context) {
 		BaseFeeKobo:      req.BaseFeeKobo,
 		PerKmKobo:        req.PerKmKobo,
 		PerKgKobo:        req.PerKgKobo,
+		PerStopKobo:      req.PerStopKobo,
 		ServicePct:       req.ServicePct,
 		MerchantTakeRate: req.MerchantTakeRate,
 		DriverTakeRate:   req.DriverTakeRate,

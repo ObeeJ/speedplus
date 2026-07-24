@@ -43,6 +43,7 @@ func toFees(r *model.FeeConfig) FeeConfig {
 		BaseFeeKobo:      r.BaseFeeKobo,
 		PerKmKobo:        r.PerKmKobo,
 		PerKgKobo:        r.PerKgKobo,
+		PerStopKobo:      r.PerStopKobo,
 		ServicePct:       r.ServicePct,
 		MerchantTakeRate: r.MerchantTakeRate,
 		DriverTakeRate:   r.DriverTakeRate,
@@ -114,6 +115,7 @@ func (s *FeeConfigService) List(ctx context.Context) ([]model.FeeConfig, error) 
 				BaseFeeKobo:      f.BaseFeeKobo,
 				PerKmKobo:        f.PerKmKobo,
 				PerKgKobo:        f.PerKgKobo,
+				PerStopKobo:      f.PerStopKobo,
 				ServicePct:       f.ServicePct,
 				MerchantTakeRate: f.MerchantTakeRate,
 				DriverTakeRate:   f.DriverTakeRate,
@@ -130,6 +132,7 @@ type FeeConfigInput struct {
 	BaseFeeKobo      int64
 	PerKmKobo        int64
 	PerKgKobo        int64
+	PerStopKobo      int64
 	ServicePct       float64
 	MerchantTakeRate float64
 	DriverTakeRate   float64
@@ -193,6 +196,7 @@ func (s *FeeConfigService) Upsert(ctx context.Context, adminID uuid.UUID, in Fee
 		BaseFeeKobo:      in.BaseFeeKobo,
 		PerKmKobo:        in.PerKmKobo,
 		PerKgKobo:        in.PerKgKobo,
+		PerStopKobo:      in.PerStopKobo,
 		ServicePct:       in.ServicePct,
 		MerchantTakeRate: in.MerchantTakeRate,
 		DriverTakeRate:   in.DriverTakeRate,

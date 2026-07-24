@@ -30,10 +30,28 @@ type QuoteResponse struct {
 	TotalKobo       int64     `json:"totalKobo"`
 	DistanceKm      float64   `json:"distanceKm"`
 	ETAMinutes      int       `json:"etaMinutes"`
+	StopCount       int       `json:"stopCount,omitempty"`
 	WeightKg        float64   `json:"weightKg,omitempty"`
 	SizeCategory    string    `json:"sizeCategory,omitempty"`
 	WeatherAdvisory string    `json:"weatherAdvisory,omitempty"` // informational only
 	ExpiresAt       time.Time `json:"expiresAt"`
+}
+
+// MultiStopQuoteRequest prices a package order with one pickup + N dropoffs.
+// Stops must be in the order the sender wants them visited (or the order the
+// frontend's OSRM-optimized suggestion produced).
+type MultiStopQuoteRequest struct {
+	MerchantID   string  `json:"merchantId"   binding:"required"`
+	Vertical     string  `json:"vertical"     binding:"required"`
+	SubtotalKobo int64   `json:"subtotalKobo" binding:"required,min=1"`
+	OriginLat    float64 `json:"originLat"    binding:"required"`
+	OriginLng    float64 `json:"originLng"    binding:"required"`
+	Stops        []struct {
+		Lat float64 `json:"lat" binding:"required"`
+		Lng float64 `json:"lng" binding:"required"`
+	} `json:"stops" binding:"required,min=1,max=6"`
+	WeightKg     float64 `json:"weightKg"`
+	SizeCategory string  `json:"sizeCategory"`
 }
 
 // ── Orders ────────────────────────────────────────────────────────────────────

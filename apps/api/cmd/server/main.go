@@ -25,6 +25,7 @@ import (
 	"github.com/speedplus/api/internal/payment"
 	"github.com/speedplus/api/internal/repo"
 	"github.com/speedplus/api/internal/service"
+	"github.com/speedplus/api/internal/storage"
 	"github.com/speedplus/api/internal/worker"
 	"github.com/speedplus/api/internal/ws"
 )
@@ -97,6 +98,19 @@ func main() {
 	orderSvc := service.NewOrderService(gormDB, pricingSvc, ledgerSvc, tierSvc)
 	walletSvc := service.NewWalletService(gormDB, ledgerSvc, authSvc, paystackProvider, emailClient, userRepo)
 	deliveryCodeSvc := service.NewDeliveryCodeService(gormDB, deliveryCodeRepo)
+	// R2 is optional at boot — proof-media endpoints fail closed (clear error,
+	// not silent no-op) rather than block the whole API from starting when
+	// media storage isn't configured yet (e.g. early dev).
+	var r2Client *storage.R2Client
+	if r2c, err := storage.NewR2Client(context.Background(), storage.R2Config{
+		AccountID: cfg.R2AccountID, AccessKeyID: cfg.R2AccessKeyID,
+		SecretAccessKey: cfg.R2SecretAccessKey, BucketName: cfg.R2BucketName,
+	}); err == nil {
+		r2Client = r2c
+	} else {
+		slog.Warn("R2 storage not configured — proof-of-delivery media endpoints will error", "error", err)
+	}
+	proofMediaSvc := service.NewProofMediaService(gormDB, r2Client)
 	orderSvc.InjectDeliveryCodes(deliveryCodeSvc)
 	if len(cfg.EncryptionKey) == 32 {
 		if recipientCipher, err := crypto.NewCipher([]byte(cfg.EncryptionKey)); err == nil {
@@ -157,6 +171,7 @@ func main() {
 	usersH := handler.NewUsersHandler(userRepo)
 	kycH := handler.NewKYCHandler(kycSvc)
 	orderH := handler.NewOrderHandler(orderSvc)
+	proofMediaH := handler.NewProofMediaHandler(proofMediaSvc)
 	walletH := handler.NewWalletHandler(walletSvc, ledgerSvc, userRepo)
 	paycodeH := handler.NewPaycodeHandler(paycodeSvc)
 	dispatchH := handler.NewDispatchHandler(dispatchSvc)
@@ -273,6 +288,13 @@ func main() {
 		orders.GET("/:id/stops", orderH.GetStops)
 		orders.POST("/:id/stops/confirm", middleware.RequireRole("driver"), orderH.ConfirmStop)
 		orders.POST("/:id/cancel", orderH.Cancel)
+
+		// Proof-of-delivery media (chain of custody). Presign/confirm are
+		// driver-only (enforced again in the service via assigned-driver
+		// check); viewing is limited to the order's customer or an admin.
+		orders.POST("/:id/proof/presign", middleware.RequireRole("driver"), proofMediaH.PresignUpload)
+		orders.POST("/:id/proof/confirm", middleware.RequireRole("driver"), proofMediaH.ConfirmUpload)
+		orders.GET("/:id/proof", proofMediaH.GetMedia)
 	}
 
 	// Wallet

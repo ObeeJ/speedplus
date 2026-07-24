@@ -491,6 +491,26 @@ type AdminAuditLog struct {
 	CreatedAt  time.Time `gorm:"index"`
 }
 
+// ProofMedia is chain-of-custody evidence for a package delivery: a photo or
+// short video captured live in the driver app at pickup/dropoff. r2_key
+// points at a private R2 object (never a public URL); sha256 lets a dispute
+// prove the file wasn't swapped after capture. Insert-only — never
+// update/delete once written (see migration 018's DB rules).
+type ProofMedia struct {
+	ID          uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	OrderID     uuid.UUID  `gorm:"type:uuid;not null;index"`
+	StopID      *uuid.UUID `gorm:"type:uuid;index"` // nil for single-drop orders
+	Kind        string     `gorm:"not null"`        // pickup_photo|pickup_video|dropoff_photo|dropoff_video
+	R2Key       string     `gorm:"not null"`
+	SHA256      string     `gorm:"not null"`
+	SealSerial  *string
+	CapturedLat *float64
+	CapturedLng *float64
+	CapturedAt  time.Time `gorm:"not null"`
+	CapturedBy  uuid.UUID `gorm:"type:uuid;not null"` // the driver
+	CreatedAt   time.Time
+}
+
 // FeeConfig is a versioned, append-only pricing configuration row per vertical.
 // The row with the greatest effective_at <= now is live; settlement pins to the
 // row effective at order creation. Insert-only — the DB rules no-op UPDATE/DELETE.

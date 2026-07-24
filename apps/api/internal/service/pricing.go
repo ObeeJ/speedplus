@@ -30,6 +30,7 @@ type FeeConfig struct {
 	BaseFeeKobo      int64   // flat base
 	PerKmKobo        int64   // per km
 	PerKgKobo        int64   // per kg of weight (package vertical)
+	PerStopKobo      int64   // per additional stop beyond the first (multi-drop package orders)
 	ServicePct       float64 // platform service fee % of subtotal
 	MerchantTakeRate float64 // merchant share % (e.g. 0.92 = 8% commission)
 	DriverTakeRate   float64 // driver share % of delivery fee
@@ -52,7 +53,7 @@ var DefaultFeeTable = map[string]FeeConfig{
 	"grocery":  {BaseFeeKobo: 90000, PerKmKobo: 15000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
 	"pharmacy": {BaseFeeKobo: 100000, PerKmKobo: 15000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
 	"gas":      {BaseFeeKobo: 150000, PerKmKobo: 0, ServicePct: 0.03, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
-	"package":  {BaseFeeKobo: 90000, PerKmKobo: 17000, PerKgKobo: 7000, ServicePct: 0.04, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
+	"package":  {BaseFeeKobo: 90000, PerKmKobo: 17000, PerKgKobo: 7000, PerStopKobo: 25000, ServicePct: 0.04, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
 }
 
 type PricingService struct {
@@ -120,6 +121,7 @@ func (s *PricingService) Quote(ctx context.Context, req QuoteRequest) (*model.Pr
 		MerchantID:      req.MerchantID,
 		DistanceKm:      distKm,
 		ETAMinutes:      etaMinutes,
+		StopCount:       1, // single dropoff — must match the DB default so the signed hash agrees with the stored row
 		WeightKg:        req.WeightKg,
 		SizeCategory:    string(req.SizeCategory),
 		SubtotalKobo:    req.SubtotalKobo,
@@ -167,9 +169,13 @@ func (s *PricingService) MarkQuoteUsed(ctx context.Context, quoteID uuid.UUID) e
 }
 
 func (s *PricingService) signQuote(q *model.PricingQuote) string {
-	payload := fmt.Sprintf("%s:%s:%s:%d:%d:%d:%d",
+	// StopCount is part of the signed payload: a multi-drop quote's per-stop
+	// fee is baked into DeliveryKobo at signing time, but without binding the
+	// count itself, nothing stops a client from submitting the order with
+	// extra stops appended after the quote was priced for fewer.
+	payload := fmt.Sprintf("%s:%s:%s:%d:%d:%d:%d:%d",
 		q.ID, q.CustomerID, q.MerchantID,
-		q.SubtotalKobo, q.DeliveryKobo, q.ServiceKobo, q.TotalKobo,
+		q.SubtotalKobo, q.DeliveryKobo, q.ServiceKobo, q.TotalKobo, q.StopCount,
 	)
 	mac := hmac.New(sha256.New, []byte(s.cfg.JWTSecret))
 	mac.Write([]byte(payload))
@@ -199,6 +205,130 @@ func (s *PricingService) osrmRoute(ctx context.Context, oLat, oLng, dLat, dLng f
 	}
 	distKm = result.Routes[0].Distance / 1000.0
 	etaMinutes = int(result.Routes[0].Duration/60) + 5 // +5 min pickup buffer
+	return distKm, etaMinutes, nil
+}
+
+// LatLng is a waypoint for multi-stop routing.
+type LatLng struct {
+	Lat float64
+	Lng float64
+}
+
+// MultiStopQuoteRequest prices a package order with one pickup and one or
+// more dropoff stops. Precedence (pickup before its dropoffs) is implicit:
+// Origin is always visited first, then Stops in the given order.
+type MultiStopQuoteRequest struct {
+	CustomerID   uuid.UUID
+	MerchantID   uuid.UUID
+	Vertical     string
+	SubtotalKobo int64
+	Origin       LatLng
+	Stops        []LatLng // one or more dropoffs, in visiting order
+	WeightKg     float64
+	SizeCategory SizeCategory
+}
+
+const maxQuoteStops = 6 // guardrail: bounds rider load and OSRM trip payload size
+
+// QuoteMultiStop prices a multi-drop package order: full route distance
+// (via OSRM trip) + a per-stop fee for every stop beyond the first. The stop
+// count is baked into the signed quote hash so it can't be tampered down
+// after the route was priced.
+func (s *PricingService) QuoteMultiStop(ctx context.Context, req MultiStopQuoteRequest) (*model.PricingQuote, error) {
+	if len(req.Stops) == 0 {
+		return nil, fmt.Errorf("multistop quote requires at least one dropoff stop")
+	}
+	if len(req.Stops) > maxQuoteStops {
+		return nil, fmt.Errorf("too many stops: max %d per order", maxQuoteStops)
+	}
+
+	waypoints := make([]LatLng, 0, len(req.Stops)+1)
+	waypoints = append(waypoints, req.Origin)
+	waypoints = append(waypoints, req.Stops...)
+
+	distKm, etaMinutes, err := s.osrmTrip(ctx, waypoints)
+	if err != nil {
+		return nil, fmt.Errorf("osrm trip: %w", err)
+	}
+
+	var fees FeeConfig
+	if s.feeConfigs != nil {
+		fees = s.feeConfigs.GetFees(ctx, req.Vertical)
+	} else {
+		fees = defaultFees(req.Vertical)
+	}
+
+	weatherAdvisory := s.weatherAdvisory(ctx, req.Stops[len(req.Stops)-1].Lat, req.Stops[len(req.Stops)-1].Lng)
+
+	extraStops := len(req.Stops) - 1
+	deliveryKobo := fees.BaseFeeKobo + int64(distKm*float64(fees.PerKmKobo)) + int64(extraStops)*fees.PerStopKobo
+
+	if req.Vertical == "package" {
+		deliveryKobo += int64(req.WeightKg * float64(fees.PerKgKobo))
+		deliveryKobo += sizeSurchargeKobo[req.SizeCategory]
+	}
+
+	serviceKobo := int64(float64(req.SubtotalKobo) * fees.ServicePct)
+	totalKobo := req.SubtotalKobo + deliveryKobo + serviceKobo
+
+	quote := &model.PricingQuote{
+		ID:              uuid.New(),
+		CustomerID:      req.CustomerID,
+		MerchantID:      req.MerchantID,
+		DistanceKm:      distKm,
+		ETAMinutes:      etaMinutes,
+		StopCount:       len(req.Stops),
+		WeightKg:        req.WeightKg,
+		SizeCategory:    string(req.SizeCategory),
+		SubtotalKobo:    req.SubtotalKobo,
+		DeliveryKobo:    deliveryKobo,
+		ServiceKobo:     serviceKobo,
+		TotalKobo:       totalKobo,
+		WeatherAdvisory: weatherAdvisory,
+		ExpiresAt:       time.Now().Add(10 * time.Minute),
+	}
+	quote.QuoteHash = s.signQuote(quote)
+
+	if err := s.db.WithContext(ctx).Create(quote).Error; err != nil {
+		return nil, err
+	}
+	return quote, nil
+}
+
+// osrmTrip calls OSRM's trip service (TSP) to get the optimized route
+// distance/duration across all waypoints, visited in order starting from the
+// first (source=first, roundtrip=false — we never return to origin).
+func (s *PricingService) osrmTrip(ctx context.Context, waypoints []LatLng) (distKm float64, etaMinutes int, err error) {
+	if len(waypoints) < 2 {
+		return 0, 0, fmt.Errorf("trip requires at least 2 waypoints")
+	}
+	coords := ""
+	for i, wp := range waypoints {
+		if i > 0 {
+			coords += ";"
+		}
+		coords += fmt.Sprintf("%f,%f", wp.Lng, wp.Lat)
+	}
+	url := fmt.Sprintf("%s/trip/v1/driving/%s?source=first&roundtrip=false&overview=false", s.osrmURL, coords)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Trips []struct {
+			Distance float64 `json:"distance"` // metres
+			Duration float64 `json:"duration"` // seconds
+		} `json:"trips"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || len(result.Trips) == 0 {
+		return 0, 0, fmt.Errorf("osrm trip: no route")
+	}
+	distKm = result.Trips[0].Distance / 1000.0
+	etaMinutes = int(result.Trips[0].Duration/60) + 5 // +5 min pickup buffer
 	return distKm, etaMinutes, nil
 }
 
