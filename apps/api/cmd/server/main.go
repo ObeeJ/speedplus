@@ -153,6 +153,7 @@ func main() {
 	catalogH := handler.NewCatalogHandler(catalogSvc)
 	adminH := handler.NewAdminHandler(adminSvc, ledgerSvc)
 	affordabilityH := handler.NewAffordabilityHandler(affordabilitySvc)
+	pricingH := handler.NewPricingHandler(pricingSvc)
 
 	// ── Router ─────────────────────────────────────────────────────────────────
 	if cfg.Environment == "production" {
@@ -242,6 +243,9 @@ func main() {
 	{
 		kyc.POST("/check", kycH.SubmitCheck)
 	}
+
+	// Quotes
+	authed.POST("/quotes", pricingH.Quote)
 
 	// Orders
 	orders := authed.Group("/orders")
