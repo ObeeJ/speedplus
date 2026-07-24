@@ -40,6 +40,9 @@ type PricingQuote struct {
 	CustomerID    uuid.UUID `gorm:"type:uuid;not null"`
 	MerchantID    uuid.UUID `gorm:"type:uuid;not null"`
 	DistanceKm    float64
+	ETAMinutes    int       // driving time from OSRM + pickup buffer
+	WeightKg      float64   // package vertical only
+	SizeCategory  string    `gorm:"type:varchar(10)"` // small|medium|large
 	SubtotalKobo  int64
 	DeliveryKobo  int64
 	ServiceKobo   int64
@@ -116,6 +119,8 @@ type OrderItem struct {
 	Quantity              int       `gorm:"not null"`
 	UnitPriceKobo         int64     `gorm:"not null"`
 	TotalKobo             int64     `gorm:"not null"`
+	WeightKg              float64   `gorm:"default:0"` // package vertical only
+	SizeCategory          string    `gorm:"type:varchar(10)"` // small|medium|large
 	Customizations        *string
 	SubstitutionPref      *string   `gorm:"type:varchar(10)"` // allow|deny|contact
 }

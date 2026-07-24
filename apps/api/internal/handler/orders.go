@@ -36,6 +36,8 @@ func (h *OrderHandler) Create(c *gin.Context) {
 			Name             string  `json:"name" binding:"required"`
 			Quantity         int     `json:"quantity" binding:"required,min=1"`
 			UnitPriceKobo    int64   `json:"unitPriceKobo" binding:"required"`
+			WeightKg         float64 `json:"weightKg"`
+			SizeCategory     string  `json:"sizeCategory"`
 			Customizations   *string `json:"customizations"`
 			SubstitutionPref *string `json:"substitutionPreference"`
 		} `json:"items" binding:"required,min=1"`
@@ -72,6 +74,8 @@ func (h *OrderHandler) Create(c *gin.Context) {
 			Name:             item.Name,
 			Quantity:         item.Quantity,
 			UnitPriceKobo:    item.UnitPriceKobo,
+			WeightKg:         item.WeightKg,
+			SizeCategory:     item.SizeCategory,
 			Customizations:   item.Customizations,
 			SubstitutionPref: item.SubstitutionPref,
 		})

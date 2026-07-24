@@ -17,6 +17,9 @@ type QuoteRequest struct {
 	OriginLng    float64 `json:"originLng"    binding:"required"`
 	DestLat      float64 `json:"destLat"      binding:"required"`
 	DestLng      float64 `json:"destLng"      binding:"required"`
+	// Package-only fields
+	WeightKg     float64 `json:"weightKg"`
+	SizeCategory string  `json:"sizeCategory"` // small|medium|large
 }
 
 type QuoteResponse struct {
@@ -26,6 +29,9 @@ type QuoteResponse struct {
 	ServiceKobo  int64     `json:"serviceKobo"`
 	TotalKobo    int64     `json:"totalKobo"`
 	DistanceKm   float64   `json:"distanceKm"`
+	ETAMinutes   int       `json:"etaMinutes"`
+	WeightKg     float64   `json:"weightKg,omitempty"`
+	SizeCategory string    `json:"sizeCategory,omitempty"`
 	ExpiresAt    time.Time `json:"expiresAt"`
 }
 
@@ -36,6 +42,8 @@ type OrderItemRequest struct {
 	Name             string  `json:"name"                  binding:"required"`
 	Quantity         int     `json:"quantity"              binding:"required,min=1"`
 	UnitPriceKobo    int64   `json:"unitPriceKobo"         binding:"required,min=1"`
+	WeightKg         float64 `json:"weightKg"`
+	SizeCategory     string  `json:"sizeCategory"`
 	Customizations   *string `json:"customizations"`
 	SubstitutionPref *string `json:"substitutionPreference"`
 }
@@ -61,14 +69,16 @@ type MoneyResponse struct {
 }
 
 type OrderItemResponse struct {
-	ID               uuid.UUID  `json:"id"`
-	ProductID        uuid.UUID  `json:"productId"`
-	Name             string     `json:"name"`
-	Quantity         int        `json:"quantity"`
+	ID               uuid.UUID     `json:"id"`
+	ProductID        uuid.UUID     `json:"productId"`
+	Name             string        `json:"name"`
+	Quantity         int           `json:"quantity"`
 	UnitPrice        MoneyResponse `json:"unitPrice"`
 	Total            MoneyResponse `json:"total"`
-	Customizations   *string    `json:"customizations,omitempty"`
-	SubstitutionPref *string    `json:"substitutionPreference,omitempty"`
+	WeightKg         float64       `json:"weightKg,omitempty"`
+	SizeCategory     string        `json:"sizeCategory,omitempty"`
+	Customizations   *string       `json:"customizations,omitempty"`
+	SubstitutionPref *string       `json:"substitutionPreference,omitempty"`
 }
 
 type OrderResponse struct {
@@ -110,6 +120,8 @@ func OrderFromModel(o *model.Order) OrderResponse {
 			Quantity:         item.Quantity,
 			UnitPrice:        MoneyResponse{Amount: item.UnitPriceKobo, Currency: "NGN"},
 			Total:            MoneyResponse{Amount: item.TotalKobo, Currency: "NGN"},
+			WeightKg:         item.WeightKg,
+			SizeCategory:     item.SizeCategory,
 			Customizations:   item.Customizations,
 			SubstitutionPref: item.SubstitutionPref,
 		}

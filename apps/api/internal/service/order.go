@@ -36,6 +36,8 @@ type OrderItemInput struct {
 	Name             string
 	Quantity         int
 	UnitPriceKobo    int64
+	WeightKg         float64
+	SizeCategory     string
 	Customizations   *string
 	SubstitutionPref *string
 }
@@ -110,6 +112,8 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 				Quantity:         item.Quantity,
 				UnitPriceKobo:    item.UnitPriceKobo,
 				TotalKobo:        item.UnitPriceKobo * int64(item.Quantity),
+				WeightKg:         item.WeightKg,
+				SizeCategory:     item.SizeCategory,
 				Customizations:   item.Customizations,
 				SubstitutionPref: item.SubstitutionPref,
 			})
