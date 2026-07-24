@@ -41,6 +41,7 @@ type PricingQuote struct {
 	MerchantID      uuid.UUID `gorm:"type:uuid;not null"`
 	DistanceKm      float64
 	ETAMinutes      int       // driving time from OSRM + pickup buffer
+	StopCount       int       `gorm:"default:1"` // multi-drop package orders: number of dropoff stops
 	WeightKg        float64   // package vertical only
 	SizeCategory    string    `gorm:"type:varchar(10)"` // small|medium|large
 	SubtotalKobo    int64
@@ -98,8 +99,10 @@ type Order struct {
 	TipKobo           int64       `gorm:"default:0"`
 	TotalKobo         int64
 	DeliveryAddressID uuid.UUID   `gorm:"type:uuid;not null"`
-	RecipientName     *string     `gorm:"type:text"`
-	RecipientPhone    *string     `gorm:"type:text"`
+	// AES-GCM ciphertext (base64) — never expose these columns directly in an
+	// API response. Decrypt only for an authorized reader via OrderService.
+	RecipientNameEnc  *string     `gorm:"column:recipient_name_enc;type:text"`
+	RecipientPhoneEnc *string     `gorm:"column:recipient_phone_enc;type:text"`
 	PrescriptionID    *uuid.UUID  `gorm:"type:uuid"`
 	ScheduledFor      *time.Time
 	EstimatedAt       *time.Time
@@ -141,16 +144,18 @@ type OrderEvent struct {
 }
 
 type OrderStop struct {
-	ID             uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	OrderID        uuid.UUID  `gorm:"type:uuid;not null;index"`
-	Sequence       int        `gorm:"not null"`
-	AddressID      uuid.UUID  `gorm:"type:uuid;not null"`
-	RecipientName  *string    `gorm:"type:text"`
-	RecipientPhone *string    `gorm:"type:text"`
-	Notes          *string    `gorm:"type:text"`
-	QRCode         string     `gorm:"not null"` // signed paycode per stop
-	Status         string     `gorm:"default:'pending'"` // pending|confirmed|skipped
-	ConfirmedAt    *time.Time
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	OrderID   uuid.UUID `gorm:"type:uuid;not null;index"`
+	Sequence  int       `gorm:"not null"`
+	AddressID uuid.UUID `gorm:"type:uuid;not null"`
+	// AES-GCM ciphertext (base64) — never expose directly in an API response.
+	// Decrypt only for the assigned driver, on the active stop, while in transit.
+	RecipientNameEnc  *string    `gorm:"column:recipient_name_enc;type:text"`
+	RecipientPhoneEnc *string    `gorm:"column:recipient_phone_enc;type:text"`
+	Notes             *string    `gorm:"type:text"`
+	QRCode            string     `gorm:"not null"`          // signed paycode per stop
+	Status            string     `gorm:"default:'pending'"` // pending|confirmed|skipped
+	ConfirmedAt       *time.Time
 }
 
 type Prescription struct {
@@ -495,6 +500,7 @@ type FeeConfig struct {
 	BaseFeeKobo      int64     `gorm:"not null"                                      json:"baseFeeKobo"`
 	PerKmKobo        int64     `gorm:"not null;default:0"                            json:"perKmKobo"`
 	PerKgKobo        int64     `gorm:"not null;default:0"                            json:"perKgKobo"`
+	PerStopKobo      int64     `gorm:"not null;default:0"                            json:"perStopKobo"`
 	ServicePct       float64   `gorm:"not null"                                      json:"servicePct"`
 	MerchantTakeRate float64   `gorm:"not null"                                      json:"merchantTakeRate"`
 	DriverTakeRate   float64   `gorm:"not null"                                      json:"driverTakeRate"`

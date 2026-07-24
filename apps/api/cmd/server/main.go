@@ -16,6 +16,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 	"github.com/speedplus/api/internal/config"
+	"github.com/speedplus/api/internal/crypto"
 	"github.com/speedplus/api/internal/db"
 	"github.com/speedplus/api/internal/email"
 	"github.com/speedplus/api/internal/handler"
@@ -97,6 +98,15 @@ func main() {
 	walletSvc := service.NewWalletService(gormDB, ledgerSvc, authSvc, paystackProvider, emailClient, userRepo)
 	deliveryCodeSvc := service.NewDeliveryCodeService(gormDB, deliveryCodeRepo)
 	orderSvc.InjectDeliveryCodes(deliveryCodeSvc)
+	if len(cfg.EncryptionKey) == 32 {
+		if recipientCipher, err := crypto.NewCipher([]byte(cfg.EncryptionKey)); err == nil {
+			orderSvc.InjectRecipientCipher(recipientCipher)
+		} else {
+			slog.Error("recipient cipher init failed — package orders with recipient PII will error", "error", err)
+		}
+	} else if cfg.Environment != "production" {
+		slog.Warn("ENCRYPTION_KEY not set (or not 32 bytes) — recipient PII encryption disabled; package orders with recipient data will fail")
+	}
 	loyaltySvc := service.NewLoyaltyService(gormDB)
 	referralSvc := service.NewReferralService(gormDB, ledgerSvc, loyaltySvc)
 	authSvc.InjectReferrals(referralSvc)
@@ -252,6 +262,7 @@ func main() {
 
 	// Quotes
 	authed.POST("/quotes", pricingH.Quote)
+	authed.POST("/quotes/multistop", pricingH.QuoteMultiStop)
 
 	// Orders
 	orders := authed.Group("/orders")

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/speedplus/api/internal/crypto"
 	"github.com/speedplus/api/internal/model"
 	"gorm.io/gorm"
 )
@@ -62,13 +63,14 @@ type OrderItemInput struct {
 }
 
 type OrderService struct {
-	db             *gorm.DB
-	pricing        *PricingService
-	ledger         *LedgerService
-	tier           *TierService
-	dispatch       *DispatchService
-	hub            wsPublisher
-	deliveryCodes  *DeliveryCodeService
+	db            *gorm.DB
+	pricing       *PricingService
+	ledger        *LedgerService
+	tier          *TierService
+	dispatch      *DispatchService
+	hub           wsPublisher
+	deliveryCodes *DeliveryCodeService
+	recipients    *crypto.Cipher // encrypts/decrypts recipient name+phone at rest
 }
 
 // wsPublisher is the subset of ws.Hub used by OrderService.
@@ -87,6 +89,26 @@ func (s *OrderService) InjectDispatch(d *DispatchService, hub wsPublisher) {
 
 func (s *OrderService) InjectDeliveryCodes(dc *DeliveryCodeService) {
 	s.deliveryCodes = dc
+}
+
+// InjectRecipientCipher wires the AES-GCM cipher used to encrypt/decrypt
+// recipient name+phone. Required before any order carrying recipient data is
+// created — see encryptRecipient.
+func (s *OrderService) InjectRecipientCipher(c *crypto.Cipher) {
+	s.recipients = c
+}
+
+// encryptRecipient encrypts a recipient PII field for storage. nil in, nil
+// out. If the field is set but no cipher is configured, this fails loudly
+// rather than ever writing plaintext under an "_enc" column.
+func (s *OrderService) encryptRecipient(v *string) (*string, error) {
+	if v == nil {
+		return nil, nil
+	}
+	if s.recipients == nil {
+		return nil, fmt.Errorf("recipient encryption not configured")
+	}
+	return s.recipients.EncryptPtr(v)
 }
 
 func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.Order, error) {
@@ -126,6 +148,15 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 		return nil, ErrPODNotYetEnabled
 	}
 
+	recipientNameEnc, err := s.encryptRecipient(in.RecipientName)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt recipient name: %w", err)
+	}
+	recipientPhoneEnc, err := s.encryptRecipient(in.RecipientPhone)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt recipient phone: %w", err)
+	}
+
 	var order *model.Order
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Check merchant is open + KYC approved
@@ -150,8 +181,8 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 			TipKobo:           in.TipKobo,
 			TotalKobo:         quote.TotalKobo + in.TipKobo,
 			DeliveryAddressID: in.DeliveryAddrID,
-			RecipientName:     in.RecipientName,
-			RecipientPhone:    in.RecipientPhone,
+			RecipientNameEnc:  recipientNameEnc,
+			RecipientPhoneEnc: recipientPhoneEnc,
 			PrescriptionID:    in.PrescriptionID,
 			ScheduledFor:      in.ScheduledFor,
 			PaymentMethod:     "wallet",
@@ -188,17 +219,30 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 
 		// Multi-drop stops (package vertical)
 		for _, stop := range in.Stops {
+			stopNameEnc, err := s.encryptRecipient(stop.RecipientName)
+			if err != nil {
+				return fmt.Errorf("encrypt stop %d recipient name: %w", stop.Sequence, err)
+			}
+			stopPhoneEnc, err := s.encryptRecipient(stop.RecipientPhone)
+			if err != nil {
+				return fmt.Errorf("encrypt stop %d recipient phone: %w", stop.Sequence, err)
+			}
 			order.Stops = append(order.Stops, model.OrderStop{
-				ID:             uuid.New(),
-				OrderID:        order.ID,
-				Sequence:       stop.Sequence,
-				AddressID:      stop.AddressID,
-				RecipientName:  stop.RecipientName,
-				RecipientPhone: stop.RecipientPhone,
-				Notes:          stop.Notes,
-				QRCode:         "", // generated when order transitions to in_transit
-				Status:         "pending",
+				ID:                uuid.New(),
+				OrderID:           order.ID,
+				Sequence:          stop.Sequence,
+				AddressID:         stop.AddressID,
+				RecipientNameEnc:  stopNameEnc,
+				RecipientPhoneEnc: stopPhoneEnc,
+				Notes:             stop.Notes,
+				QRCode:            "", // generated when order transitions to in_transit
+				Status:            "pending",
 			})
+		}
+		if len(in.Stops) > 0 {
+			if err := tx.Create(&order.Stops).Error; err != nil {
+				return fmt.Errorf("create stops: %w", err)
+			}
 		}
 
 		// Escrow hold — debit customer wallet
@@ -381,14 +425,82 @@ func (s *OrderService) Cancel(ctx context.Context, orderID, actorID uuid.UUID, a
 	})
 }
 
-// GetStops returns all stops for a multi-drop package order, ordered by sequence.
-func (s *OrderService) GetStops(ctx context.Context, orderID uuid.UUID) ([]model.OrderStop, error) {
+// OrderStopOut is the API-facing view of a stop. Recipient fields are only
+// ever populated by GetStops when the caller is authorized to see them — the
+// encrypted columns never leave the service layer.
+type OrderStopOut struct {
+	ID             uuid.UUID  `json:"id"`
+	OrderID        uuid.UUID  `json:"orderId"`
+	Sequence       int        `json:"sequence"`
+	AddressID      uuid.UUID  `json:"addressId"`
+	RecipientName  *string    `json:"recipientName,omitempty"`
+	RecipientPhone *string    `json:"recipientPhone,omitempty"`
+	Notes          *string    `json:"notes,omitempty"`
+	Status         string     `json:"status"`
+	ConfirmedAt    *time.Time `json:"confirmedAt,omitempty"`
+}
+
+// GetStops returns all stops for a multi-drop package order, ordered by
+// sequence, with recipient PII decrypted only for an authorized caller:
+//   - the order's own customer, or an admin: every stop's recipient is visible
+//     (it's the sender's own data / needed for dispute resolution)
+//   - the assigned driver, while the order is in_transit: only the next
+//     unconfirmed stop's recipient is visible — never past or future stops,
+//     never after delivery. This is the "only for the active stop" rule.
+//   - anyone else: recipient fields are omitted entirely.
+func (s *OrderService) GetStops(ctx context.Context, orderID, requesterID uuid.UUID, requesterRole string) ([]OrderStopOut, error) {
+	var order model.Order
+	if err := s.db.WithContext(ctx).First(&order, orderID).Error; err != nil {
+		return nil, err
+	}
+
 	var stops []model.OrderStop
-	err := s.db.WithContext(ctx).
+	if err := s.db.WithContext(ctx).
 		Where("order_id = ?", orderID).
 		Order("sequence ASC").
-		Find(&stops).Error
-	return stops, err
+		Find(&stops).Error; err != nil {
+		return nil, err
+	}
+
+	// The active stop for a driver: lowest-sequence stop not yet confirmed/skipped.
+	var activeStopID uuid.UUID
+	for _, st := range stops {
+		if st.Status != "confirmed" && st.Status != "skipped" {
+			activeStopID = st.ID
+			break
+		}
+	}
+
+	isOwnerOrAdmin := requesterRole == "admin" || (requesterRole == "customer" && order.CustomerID == requesterID)
+	isAssignedDriver := requesterRole == "driver" && order.DriverID != nil && *order.DriverID == requesterID
+
+	out := make([]OrderStopOut, 0, len(stops))
+	for _, st := range stops {
+		view := OrderStopOut{
+			ID:          st.ID,
+			OrderID:     st.OrderID,
+			Sequence:    st.Sequence,
+			AddressID:   st.AddressID,
+			Notes:       st.Notes,
+			Status:      st.Status,
+			ConfirmedAt: st.ConfirmedAt,
+		}
+
+		canSeeRecipient := isOwnerOrAdmin ||
+			(isAssignedDriver && order.Status == model.OrderInTransit && st.ID == activeStopID)
+
+		if canSeeRecipient && s.recipients != nil {
+			if name, err := s.recipients.DecryptPtr(st.RecipientNameEnc); err == nil {
+				view.RecipientName = name
+			}
+			if phone, err := s.recipients.DecryptPtr(st.RecipientPhoneEnc); err == nil {
+				view.RecipientPhone = phone
+			}
+		}
+
+		out = append(out, view)
+	}
+	return out, nil
 }
 
 // ConfirmStop marks a single stop as confirmed using the per-stop delivery code.

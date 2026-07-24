@@ -157,7 +157,7 @@ func (h *OrderHandler) GetStops(c *gin.Context) {
 		return
 	}
 
-	stops, err := h.orders.GetStops(c.Request.Context(), orderID)
+	stops, err := h.orders.GetStops(c.Request.Context(), orderID, requesterID, requesterRole)
 	if err != nil {
 		internalError(c, err)
 		return

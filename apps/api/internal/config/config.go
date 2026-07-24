@@ -45,6 +45,8 @@ type Config struct {
 
 	PINThresholdKobo int64 // require PIN above this amount
 
+	EncryptionKey string // 32-byte key (raw) for AES-GCM field encryption of recipient PII
+
 	Environment string // "development" | "production"
 }
 
@@ -77,6 +79,7 @@ func Load() (*Config, error) {
 		SendbyteAPIKey:     getEnv("SENDBYTE_API_KEY", ""),
 		SendbyteFromAddr:   getEnv("SENDBYTE_FROM_ADDRESS", "SpeedPlus <noreply@speedplus.app>"),
 		PINThresholdKobo:   int64(getEnvInt("PIN_THRESHOLD_KOBO", 5000000)), // ₦50,000
+		EncryptionKey:      getEnv("ENCRYPTION_KEY", ""),
 		Environment:        getEnv("ENVIRONMENT", "development"),
 	}
 
@@ -98,6 +101,13 @@ func Load() (*Config, error) {
 				return nil, fmt.Errorf("required env var %s is not set in production", k)
 			}
 		}
+	}
+
+	// ENCRYPTION_KEY protects recipient PII (name/phone) at rest. Missing or
+	// wrong-sized in production means every package order would either fail
+	// to encrypt or fall back to plaintext — fail fast at boot instead.
+	if cfg.Environment == "production" && len(cfg.EncryptionKey) != 32 {
+		return nil, fmt.Errorf("ENCRYPTION_KEY must be set to exactly 32 bytes in production")
 	}
 
 	return cfg, nil
