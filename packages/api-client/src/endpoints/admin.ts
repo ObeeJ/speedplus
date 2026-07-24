@@ -77,6 +77,30 @@ export interface CancellationRule {
   fullRefund: boolean;
 }
 
+export interface FeeConfig {
+  id: string;
+  vertical: string;
+  baseFeeKobo: number;
+  perKmKobo: number;
+  perKgKobo: number;
+  servicePct: number;
+  merchantTakeRate: number;
+  driverTakeRate: number;
+  platformTakeRate: number;
+  fuelPriceRefKobo: number;
+  effectiveAt: string;
+  updatedBy: string;
+  reason: string;
+  createdAt: string;
+}
+
+export interface FuelSuggestion {
+  prevFuelKobo: number;
+  newFuelKobo: number;
+  currentPerKmKobo: number;
+  suggestedPerKmKobo: number;
+}
+
 export interface LedgerEntry {
   id: string;
   journalId: string;
@@ -189,6 +213,22 @@ export const adminApi = {
 
   async deleteCancellationRule(id: string) {
     const { data } = await apiClient.delete<ApiResponse<{ message: string }>>(`/admin/settings/cancellation-rules/${id}`);
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
+  // Fee configs (pricing engine)
+  async listFeeConfigs() {
+    const { data } = await apiClient.get<ApiResponse<{ configs: FeeConfig[] }>>('/admin/settings/fees');
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
+  async upsertFeeConfig(config: Omit<FeeConfig, 'id' | 'effectiveAt' | 'updatedBy' | 'createdAt'>) {
+    const { data } = await apiClient.put<ApiResponse<{ config: FeeConfig; fuelSuggestion: FuelSuggestion | null }>>(
+      '/admin/settings/fees',
+      config,
+    );
     if (!data.success) throw new Error(data.error.message);
     return data.data;
   },

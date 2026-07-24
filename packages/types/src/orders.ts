@@ -47,10 +47,21 @@ export interface OrderItem {
 
 export interface CreateOrderPayload {
   merchantId: string;
+  quoteId?: string; // required for package; other verticals will add quote step
   vertical: Vertical;
-  items: Array<{ productId: string; quantity: number; customizations?: string }>;
+  items: Array<{
+    productId: string;
+    name?: string;
+    quantity: number;
+    unitPriceKobo?: number;
+    weightKg?: number;
+    sizeCategory?: string;
+    customizations?: string;
+    substitutionPreference?: string;
+  }>;
   deliveryAddressId: string;
-  tip?: number;
+  paymentMethod?: string;
+  tipKobo?: number;
   scheduledFor?: string;
   prescriptionId?: string;
 }

@@ -1,4 +1,4 @@
-export { apiClient, setAuthToken } from './client';
+export { apiClient, setAuthToken, setRefreshToken, getRefreshToken } from './client';
 export { SpeedPlusError } from './errors';
 
 // Auth & users
@@ -50,4 +50,6 @@ export type {
   OrderEvent,
   CancellationRule,
   LedgerEntry,
+  FeeConfig,
+  FuelSuggestion,
 } from './endpoints/admin';

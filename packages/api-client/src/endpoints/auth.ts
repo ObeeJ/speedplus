@@ -1,8 +1,8 @@
 import type { ApiResponse, User } from '@speedplus/types';
-import { apiClient, setAuthToken } from '../client';
+import { apiClient, setAuthToken, setRefreshToken } from '../client';
 
 interface LoginPayload { phone: string; password: string }
-interface RegisterPayload { firstName: string; lastName: string; phone: string; password: string }
+interface RegisterPayload { firstName: string; lastName: string; phone: string; password: string; referralCode?: string }
 interface AuthTokens { accessToken: string; refreshToken: string; user: User }
 
 export const authApi = {
@@ -10,6 +10,7 @@ export const authApi = {
     const { data } = await apiClient.post<ApiResponse<AuthTokens>>('/auth/login', payload);
     if (!data.success) throw new Error(data.error.message);
     setAuthToken(data.data.accessToken);
+    setRefreshToken(data.data.refreshToken);
     return data.data;
   },
 
@@ -17,12 +18,14 @@ export const authApi = {
     const { data } = await apiClient.post<ApiResponse<AuthTokens>>('/auth/register', payload);
     if (!data.success) throw new Error(data.error.message);
     setAuthToken(data.data.accessToken);
+    setRefreshToken(data.data.refreshToken);
     return data.data;
   },
 
   async logout(): Promise<void> {
     await apiClient.post('/auth/logout');
     setAuthToken(null);
+    setRefreshToken(null);
   },
 
   async verifyOtp(phone: string, otp: string): Promise<{ verified: boolean }> {

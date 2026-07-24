@@ -22,10 +22,11 @@ export const paycodesApi = {
     return data.data;
   },
 
-  async confirmByCode(orderId: string, code: string) {
+  async confirmByCode(orderId: string, code: string, coords?: { lat: number; lng: number }) {
     const { data } = await apiClient.post<ApiResponse<{ message: string }>>('/paycodes/confirm-code', {
       orderId,
       code,
+      ...(coords ?? {}),
     });
     if (!data.success) throw new Error(data.error.message);
     return data.data;
