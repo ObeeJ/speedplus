@@ -18,6 +18,12 @@ type CatalogRepo interface {
 	CreatePrescription(ctx context.Context, p *model.Prescription) error
 	GetPrescription(ctx context.Context, id, customerID uuid.UUID) (*model.Prescription, error)
 	ListPrescriptions(ctx context.Context, customerID uuid.UUID) ([]model.Prescription, error)
+
+	// Merchant catalog management. ListProductsForMerchant includes
+	// unavailable items (unlike ListProducts, which is the public/customer view).
+	CreateProduct(ctx context.Context, p *model.Product) error
+	UpdateProduct(ctx context.Context, p *model.Product) error
+	ListProductsForMerchant(ctx context.Context, merchantID uuid.UUID) ([]model.Product, error)
 }
 
 type catalogRepo struct{ db *gorm.DB }
@@ -95,4 +101,21 @@ func (r *catalogRepo) ListPrescriptions(ctx context.Context, customerID uuid.UUI
 		Order("created_at DESC").
 		Find(&prescriptions).Error
 	return prescriptions, err
+}
+
+func (r *catalogRepo) CreateProduct(ctx context.Context, p *model.Product) error {
+	return r.db.WithContext(ctx).Create(p).Error
+}
+
+func (r *catalogRepo) UpdateProduct(ctx context.Context, p *model.Product) error {
+	return r.db.WithContext(ctx).Save(p).Error
+}
+
+func (r *catalogRepo) ListProductsForMerchant(ctx context.Context, merchantID uuid.UUID) ([]model.Product, error) {
+	var products []model.Product
+	err := r.db.WithContext(ctx).
+		Where("merchant_id = ?", merchantID).
+		Order("created_at DESC").
+		Find(&products).Error
+	return products, err
 }

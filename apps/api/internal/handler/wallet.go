@@ -32,7 +32,13 @@ func NewWalletHandler(wallet *service.WalletService, ledger *service.LedgerServi
 
 func (h *WalletHandler) GetBalance(c *gin.Context) {
 	userID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
-	bal, err := h.ledger.GetBalance(c.Request.Context(), userID)
+	role := c.GetString(middleware.CtxUserRole)
+	ownerID, err := h.ledger.ResolveWalletOwner(c.Request.Context(), userID, role)
+	if err != nil {
+		internalError(c, err)
+		return
+	}
+	bal, err := h.ledger.GetBalance(c.Request.Context(), ownerID)
 	if err != nil {
 		internalError(c, err)
 		return
@@ -45,6 +51,12 @@ func (h *WalletHandler) GetBalance(c *gin.Context) {
 
 func (h *WalletHandler) GetTransactions(c *gin.Context) {
 	userID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	role := c.GetString(middleware.CtxUserRole)
+	ownerID, err := h.ledger.ResolveWalletOwner(c.Request.Context(), userID, role)
+	if err != nil {
+		internalError(c, err)
+		return
+	}
 
 	var cursor *uuid.UUID
 	if raw := c.Query("cursor"); raw != "" {
@@ -55,7 +67,7 @@ func (h *WalletHandler) GetTransactions(c *gin.Context) {
 	}
 	limit := 20
 
-	entries, err := h.ledger.GetTransactions(c.Request.Context(), userID, cursor, limit)
+	entries, err := h.ledger.GetTransactions(c.Request.Context(), ownerID, cursor, limit)
 	if err != nil {
 		internalError(c, err)
 		return

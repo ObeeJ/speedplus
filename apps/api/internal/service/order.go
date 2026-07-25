@@ -328,11 +328,37 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 
 // Transition moves an order through the state machine.
 // Returns 409-equivalent error on illegal transition.
+// Transition moves an order through the state machine. actorID must be the
+// *business-entity* ID for the actor's role, not their login user ID — i.e.
+// for a merchant, the resolved model.Merchant.ID (see LedgerService.ResolveWalletOwner
+// for the same wrinkle on the wallet side); for a driver, order.DriverID
+// already IS the login user ID. Callers must resolve that before invoking.
 func (s *OrderService) Transition(ctx context.Context, orderID, actorID uuid.UUID, actorRole string, to model.OrderStatus, note *string) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var order model.Order
 		if err := tx.Clauses(/* FOR UPDATE */ ).First(&order, orderID).Error; err != nil {
 			return err
+		}
+
+		// Row-level ownership — fail closed. Without this, any authenticated
+		// caller could transition any order's status by ID (BOLA).
+		switch actorRole {
+		case "merchant":
+			if order.MerchantID != actorID {
+				return errors.New("forbidden")
+			}
+		case "driver":
+			if order.DriverID == nil || *order.DriverID != actorID {
+				return errors.New("forbidden")
+			}
+		case "customer":
+			if order.CustomerID != actorID {
+				return errors.New("forbidden")
+			}
+		case "admin":
+			// admin may transition any order
+		default:
+			return errors.New("forbidden")
 		}
 
 		allowed := model.ValidTransitions[order.Status]
@@ -517,6 +543,26 @@ type OrderStopOut struct {
 	Notes          *string    `json:"notes,omitempty"`
 	Status         string     `json:"status"`
 	ConfirmedAt    *time.Time `json:"confirmedAt,omitempty"`
+}
+
+// ListForMerchant returns the merchant's order queue, newest first, optionally
+// filtered by status (e.g. "pending" for the incoming-orders tab). merchantID
+// is the resolved model.Merchant.ID (business entity), not the login user ID.
+func (s *OrderService) ListForMerchant(ctx context.Context, merchantID uuid.UUID, status string, cursor *uuid.UUID, limit int) ([]model.Order, error) {
+	q := s.db.WithContext(ctx).
+		Preload("Items").
+		Where("merchant_id = ?", merchantID).
+		Order("created_at DESC").
+		Limit(limit)
+	if status != "" {
+		q = q.Where("status = ?", status)
+	}
+	if cursor != nil {
+		q = q.Where("id < ?", *cursor)
+	}
+	var orders []model.Order
+	err := q.Find(&orders).Error
+	return orders, err
 }
 
 // GetStops returns all stops for a multi-drop package order, ordered by
