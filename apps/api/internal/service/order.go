@@ -8,7 +8,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/crypto"
+	"github.com/speedplus/api/internal/dto"
 	"github.com/speedplus/api/internal/model"
+	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
 )
 
@@ -71,6 +73,13 @@ type OrderService struct {
 	hub           wsPublisher
 	deliveryCodes *DeliveryCodeService
 	recipients    *crypto.Cipher // encrypts/decrypts recipient name+phone at rest
+	email         orderEmailSender
+	users         repo.UserRepo
+}
+
+// orderEmailSender is the subset of email.Client used by OrderService.
+type orderEmailSender interface {
+	SendDeliveryCode(ctx context.Context, toEmail, firstName, code, orderID string)
 }
 
 // wsPublisher is the subset of ws.Hub used by OrderService.
@@ -89,6 +98,13 @@ func (s *OrderService) InjectDispatch(d *DispatchService, hub wsPublisher) {
 
 func (s *OrderService) InjectDeliveryCodes(dc *DeliveryCodeService) {
 	s.deliveryCodes = dc
+}
+
+// InjectEmail wires the email client and user repo so Transition can send
+// the delivery code to the customer when the order goes in_transit.
+func (s *OrderService) InjectEmail(e orderEmailSender, u repo.UserRepo) {
+	s.email = e
+	s.users = u
 }
 
 // InjectRecipientCipher wires the AES-GCM cipher used to encrypt/decrypt
@@ -323,8 +339,8 @@ func (s *OrderService) Transition(ctx context.Context, orderID, actorID uuid.UUI
 
 		allowed := model.ValidTransitions[order.Status]
 		valid := false
-		for _, s := range allowed {
-			if s == to {
+		for _, st := range allowed {
+			if st == to {
 				valid = true
 				break
 			}
@@ -344,7 +360,7 @@ func (s *OrderService) Transition(ctx context.Context, orderID, actorID uuid.UUI
 			return err
 		}
 
-		return tx.Create(&model.OrderEvent{
+		if err := tx.Create(&model.OrderEvent{
 			ID:         uuid.New(),
 			OrderID:    orderID,
 			FromStatus: from,
@@ -352,7 +368,39 @@ func (s *OrderService) Transition(ctx context.Context, orderID, actorID uuid.UUI
 			ActorID:    actorID,
 			ActorRole:  actorRole,
 			Note:       note,
-		}).Error
+		}).Error; err != nil {
+			return err
+		}
+
+		// When order goes in_transit: generate delivery code and send to customer.
+		// Done inside the transaction so a failed code generation rolls back the
+		// transition — the driver cannot proceed without a code the customer has.
+		if to == model.OrderInTransit && s.deliveryCodes != nil {
+			code, err := s.deliveryCodes.Generate(ctx, orderID)
+			if err != nil {
+				return fmt.Errorf("delivery code generate: %w", err)
+			}
+			// Send code to customer — best-effort, non-blocking after tx commits.
+			if s.email != nil && s.users != nil {
+				go func(customerID uuid.UUID, c, oid string) {
+					u, err := s.users.FindByID(context.Background(), customerID)
+					if err != nil || u.Email == nil {
+						return
+					}
+					s.email.SendDeliveryCode(context.Background(), *u.Email, u.FirstName, c, oid)
+				}(order.CustomerID, code, orderID.String())
+			}
+			// Also push the code to the customer via WS so the app shows it immediately.
+			if s.hub != nil {
+				_ = s.hub.Publish(ctx,
+					"order:"+orderID.String(),
+					"delivery_code",
+					map[string]interface{}{"code": code, "orderId": orderID},
+				)
+			}
+		}
+
+		return nil
 	})
 }
 
@@ -377,6 +425,33 @@ func (s *OrderService) GetByID(ctx context.Context, orderID, requesterID uuid.UU
 		}
 	}
 	return &order, nil
+}
+
+// ToResponse converts an Order to the API response shape, enriching with
+// driver profile data when a driver is assigned.
+func (s *OrderService) ToResponse(ctx context.Context, o *model.Order) dto.OrderResponse {
+	resp := dto.OrderFromModel(o)
+	if o.DriverID == nil {
+		return resp
+	}
+	// Best-effort driver enrichment — never blocks the response.
+	var dp model.DriverProfile
+	if err := s.db.WithContext(ctx).Where("user_id = ?", o.DriverID).First(&dp).Error; err != nil {
+		return resp
+	}
+	var u model.User
+	if err := s.db.WithContext(ctx).First(&u, o.DriverID).Error; err != nil {
+		return resp
+	}
+	name := u.FirstName + " " + u.LastName
+	vehicle := string(dp.VehicleType)
+	resp.DriverName = &name
+	resp.DriverRating = &dp.Rating
+	resp.DriverVehicle = &vehicle
+	if u.Phone != "" {
+		resp.DriverPhone = &u.Phone
+	}
+	return resp
 }
 
 // Cancel handles cancellation with the refund engine.

@@ -83,6 +83,21 @@ func (c *Client) SendOrderConfirmed(ctx context.Context, toEmail, firstName, ord
 	})
 }
 
+func (c *Client) SendDeliveryCode(ctx context.Context, toEmail, firstName, code, orderID string) {
+	c.send(ctx, sendbyte.SendEmailRequest{
+		From:    c.from,
+		To:      []string{toEmail},
+		Subject: "Your SpeedPlus delivery code",
+		HTML: fmt.Sprintf(`<p>Hi %s,</p>
+<p>Your rider is on the way. Share this code with whoever is collecting your package:</p>
+<p style="font-size:36px;font-weight:bold;letter-spacing:10px;text-align:center;">%s</p>
+<p>The code expires in 2 hours. Do not share it until the rider arrives.</p>`,
+			firstName, code),
+		Text:           fmt.Sprintf("Hi %s,\n\nYour delivery code: %s\n\nShare with whoever is collecting. Expires in 2 hours.", firstName, code),
+		IdempotencyKey: "delivery-code-" + orderID,
+	})
+}
+
 func (c *Client) SendOrderDelivered(ctx context.Context, toEmail, firstName, orderID, merchantName string, totalKobo int64) {
 	c.send(ctx, sendbyte.SendEmailRequest{
 		From:    c.from,

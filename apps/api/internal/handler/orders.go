@@ -139,7 +139,9 @@ func (h *OrderHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, successResp(order))
+	// Enrich with driver profile when a driver is assigned.
+	resp := h.orders.ToResponse(c.Request.Context(), order)
+	c.JSON(http.StatusOK, successResp(resp))
 }
 
 func (h *OrderHandler) GetStops(c *gin.Context) {

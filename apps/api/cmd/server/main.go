@@ -112,6 +112,7 @@ func main() {
 	}
 	proofMediaSvc := service.NewProofMediaService(gormDB, r2Client)
 	orderSvc.InjectDeliveryCodes(deliveryCodeSvc)
+	orderSvc.InjectEmail(emailClient, userRepo)
 	if len(cfg.EncryptionKey) == 32 {
 		if recipientCipher, err := crypto.NewCipher([]byte(cfg.EncryptionKey)); err == nil {
 			orderSvc.InjectRecipientCipher(recipientCipher)

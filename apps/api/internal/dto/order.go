@@ -105,6 +105,10 @@ type OrderResponse struct {
 	CustomerID        uuid.UUID           `json:"customerId"`
 	MerchantID        uuid.UUID           `json:"merchantId"`
 	DriverID          *uuid.UUID          `json:"driverId,omitempty"`
+	DriverName        *string             `json:"driverName,omitempty"`
+	DriverRating      *float64            `json:"driverRating,omitempty"`
+	DriverVehicle     *string             `json:"driverVehicle,omitempty"`
+	DriverPhone       *string             `json:"driverPhone,omitempty"`
 	Vertical          string              `json:"vertical"`
 	Status            model.OrderStatus   `json:"status"`
 	Items             []OrderItemResponse `json:"items"`
