@@ -143,6 +143,7 @@ func main() {
 	})
 
 	workerHandlers := worker.NewHandlers(walletSvc, dispatchSvc, ledgerSvc, subscriptionSvc, onboardingSvc)
+	workerHandlers.InjectOrders(orderSvc)
 	asynqServer := worker.NewServer(cfg.RedisURL)
 	asynqMux := asynq.NewServeMux()
 	workerHandlers.Register(asynqMux)
