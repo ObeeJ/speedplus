@@ -1,124 +1,146 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { walletApi, cardApi } from '@speedplus/api-client';
+import { Skeleton } from '@speedplus/ui';
 
 function naira(kobo: number) {
   return `₦${(kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 0 })}`;
 }
 
-function TxRow({ tx }: { tx: { description: string; amountKobo: number; refType?: string; createdAt: string } }) {
-  const positive = tx.amountKobo > 0;
+function TxIcon({ positive }: { positive: boolean }) {
   return (
-    <div className="flex items-center gap-3 px-4 py-3 border-b border-[#EFECE3] last:border-0">
-      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${positive ? 'bg-tile' : 'bg-[#FEF2F2]'}`}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={positive ? '#0A3D2C' : '#DC2626'} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-          {positive
-            ? <path d="M12 19V5M5 12l7-7 7 7" />
-            : <path d="M12 5v14M5 12l7 7 7-7" />}
-        </svg>
-      </div>
-      <div className="flex-1 flex flex-col gap-0.5 min-w-0">
-        <span className="text-[13px] font-medium text-ink truncate">{tx.description}</span>
-        <span className="text-[11px] text-mid">{new Date(tx.createdAt).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-      </div>
-      <span className={`text-[13px] font-semibold flex-shrink-0 ${positive ? 'text-emerald' : 'text-[#DC2626]'}`}>
-        {positive ? '+' : ''}{naira(tx.amountKobo)}
-      </span>
+    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${positive ? 'bg-[#E9F3D8]' : 'bg-[#FEF2F2]'}`}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={positive ? '#0A3D2C' : '#DC2626'} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+        {positive
+          ? <><line x1="12" y1="19" x2="12" y2="5" /><polyline points="5 12 12 5 19 12" /></>
+          : <><line x1="12" y1="5" x2="12" y2="19" /><polyline points="19 12 12 19 5 12" /></>}
+      </svg>
     </div>
   );
 }
 
 export default function WalletPage() {
   const router = useRouter();
+  const [copied, setCopied] = useState(false);
 
-  const { data: balance, isLoading: balLoading } = useQuery({
-    queryKey: ['wallet-balance'],
-    queryFn: () => walletApi.getBalance(),
-    staleTime: 15_000,
-  });
+  const { data: balance, isLoading: balLoading } = useQuery({ queryKey: ['wallet-balance'], queryFn: () => walletApi.getBalance(), staleTime: 15_000 });
+  const { data: txData, isLoading: txLoading } = useQuery({ queryKey: ['wallet-transactions'], queryFn: () => walletApi.getTransactions(), staleTime: 30_000 });
+  const { data: dva } = useQuery({ queryKey: ['virtual-account'], queryFn: () => cardApi.getVirtualAccount(), staleTime: Infinity });
 
-  const { data: txData, isLoading: txLoading } = useQuery({
-    queryKey: ['wallet-transactions'],
-    queryFn: () => walletApi.getTransactions(),
-    staleTime: 30_000,
-  });
+  const transactions = (txData?.transactions ?? []) as Array<{ id: string; description: string; amountKobo: number; refType?: string; createdAt: string }>;
 
-  const { data: dva } = useQuery({
-    queryKey: ['virtual-account'],
-    queryFn: () => cardApi.getVirtualAccount(),
-    staleTime: Infinity,
-  });
-
-  const transactions = (txData?.transactions ?? []) as Array<{
-    id: string;
-    description: string;
-    amountKobo: number;
-    refType?: string;
-    createdAt: string;
-  }>;
+  function copyAccount() {
+    if (!dva) return;
+    navigator.clipboard?.writeText(dva.accountNumber).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  }
 
   return (
-    <main className="min-h-screen bg-sand flex flex-col">
+    <main className="min-h-screen bg-[#F7F5EF] flex flex-col">
       {/* Header */}
-      <div className="bg-emerald px-5 pt-12 pb-8 flex flex-col gap-1">
-        <span className="text-[11px] font-semibold text-sand/60 tracking-widest uppercase">Wallet balance</span>
-        {balLoading ? (
-          <div className="h-10 w-36 bg-sand/10 rounded-xl animate-pulse" />
-        ) : (
-          <span
-            className="font-display font-bold text-4xl text-lime"
-            style={{ animation: 'fadeUp 0.3s cubic-bezier(0.16,1,0.3,1) both' }}
+      <div className="bg-[#0A3D2C] px-5 pt-12 pb-8 relative overflow-hidden">
+        <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: 'radial-gradient(circle at 80% 20%, #C6F24E 0%, transparent 60%)' }} />
+        <div className="relative z-10">
+          <div className="flex items-center gap-3 mb-6">
+            <button onClick={() => router.back()} className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors" aria-label="Back">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
+            </button>
+            <h1 className="font-display font-semibold text-white text-[18px]">Wallet</h1>
+          </div>
+
+          <p className="text-[11px] font-semibold text-white/50 tracking-[0.8px] uppercase mb-1">Available balance</p>
+          {balLoading ? (
+            <Skeleton className="h-12 w-40 bg-white/10" />
+          ) : (
+            <p className="font-display font-bold text-[48px] text-[#C6F24E] leading-none" style={{ animation: 'fadeUp 0.3s cubic-bezier(0.16,1,0.3,1) both' }}>
+              {naira(balance?.balanceKobo ?? 0)}
+            </p>
+          )}
+
+          <button
+            onClick={() => router.push('/wallet/fund')}
+            className="mt-5 flex items-center gap-2 bg-[#C6F24E] text-[#0A3D2C] font-display font-semibold text-[13px] rounded-xl px-5 py-2.5 hover:bg-[#AEE032] transition-colors"
           >
-            {naira(balance?.balanceKobo ?? 0)}
-          </span>
-        )}
-        <button
-          onClick={() => router.push('/wallet/fund')}
-          className="mt-4 self-start font-display text-sm font-semibold text-emerald bg-lime rounded-[13px] px-6 py-2.5 hover:bg-lime-600 transition-colors"
-        >
-          Add money
-        </button>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Add money
+          </button>
+        </div>
       </div>
 
-      <div className="flex-1 px-5 py-5 flex flex-col gap-5 min-[700px]:max-w-[860px] min-[700px]:mx-auto min-[700px]:w-full">
+      <div className="flex-1 px-5 py-5 flex flex-col gap-5 max-w-[600px] mx-auto w-full">
 
-        {/* DVA — bank transfer details */}
+        {/* DVA */}
         {dva && (
-          <div className="bg-white border border-line rounded-2xl p-4 flex flex-col gap-2">
-            <span className="text-[11px] font-semibold text-mid tracking-widest uppercase">Fund via bank transfer</span>
-            <div className="flex items-center justify-between">
-              <div className="flex flex-col gap-0.5">
-                <span className="font-display font-bold text-xl text-ink tracking-wide">{dva.accountNumber}</span>
-                <span className="text-[12px] text-mid">{dva.bankName}</span>
+          <div className="bg-white rounded-2xl border border-[#E4E0D6] p-5 flex flex-col gap-3">
+            <p className="text-[11px] font-semibold text-[#9A968D] tracking-[0.7px] uppercase">Fund via bank transfer</p>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="font-display font-bold text-[22px] text-[#121216] tracking-wider">{dva.accountNumber}</p>
+                <p className="text-[12px] text-[#63636E] mt-0.5">{dva.bankName}</p>
               </div>
               <button
-                onClick={() => navigator.clipboard?.writeText(dva.accountNumber)}
-                className="text-[11px] font-semibold text-emerald border border-emerald/30 rounded-[10px] px-3 py-1.5 hover:bg-tile transition-colors"
+                onClick={copyAccount}
+                className={`flex items-center gap-1.5 text-[12px] font-semibold rounded-xl px-3.5 py-2 transition-all ${copied ? 'bg-[#E9F3D8] text-[#0A3D2C]' : 'border border-[#E4E0D6] text-[#63636E] hover:border-[#0A3D2C]/30 hover:text-[#0A3D2C]'}`}
               >
-                Copy
+                {copied ? (
+                  <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>Copied</>
+                ) : (
+                  <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>Copy</>
+                )}
               </button>
             </div>
-            <span className="text-[11px] text-mid">Transfer any amount — credited instantly.</span>
+            <p className="text-[11px] text-[#9A968D]">Transfer any amount — credited instantly to your wallet.</p>
           </div>
         )}
 
-        {/* Transaction history */}
-        <div className="flex flex-col gap-2">
-          <span className="text-[11px] font-semibold text-mid tracking-widest uppercase">Transactions</span>
-          <div className="bg-white border border-line rounded-2xl overflow-hidden">
+        {/* Transactions */}
+        <div className="flex flex-col gap-3">
+          <p className="text-[11px] font-semibold text-[#9A968D] tracking-[0.7px] uppercase">Transactions</p>
+          <div className="bg-white rounded-2xl border border-[#E4E0D6] overflow-hidden">
             {txLoading && (
-              <div className="flex flex-col gap-3 p-4">
+              <div className="p-4 flex flex-col gap-3">
                 {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-10 bg-line rounded-xl animate-pulse" />
+                  <div key={i} className="flex items-center gap-3">
+                    <Skeleton className="w-9 h-9 rounded-xl" />
+                    <div className="flex-1 flex flex-col gap-1.5">
+                      <Skeleton className="h-3.5 w-36" />
+                      <Skeleton className="h-3 w-20" />
+                    </div>
+                    <Skeleton className="h-4 w-16" />
+                  </div>
                 ))}
               </div>
             )}
             {!txLoading && transactions.length === 0 && (
-              <p className="px-4 py-6 text-sm text-mid text-center">No transactions yet.</p>
+              <div className="px-5 py-10 flex flex-col items-center gap-2 text-center">
+                <div className="w-10 h-10 rounded-xl bg-[#F7F5EF] flex items-center justify-center text-[#9A968D]">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="3" /><path d="M2 10h20" /></svg>
+                </div>
+                <p className="text-[13px] font-semibold text-[#121216]">No transactions yet</p>
+                <p className="text-[12px] text-[#63636E]">Add money to get started.</p>
+              </div>
             )}
-            {transactions.map((tx) => <TxRow key={tx.id} tx={tx} />)}
+            {transactions.map((tx, i) => {
+              const positive = tx.amountKobo > 0;
+              return (
+                <div key={tx.id} className={`flex items-center gap-3 px-4 py-3.5 ${i < transactions.length - 1 ? 'border-b border-[#F7F5EF]' : ''}`}>
+                  <TxIcon positive={positive} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-medium text-[#121216] truncate">{tx.description}</p>
+                    <p className="text-[11px] text-[#9A968D] mt-0.5">
+                      {new Date(tx.createdAt).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                  <p className={`text-[13px] font-semibold flex-shrink-0 ${positive ? 'text-[#0A3D2C]' : 'text-[#DC2626]'}`}>
+                    {positive ? '+' : ''}{naira(tx.amountKobo)}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
