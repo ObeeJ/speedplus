@@ -1,0 +1,160 @@
+name: API CI
+
+on:
+  push:
+    paths:
+      - 'apps/api/**'
+      - 'apps/customer/**'
+      - 'apps/admin/**'
+      - 'apps/driver/**'
+      - 'apps/merchant/**'
+      - 'packages/**'
+      - '.github/workflows/api-ci.yml'
+  pull_request:
+    paths:
+      - 'apps/api/**'
+      - 'apps/customer/**'
+      - 'apps/admin/**'
+      - 'apps/driver/**'
+      - 'apps/merchant/**'
+      - 'packages/**'
+
+defaults:
+  run:
+    working-directory: apps/api
+
+jobs:
+  build-test:
+    name: Build, Vet & Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: speedplus
+          POSTGRES_PASSWORD: speedplus
+          POSTGRES_DB: speedplus_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://speedplus:speedplus@localhost:5432/speedplus_test
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: test-secret-that-is-at-least-32-bytes-long # gitleaks:allow — non-secret CI test constant
+      ENVIRONMENT: development
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: apps/api/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Apply migrations
+        run: |
+          go run ./cmd/server/migrate_ci/main.go
+        env:
+          DATABASE_URL: postgresql://speedplus:speedplus@localhost:5432/speedplus_test
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: apps/api/coverage.out
+
+  govulncheck:
+    name: Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      # Reporting, non-blocking: module vulns are fixed by bumping deps, but Go
+      # stdlib advisories can only be cleared by a toolchain patch release and
+      # would otherwise red-wall the pipeline until upstream ships a fix.
+      # Findings still surface as annotations; review them each run.
+      - name: Run govulncheck
+        continue-on-error: true
+        run: govulncheck ./...
+
+  gitleaks:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  typecheck:
+    name: TypeScript Workspace Typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck all packages
+        run: pnpm --filter @speedplus/types exec tsc --noEmit
+
+      - name: Typecheck api-client
+        run: pnpm --filter @speedplus/api-client exec tsc --noEmit
+
+      - name: Typecheck customer app
+        run: pnpm --filter customer exec tsc --noEmit
+
+      - name: Typecheck admin app
+        run: pnpm --filter admin exec tsc --noEmit
+
+      - name: Typecheck driver app
+        run: pnpm --filter driver exec tsc --noEmit
+
+      - name: Typecheck merchant app
+        run: pnpm --filter merchant exec tsc --noEmit

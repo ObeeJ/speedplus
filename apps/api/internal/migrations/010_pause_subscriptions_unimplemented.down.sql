@@ -1,0 +1,2 @@
+-- Irreversible by design: we don't know which of these were paused by this
+-- migration vs. paused by the user beforehand. No-op down.

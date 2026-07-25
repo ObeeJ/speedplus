@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "preserve",
@@ -9,19 +13,41 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "esModuleInterop": true,
-    "declaration": true,
-    "declarationMap": true,
-    "composite": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"],
-      "@speedplus/ui": ["../../packages/ui/src/index.ts"],
-      "@speedplus/types": ["../../packages/types/src/index.ts"],
-      "@speedplus/api-client": ["../../packages/api-client/src/index.ts"],
-      "@speedplus/utils": ["../../packages/utils/src/index.ts"]
+      "@/*": [
+        "./*"
+      ],
+      "@speedplus/ui": [
+        "../../packages/ui/src/index.ts"
+      ],
+      "@speedplus/types": [
+        "../../packages/types/src/index.ts"
+      ],
+      "@speedplus/api-client": [
+        "../../packages/api-client/src/index.ts"
+      ],
+      "@speedplus/utils": [
+        "../../packages/utils/src/index.ts"
+      ]
     },
-    "plugins": [{ "name": "next" }]
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "allowJs": true,
+    "noEmit": true,
+    "incremental": true,
+    "resolveJsonModule": true
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }
