@@ -20,6 +20,7 @@ const (
 	TaskEscrowReconcile   = "ledger:escrow_reconcile"
 	TaskPlatformSnapshot  = "ledger:platform_snapshot"
 	TaskOnboardUser       = "user:onboard" // DVA + card + trust tier after registration
+	TaskPurgeRecipientPII = "order:purge_recipient_pii" // NDPR data-minimization
 )
 
 // ── Scheduler (cron) ──────────────────────────────────────────────────────────
@@ -38,6 +39,8 @@ func NewScheduler(redisURL string) *asynq.Scheduler {
 	s.Register("30 1 * * *", asynq.NewTask(TaskEscrowReconcile, nil))
 	// Platform balance snapshot — daily 03:00 WAT (02:00 UTC)
 	s.Register("0 2 * * *", asynq.NewTask(TaskPlatformSnapshot, nil))
+	// NDPR recipient PII purge — daily 04:00 WAT (03:00 UTC)
+	s.Register("0 3 * * *", asynq.NewTask(TaskPurgeRecipientPII, nil))
 
 	return s
 }
@@ -68,6 +71,7 @@ type Handlers struct {
 	dispatch      *service.DispatchService
 	ledger        *service.LedgerService
 	onboarding    onboardingRunner
+	orders        *service.OrderService
 }
 
 // onboardingRunner is the subset of ports.OnboardingRunner used by the worker.
@@ -79,6 +83,12 @@ func NewHandlers(wallet *service.WalletService, dispatch *service.DispatchServic
 	return &Handlers{wallet: wallet, dispatch: dispatch, ledger: ledger, subscriptions: subscriptions, onboarding: onboarding}
 }
 
+// InjectOrders wires OrderService after construction (avoids widening the
+// NewHandlers constructor for a single cron dependency).
+func (h *Handlers) InjectOrders(o *service.OrderService) {
+	h.orders = o
+}
+
 func (h *Handlers) Register(mux *asynq.ServeMux) {
 	mux.HandleFunc(TaskWeeklyPayout, h.handleWeeklyPayout)
 	mux.HandleFunc(TaskExpireOffers, h.handleExpireOffers)
@@ -87,6 +97,7 @@ func (h *Handlers) Register(mux *asynq.ServeMux) {
 	mux.HandleFunc(TaskEscrowReconcile, h.handleEscrowReconcile)
 	mux.HandleFunc(TaskPlatformSnapshot, h.handlePlatformSnapshot)
 	mux.HandleFunc(TaskOnboardUser, h.handleOnboardUser)
+	mux.HandleFunc(TaskPurgeRecipientPII, h.handlePurgeRecipientPII)
 }
 
 func (h *Handlers) handleWeeklyPayout(ctx context.Context, _ *asynq.Task) error {
@@ -125,6 +136,18 @@ func (h *Handlers) handleEscrowReconcile(ctx context.Context, _ *asynq.Task) err
 func (h *Handlers) handlePlatformSnapshot(ctx context.Context, _ *asynq.Task) error {
 	slog.Info("worker: platform balance snapshot starting")
 	return h.ledger.SnapshotPlatformBalances(ctx)
+}
+
+func (h *Handlers) handlePurgeRecipientPII(ctx context.Context, _ *asynq.Task) error {
+	if h.orders == nil {
+		return nil // not wired (e.g. tests) — skip rather than fail the whole worker
+	}
+	n, err := h.orders.PurgeStaleRecipientPII(ctx)
+	if err != nil {
+		return err
+	}
+	slog.Info("worker: purged stale recipient PII", "orders_purged", n)
+	return nil
 }
 
 // CashoutPayload is the typed payload for individual cashout tasks.

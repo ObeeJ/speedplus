@@ -660,3 +660,52 @@ func (s *OrderService) ConfirmStop(ctx context.Context, orderID, driverID uuid.U
 		return nil
 	})
 }
+
+// recipientPIIRetentionDays: recipient name/phone are third-party PII the
+// recipient never consented to us storing — the sender attests consent
+// per-order, not the recipient. NDPR data-minimization: purge once the
+// order is settled and no dispute is open.
+const recipientPIIRetentionDays = 30
+
+// PurgeStaleRecipientPII nulls recipient_*_enc on delivered orders older than
+// the retention window, skipping any order whose escrow hold is frozen (an
+// open dispute may still need the recipient's identity). Also purges the
+// same fields on that order's stops. Returns the number of orders purged.
+func (s *OrderService) PurgeStaleRecipientPII(ctx context.Context) (int64, error) {
+	cutoff := time.Now().AddDate(0, 0, -recipientPIIRetentionDays)
+
+	var orderIDs []uuid.UUID
+	err := s.db.WithContext(ctx).
+		Model(&model.Order{}).
+		Where("delivered_at IS NOT NULL AND delivered_at < ?", cutoff).
+		Where("recipient_name_enc IS NOT NULL OR recipient_phone_enc IS NOT NULL").
+		Where(`NOT EXISTS (
+			SELECT 1 FROM escrow_holds eh
+			WHERE eh.order_id = orders.id AND eh.status = ?
+		)`, model.EscrowFrozen).
+		Pluck("id", &orderIDs).Error
+	if err != nil {
+		return 0, fmt.Errorf("purge: find stale orders: %w", err)
+	}
+	if len(orderIDs) == 0 {
+		return 0, nil
+	}
+
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&model.Order{}).
+			Where("id IN ?", orderIDs).
+			Updates(map[string]interface{}{"recipient_name_enc": nil, "recipient_phone_enc": nil}).Error; err != nil {
+			return fmt.Errorf("purge orders: %w", err)
+		}
+		if err := tx.Model(&model.OrderStop{}).
+			Where("order_id IN ?", orderIDs).
+			Updates(map[string]interface{}{"recipient_name_enc": nil, "recipient_phone_enc": nil}).Error; err != nil {
+			return fmt.Errorf("purge stops: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(orderIDs)), nil
+}

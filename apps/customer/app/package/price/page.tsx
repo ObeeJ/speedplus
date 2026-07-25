@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@speedplus/ui';
 import { FlowHeader } from '../../components/flow-header';
 import { usePackageFlowStore, type PaymentMethod } from '../../../lib/store/package-flow.store';
-import { useRequestQuote, useCreateOrder, useWalletBalance } from '../../../lib/hooks/use-order-mutations';
+import { useRequestQuote, useRequestMultiStopQuote, useCreateOrder, useWalletBalance } from '../../../lib/hooks/use-order-mutations';
 
 // Weight in kg per category — used for quote request
 const WEIGHT_KG: Record<string, number> = {
@@ -31,15 +31,42 @@ export default function PackagePricePage() {
   } = usePackageFlowStore();
 
   const requestQuote = useRequestQuote();
+  const requestMultiStopQuote = useRequestMultiStopQuote();
   const createOrder = useCreateOrder();
   const { data: walletData } = useWalletBalance();
 
   const [quoteError, setQuoteError] = useState('');
+  const [consent, setConsent] = useState(false);
 
-  // Fetch quote when page mounts (or when size/weight change)
+  // Fetch quote when the page mounts (or when size/weight/stops change).
+  // Multi-drop prices via /quotes/multistop (route distance + per-stop fee);
+  // single drop-off uses /quotes.
   useEffect(() => {
-    if (!pickup || !dropoff || !size || !weight) return;
+    if (!pickup || !size || !weight) return;
+    const onSuccess = (q: Parameters<typeof setQuote>[0]) => setQuote(q);
+    const onError = (err: unknown) =>
+      setQuoteError(err instanceof Error ? err.message : 'Could not get a price. Try again.');
     setQuoteError('');
+
+    if (isMultiDrop) {
+      if (stops.length < 1) return;
+      requestMultiStopQuote.mutate(
+        {
+          merchantId: PACKAGE_MERCHANT_ID,
+          vertical: 'package',
+          subtotalKobo: 0,
+          originLat: pickup.lat,
+          originLng: pickup.lng,
+          stops: stops.map((s) => ({ lat: s.address.lat, lng: s.address.lng })),
+          weightKg: WEIGHT_KG[weight] ?? 1.5,
+          sizeCategory: size,
+        },
+        { onSuccess, onError },
+      );
+      return;
+    }
+
+    if (!dropoff) return;
     requestQuote.mutate(
       {
         merchantId: PACKAGE_MERCHANT_ID,
@@ -52,20 +79,18 @@ export default function PackagePricePage() {
         weightKg: WEIGHT_KG[weight] ?? 1.5,
         sizeCategory: size,
       },
-      {
-        onSuccess: (q) => setQuote(q),
-        onError: (err) => setQuoteError(err instanceof Error ? err.message : 'Could not get a price. Try again.'),
-      },
+      { onSuccess, onError },
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickup?.id, dropoff?.id, size, weight]);
+  }, [pickup?.id, dropoff?.id, isMultiDrop, stops.length, size, weight]);
 
   const walletBalanceKobo = walletData?.balanceKobo ?? 0;
   const totalKobo = quote?.totalKobo ?? 0;
   const insufficientBalance = paymentMethod === 'wallet' && walletBalanceKobo < totalKobo;
 
   function handleConfirm() {
-    if (!quote || !dropoff) return;
+    if (!quote || !consent) return;
+    if (isMultiDrop ? stops.length < 1 : !dropoff) return;
     createOrder.mutate(
       {
         merchantId: PACKAGE_MERCHANT_ID,
@@ -107,7 +132,7 @@ export default function PackagePricePage() {
     );
   }
 
-  const isLoading = requestQuote.isPending;
+  const isLoading = requestQuote.isPending || requestMultiStopQuote.isPending;
 
   return (
     <main className="min-h-screen bg-sand flex flex-col">
@@ -186,31 +211,40 @@ export default function PackagePricePage() {
         <section className="flex flex-col gap-2.5">
           <span className="text-[13px] font-semibold text-mid">How do you want to pay?</span>
           <div className="flex flex-col gap-2">
-            {(
-              [
-                { id: 'wallet' as PaymentMethod, label: 'Pay from wallet', description: 'Deducted now, released on delivery' },
-                { id: 'pay_on_arrival' as PaymentMethod, label: 'Pay on arrival', description: 'Rider scans your SpeedPlus card at the door' },
-              ] as const
-            ).map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => setPaymentMethod(opt.id)}
-                className={`w-full text-left rounded-[14px] border px-4 py-3 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald ${
-                  paymentMethod === opt.id ? 'border-emerald bg-tile' : 'border-line bg-white hover:border-emerald/40'
-                }`}
-              >
-                <span className="block text-[13px] font-semibold text-ink">{opt.label}</span>
-                <span className="block text-[11px] text-mid mt-0.5">{opt.description}</span>
-              </button>
-            ))}
+            <button
+              type="button"
+              onClick={() => setPaymentMethod('wallet')}
+              className="w-full text-left rounded-[14px] border px-4 py-3 transition-all duration-150 border-emerald bg-tile"
+            >
+              <span className="block text-[13px] font-semibold text-ink">Pay from wallet</span>
+              <span className="block text-[11px] text-mid mt-0.5">Deducted now, released on delivery</span>
+            </button>
+            <div className="w-full text-left rounded-[14px] border border-line bg-white/50 px-4 py-3 opacity-50 cursor-not-allowed">
+              <span className="block text-[13px] font-semibold text-ink">Pay on arrival</span>
+              <span className="block text-[11px] text-mid mt-0.5">Coming soon — rider scans your SpeedPlus card at the door</span>
+            </div>
           </div>
         </section>
+
+        {/* Recipient consent — required before we store/share their name & phone */}
+        <label className="flex items-start gap-2.5 text-[12px] text-mid">
+          <input
+            type="checkbox"
+            checked={consent}
+            onChange={(e) => setConsent(e.target.checked)}
+            className="mt-0.5 w-4 h-4 accent-emerald flex-shrink-0"
+          />
+          <span>
+            I confirm I have the recipient&apos;s permission to share their name and phone
+            number with SpeedPlus for this delivery. Their details are encrypted and only
+            shown to the assigned rider during delivery.
+          </span>
+        </label>
 
         <Button
           variant="primary"
           size="lg"
-          disabled={!quote || insufficientBalance || createOrder.isPending}
+          disabled={!quote || !consent || insufficientBalance || createOrder.isPending}
           isLoading={createOrder.isPending}
           onClick={handleConfirm}
           className="w-full min-[700px]:max-w-[380px]"

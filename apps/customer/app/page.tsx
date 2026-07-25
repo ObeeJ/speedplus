@@ -107,6 +107,13 @@ export default function HomePage() {
         <footer className="text-center text-xs text-mid/60 mt-8">
           Built for the rest of us. &copy; {new Date().getFullYear()} SpeedPlus
         </footer>
+
+        {/* Quick links */}
+        <div className="flex gap-4 justify-center flex-wrap">
+          <Link href="/wallet" className="text-xs text-mid/70 hover:text-lime transition-colors">Wallet</Link>
+          <Link href="/orders" className="text-xs text-mid/70 hover:text-lime transition-colors">My orders</Link>
+          <Link href="/referral" className="text-xs text-mid/70 hover:text-lime transition-colors">Refer &amp; earn</Link>
+        </div>
       </div>
 
       <style>{`

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePackageFlowStore } from '../../../lib/store/package-flow.store';
 import { useTrackOrder } from '../../../lib/hooks/use-order-mutations';
-import { ordersApi } from '@speedplus/api-client';
+import { ordersApi, proofApi, type ProofMediaView } from '@speedplus/api-client';
 
 const STEPS = ['Order confirmed', 'Rider assigned', 'On the way', 'Delivered'];
 
@@ -28,6 +28,31 @@ export default function PackageTrackingPage() {
 
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState('');
+  const [deliveryCode, setDeliveryCode] = useState<string | null>(null);
+  const [media, setMedia] = useState<ProofMediaView[]>([]);
+
+  // Fetch chain-of-custody proof (pickup/dropoff photos) once delivered —
+  // this is the sender's proof the package arrived as-sealed.
+  useEffect(() => {
+    if (!orderId || order?.status !== 'delivered') return;
+    proofApi.getMedia(orderId).then(setMedia).catch(() => setMedia([]));
+  }, [orderId, order?.status]);
+
+  // Listen for delivery_code WS event so the customer sees their code immediately
+  useEffect(() => {
+    if (!orderId) return;
+    const ws = new WebSocket(process.env['NEXT_PUBLIC_WS_URL'] ?? 'ws://localhost:8000/api/v1/ws');
+    ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', channel: `order:${orderId}` }));
+    ws.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data as string) as { event: string; data: { code?: string } };
+        if (msg.event === 'delivery_code' && msg.data.code) {
+          setDeliveryCode(msg.data.code);
+        }
+      } catch { /* ignore */ }
+    };
+    return () => ws.close();
+  }, [orderId]);
 
   const stepIndex = order ? (STATUS_STEP[order.status] ?? 0) : 0;
   const etaMinutes = quote?.etaMinutes ?? 0;
@@ -55,9 +80,13 @@ export default function PackageTrackingPage() {
     }
   }
 
-  // Derive rider info from order (driverId present when assigned)
+  // Derive rider info from order response (populated by ToResponse enrichment)
   const driverAssigned = order?.driverId != null;
-  const driverInitial = driverAssigned ? 'R' : '?';
+  const driverName = (order as (typeof order & { driverName?: string }) | undefined)?.driverName ?? 'Your rider';
+  const driverRating = (order as (typeof order & { driverRating?: number }) | undefined)?.driverRating;
+  const driverVehicle = (order as (typeof order & { driverVehicle?: string }) | undefined)?.driverVehicle ?? 'Bike';
+  const driverPhone = (order as (typeof order & { driverPhone?: string }) | undefined)?.driverPhone;
+  const driverInitial = driverName.charAt(0).toUpperCase();
 
   if (isError) {
     return (
@@ -99,18 +128,22 @@ export default function PackageTrackingPage() {
               {driverInitial}
             </span>
             <div className="flex-1 flex flex-col">
-              <span className="font-semibold text-ink text-[14px]">Your rider</span>
-              <span className="text-[12px] text-mid">Bike · On the way</span>
+              <span className="font-semibold text-ink text-[14px]">{driverName}</span>
+              <span className="text-[12px] text-mid capitalize">
+                {driverVehicle}{driverRating ? ` · ★ ${driverRating.toFixed(1)}` : ''}
+              </span>
             </div>
-            <a
-              href={`tel:`}
-              className="w-10 h-10 rounded-full bg-tile flex items-center justify-center hover:bg-[#DCEDC2] transition-colors"
-              aria-label="Call rider"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0A3D2C" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" />
-              </svg>
-            </a>
+            {driverPhone && (
+              <a
+                href={`tel:${driverPhone}`}
+                className="w-10 h-10 rounded-full bg-tile flex items-center justify-center hover:bg-[#DCEDC2] transition-colors"
+                aria-label="Call rider"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0A3D2C" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" />
+                </svg>
+              </a>
+            )}
           </div>
         ) : (
           <div className="bg-white border border-line rounded-2xl p-4 flex items-center gap-3">
@@ -119,6 +152,18 @@ export default function PackageTrackingPage() {
               <span className="h-3.5 bg-line rounded animate-pulse w-24" />
               <span className="h-3 bg-line rounded animate-pulse w-16" />
             </div>
+          </div>
+        )}
+
+        {/* Delivery code — shown when order is in_transit */}
+        {deliveryCode && order?.status === 'in_transit' && (
+          <div
+            className="bg-emerald rounded-2xl px-5 py-4 flex flex-col gap-2"
+            style={{ animation: 'slideUp 0.3s cubic-bezier(0.16,1,0.3,1) both' }}
+          >
+            <span className="text-[11px] font-semibold text-sand/60 tracking-widest uppercase">Your delivery code</span>
+            <span className="font-display font-bold text-4xl text-lime tracking-[12px]">{deliveryCode}</span>
+            <span className="text-[11px] text-sand/60">Share this with whoever is collecting the package.</span>
           </div>
         )}
 
@@ -151,6 +196,32 @@ export default function PackageTrackingPage() {
             );
           })}
         </div>
+
+        {/* Proof of delivery — chain-of-custody photos, shown once delivered */}
+        {order?.status === 'delivered' && media.length > 0 && (
+          <div className="flex flex-col gap-2.5">
+            <span className="text-[13px] font-semibold text-mid">Proof of delivery</span>
+            <div className="grid grid-cols-2 gap-2.5 min-[500px]:grid-cols-3">
+              {media.map((m) => (
+                <a
+                  key={m.id}
+                  href={m.viewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex flex-col gap-1 rounded-xl overflow-hidden border border-line"
+                >
+                  {m.kind.endsWith('_video') ? (
+                    <video src={m.viewUrl} className="w-full aspect-square object-cover bg-black" muted />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.viewUrl} alt={m.kind} className="w-full aspect-square object-cover bg-line" />
+                  )}
+                  <span className="px-2 pb-1.5 text-[10px] text-mid capitalize">{m.kind.replace(/_/g, ' ')}</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Order total */}
         {order && (
