@@ -57,3 +57,27 @@ export function useRequestQuote() {
     },
   });
 }
+
+/**
+ * useRequestMultiStopQuote prices a one-pickup → N-dropoff package order via
+ * /quotes/multistop. The returned quote's stop count is baked into its signed
+ * hash server-side, so the order must be submitted with exactly these stops.
+ */
+export function useRequestMultiStopQuote() {
+  return useMutation({
+    mutationFn: async (payload: {
+      merchantId: string;
+      vertical: string;
+      subtotalKobo: number;
+      originLat: number;
+      originLng: number;
+      stops: { lat: number; lng: number }[];
+      weightKg?: number;
+      sizeCategory?: string;
+    }): Promise<QuoteResult> => {
+      const { data } = await apiClient.post<ApiResponse<QuoteResult>>('/quotes/multistop', payload);
+      if (!data.success) throw new Error((data as { error: { message: string } }).error.message);
+      return data.data;
+    },
+  });
+}

@@ -409,7 +409,9 @@ func (s *OrderService) GetByID(ctx context.Context, orderID, requesterID uuid.UU
 	if err := s.db.WithContext(ctx).Preload("Items").Preload("Events").First(&order, orderID).Error; err != nil {
 		return nil, err
 	}
-	// Row-level ownership: customer sees own orders, driver sees assigned, merchant sees theirs, admin sees all
+	// Row-level ownership. Fail closed: only the four known roles are allowed,
+	// and each (except admin) must own the row. An empty or unrecognized role
+	// — e.g. a middleware slip — must NOT fall through to full access (BOLA).
 	switch requesterRole {
 	case "customer":
 		if order.CustomerID != requesterID {
@@ -423,6 +425,10 @@ func (s *OrderService) GetByID(ctx context.Context, orderID, requesterID uuid.UU
 		if order.MerchantID != requesterID {
 			return nil, errors.New("forbidden")
 		}
+	case "admin":
+		// admin sees all
+	default:
+		return nil, errors.New("forbidden")
 	}
 	return &order, nil
 }
