@@ -6,6 +6,8 @@ import { Button } from '@speedplus/ui';
 import { FlowHeader } from '../../components/flow-header';
 import { usePackageFlowStore, type PaymentMethod } from '../../../lib/store/package-flow.store';
 import { useRequestQuote, useRequestMultiStopQuote, useCreateOrder, useWalletBalance } from '../../../lib/hooks/use-order-mutations';
+import { useQuery } from '@tanstack/react-query';
+import { cardApi } from '@speedplus/api-client';
 
 // Weight in kg per category — used for quote request
 const WEIGHT_KG: Record<string, number> = {
@@ -34,6 +36,14 @@ export default function PackagePricePage() {
   const requestMultiStopQuote = useRequestMultiStopQuote();
   const createOrder = useCreateOrder();
   const { data: walletData } = useWalletBalance();
+
+  const { data: trustTier } = useQuery({
+    queryKey: ['trust-tier'],
+    queryFn: () => cardApi.getTrustTier(),
+    staleTime: 60_000,
+  });
+  const canPayOnArrival = trustTier?.canPayOnArrival ?? false;
+  const ordersToUnlock = Math.max(0, 3 - (trustTier?.completedOrders ?? 0));
 
   const [quoteError, setQuoteError] = useState('');
   const [consent, setConsent] = useState(false);
@@ -211,18 +221,49 @@ export default function PackagePricePage() {
         <section className="flex flex-col gap-2.5">
           <span className="text-[13px] font-semibold text-mid">How do you want to pay?</span>
           <div className="flex flex-col gap-2">
+
+            {/* Wallet — always available */}
             <button
               type="button"
               onClick={() => setPaymentMethod('wallet')}
-              className="w-full text-left rounded-[14px] border px-4 py-3 transition-all duration-150 border-emerald bg-tile"
+              className={`w-full text-left rounded-[14px] border px-4 py-3 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald ${
+                paymentMethod === 'wallet' ? 'border-emerald bg-tile' : 'border-line bg-white hover:border-emerald/40'
+              }`}
             >
               <span className="block text-[13px] font-semibold text-ink">Pay from wallet</span>
               <span className="block text-[11px] text-mid mt-0.5">Deducted now, released on delivery</span>
             </button>
-            <div className="w-full text-left rounded-[14px] border border-line bg-white/50 px-4 py-3 opacity-50 cursor-not-allowed">
-              <span className="block text-[13px] font-semibold text-ink">Pay on arrival</span>
-              <span className="block text-[11px] text-mid mt-0.5">Coming soon — rider scans your SpeedPlus card at the door</span>
-            </div>
+
+            {/* Pay on arrival — shown to everyone, enabled only when eligible */}
+            {canPayOnArrival ? (
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('pay_on_arrival')}
+                className={`w-full text-left rounded-[14px] border px-4 py-3 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald ${
+                  paymentMethod === 'pay_on_arrival' ? 'border-emerald bg-tile' : 'border-line bg-white hover:border-emerald/40'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="block text-[13px] font-semibold text-ink">Pay on arrival</span>
+                  <span className="text-[10px] font-bold text-emerald bg-tile rounded-full px-2 py-0.5">Unlocked</span>
+                </div>
+                <span className="block text-[11px] text-mid mt-0.5">
+                  Rider scans your SpeedPlus card at the door. You enter your PIN to confirm.
+                </span>
+              </button>
+            ) : (
+              <div className="w-full text-left rounded-[14px] border border-line bg-white px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <span className="block text-[13px] font-semibold text-ink">Pay on arrival</span>
+                  <span className="text-[10px] font-bold text-mid bg-line rounded-full px-2 py-0.5">
+                    {ordersToUnlock} order{ordersToUnlock !== 1 ? 's' : ''} to unlock
+                  </span>
+                </div>
+                <span className="block text-[11px] text-mid mt-0.5">
+                  Complete {ordersToUnlock} more paid order{ordersToUnlock !== 1 ? 's' : ''} to unlock this. We need to know you first.
+                </span>
+              </div>
+            )}
           </div>
         </section>
 

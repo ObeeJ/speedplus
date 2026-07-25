@@ -19,11 +19,6 @@ var (
 	ErrQuoteInvalid      = errors.New("quote invalid or expired")
 	ErrMerchantClosed    = errors.New("merchant is currently closed")
 	ErrRxRequired        = errors.New("prescription required for this order")
-	// POD checkout is gated by the trust ladder, but server-side POD
-	// settlement (wallet debit at the door) is not yet implemented — orders
-	// must be wallet-funded so escrow can settle. Remove once POD settlement
-	// lands in LedgerService.Settle.
-	ErrPODNotYetEnabled = errors.New("pay on arrival is not yet available — pay from wallet")
 )
 
 type CreateOrderInput struct {
@@ -149,19 +144,18 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 		return nil, ErrRxRequired
 	}
 
-	// Pay-on-arrival gate: trust-ladder checks run first so the customer gets
-	// the precise reason (tier locked / cap / active POD). Even when eligible,
-	// POD checkout is declined until POD settlement is implemented — creating
-	// an escrow-less order today would leave it unsettleable at the door.
+	// Pay-on-arrival gate: trust-ladder checks only.
+	// Settlement path (card scan → PIN → wallet debit) is implemented in
+	// PaycodeService.ConfirmByCard — POD orders are fully settleable.
 	if in.PaymentMethod == "pay_on_arrival" {
 		if s.tier == nil {
-			return nil, ErrPODNotYetEnabled
+			return nil, ErrPODTierLocked
 		}
 		totalKobo := quote.TotalKobo + in.TipKobo
 		if err := s.tier.CanUsePayOnArrival(ctx, in.CustomerID, totalKobo); err != nil {
 			return nil, err
 		}
-		return nil, ErrPODNotYetEnabled
+		// Eligible — fall through to order creation below (no escrow hold for POD).
 	}
 
 	recipientNameEnc, err := s.encryptRecipient(in.RecipientName)
@@ -261,9 +255,13 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 			}
 		}
 
-		// Escrow hold — debit customer wallet
-		if err := s.ledger.HoldEscrow(ctx, tx, order.ID, in.CustomerID, order.TotalKobo); err != nil {
-			return fmt.Errorf("escrow hold: %w", err)
+		// Escrow hold — debit customer wallet for wallet-payment orders.
+		// Pay-on-arrival orders skip this: the wallet is debited at the door
+		// when the rider scans the customer's SpeedPlus card + PIN.
+		if order.PaymentMethod != "pay_on_arrival" {
+			if err := s.ledger.HoldEscrow(ctx, tx, order.ID, in.CustomerID, order.TotalKobo); err != nil {
+				return fmt.Errorf("escrow hold: %w", err)
+			}
 		}
 
 		// Audit event
