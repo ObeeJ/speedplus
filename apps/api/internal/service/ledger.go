@@ -420,3 +420,21 @@ func (s *LedgerService) GetBalance(ctx context.Context, userID uuid.UUID) (int64
 func (s *LedgerService) GetTransactions(ctx context.Context, userID uuid.UUID, cursor *uuid.UUID, limit int) ([]model.LedgerEntry, error) {
 	return s.repo.GetTransactions(ctx, userID, cursor, limit)
 }
+
+// ResolveWalletOwner maps the authenticated caller to the ledger account ID
+// their wallet actually lives under. For every role except merchant, that's
+// simply their own user ID. For a merchant, order settlement
+// (LedgerService.Settle) credits the wallet keyed by model.Merchant.ID — a
+// separate business-profile ID from the merchant's login User.ID — so a
+// merchant checking their own balance must be resolved through that row, or
+// they would always see ₦0 despite being paid.
+func (s *LedgerService) ResolveWalletOwner(ctx context.Context, userID uuid.UUID, role string) (uuid.UUID, error) {
+	if role != "merchant" {
+		return userID, nil
+	}
+	var merchant model.Merchant
+	if err := s.db.WithContext(ctx).Where("user_id = ?", userID).First(&merchant).Error; err != nil {
+		return uuid.Nil, fmt.Errorf("merchant profile not found: %w", err)
+	}
+	return merchant.ID, nil
+}
