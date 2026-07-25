@@ -132,6 +132,7 @@ func main() {
 	giftCardSvc := service.NewGiftCardService(gormDB, ledgerSvc)
 	subscriptionSvc := service.NewSubscriptionService(gormDB, orderSvc, ledgerSvc)
 	catalogSvc := service.NewCatalogService(catalogRepo)
+	merchantSvc := service.NewMerchantService(gormDB)
 	adminSvc := service.NewAdminService(gormDB, ledgerSvc)
 	affordabilitySvc := service.NewAffordabilityService(ledgerSvc, affordabilityRepo)
 
@@ -184,6 +185,7 @@ func main() {
 	giftCardH := handler.NewGiftCardHandler(giftCardSvc)
 	subscriptionH := handler.NewSubscriptionHandler(subscriptionSvc)
 	catalogH := handler.NewCatalogHandler(catalogSvc)
+	merchantH := handler.NewMerchantHandler(merchantSvc, orderSvc, catalogSvc)
 	adminH := handler.NewAdminHandler(adminSvc, ledgerSvc, feeConfigSvc)
 	affordabilityH := handler.NewAffordabilityHandler(affordabilitySvc)
 	pricingH := handler.NewPricingHandler(pricingSvc)
@@ -376,6 +378,24 @@ func main() {
 		subs.POST("", subscriptionH.Create)
 		subs.POST("/:id/pause", subscriptionH.Pause)
 		subs.POST("/:id/cancel", subscriptionH.Cancel)
+	}
+
+	// ── Merchant self-service ─────────────────────────────────────────────────
+	// All routes require role=merchant. Merchant.ID is resolved server-side
+	// from the JWT User.ID — the request body never carries a merchant ID.
+	merchantGroup := authed.Group("/merchant")
+	merchantGroup.Use(middleware.RequireRole("merchant"))
+	{
+		merchantGroup.GET("/profile", merchantH.GetProfile)
+		merchantGroup.POST("/status", merchantH.SetOpen)
+		merchantGroup.GET("/orders", merchantH.ListOrders)
+		merchantGroup.POST("/orders/:id/transition", merchantH.TransitionOrder)
+		merchantGroup.GET("/products", merchantH.ListProducts)
+		merchantGroup.POST("/products", merchantH.CreateProduct)
+		merchantGroup.PUT("/products/:id", merchantH.UpdateProduct)
+		merchantGroup.POST("/products/:id/availability", merchantH.SetProductAvailability)
+		merchantGroup.GET("/wallet", walletH.GetBalance)
+		merchantGroup.GET("/wallet/transactions", walletH.GetTransactions)
 	}
 
 	// Driver dispatch

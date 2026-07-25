@@ -41,6 +41,10 @@ export type { Subscription } from './endpoints/subscriptions';
 // Driver
 export { earningsApi } from './endpoints/earnings';
 
+// Merchant self-service
+export { merchantApi } from './endpoints/merchant';
+export type { MerchantProfile, MerchantProduct, MerchantOrder, ProductInput } from './endpoints/merchant';
+
 // Admin
 export { adminApi } from './endpoints/admin';
 export type {

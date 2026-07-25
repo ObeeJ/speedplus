@@ -5,6 +5,7 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { useState } from 'react';
 import { QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
+import { AuthGuard } from './components/auth-guard';
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient({
@@ -12,7 +13,7 @@ export function Providers({ children }: { children: ReactNode }) {
   }));
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
+      <AuthGuard>{children}</AuthGuard>
       <ReactQueryDevtools initialIsOpen={false} />
     </QueryClientProvider>
   );
