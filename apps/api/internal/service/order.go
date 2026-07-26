@@ -12,6 +12,7 @@ import (
 	"github.com/speedplus/api/internal/model"
 	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var (
@@ -352,7 +353,7 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 func (s *OrderService) Transition(ctx context.Context, orderID, actorID uuid.UUID, actorRole string, to model.OrderStatus, note *string) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var order model.Order
-		if err := tx.Clauses(/* FOR UPDATE */ ).First(&order, orderID).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, orderID).Error; err != nil {
 			return err
 		}
 
@@ -440,6 +441,16 @@ func (s *OrderService) Transition(ctx context.Context, orderID, actorID uuid.UUI
 			}
 		}
 
+		// Notify customer when a driver is assigned — the finding page listens
+		// for this event to navigate to the tracking screen.
+		if to == model.OrderDriverAssigned && s.hub != nil {
+			_ = s.hub.Publish(ctx,
+				"order:"+orderID.String(),
+				"driver_assigned",
+				map[string]interface{}{"orderId": orderID, "driverId": order.DriverID},
+			)
+		}
+
 		return nil
 	})
 }
@@ -521,6 +532,7 @@ func (s *OrderService) Cancel(ctx context.Context, orderID, actorID uuid.UUID, a
 			return fmt.Errorf("%w: cannot cancel from %s", ErrIllegalTransition, order.Status)
 		}
 
+		from := order.Status
 		order.Status = model.OrderCancelled
 		order.CancelReason = &reason
 		if err := tx.Save(&order).Error; err != nil {
@@ -532,7 +544,7 @@ func (s *OrderService) Cancel(ctx context.Context, orderID, actorID uuid.UUID, a
 		if err := tx.Create(&model.OrderEvent{
 			ID:         uuid.New(),
 			OrderID:    orderID,
-			FromStatus: order.Status,
+			FromStatus: from,
 			ToStatus:   model.OrderCancelled,
 			ActorID:    actorUUID,
 			ActorRole:  actorRole,

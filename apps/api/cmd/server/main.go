@@ -142,8 +142,11 @@ func main() {
 	authSvc.InjectQueue(asynqClient, func(userID string) error {
 		return worker.EnqueueOnboarding(asynqClient, userID)
 	})
+	walletSvc.InjectQueue(func(cashoutID string) error {
+		return worker.EnqueueCashout(asynqClient, cashoutID)
+	})
 
-	workerHandlers := worker.NewHandlers(walletSvc, dispatchSvc, ledgerSvc, subscriptionSvc, onboardingSvc)
+	workerHandlers := worker.NewHandlers(walletSvc, dispatchSvc, ledgerSvc, subscriptionSvc, onboardingSvc, asynqClient)
 	workerHandlers.InjectOrders(orderSvc)
 	asynqServer := worker.NewServer(cfg.RedisURL)
 	asynqMux := asynq.NewServeMux()

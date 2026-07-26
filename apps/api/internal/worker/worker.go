@@ -16,14 +16,15 @@ import (
 )
 
 const (
-	TaskWeeklyPayout      = "driver:weekly_payout"
-	TaskExpireOffers      = "dispatch:expire_offers"
-	TaskSubscriptionRun   = "subscription:run"
-	TaskCashoutProcess    = "cashout:process"
-	TaskEscrowReconcile   = "ledger:escrow_reconcile"
-	TaskPlatformSnapshot  = "ledger:platform_snapshot"
-	TaskOnboardUser       = "user:onboard" // DVA + card + trust tier after registration
-	TaskPurgeRecipientPII = "order:purge_recipient_pii" // NDPR data-minimization
+	TaskWeeklyPayout        = "driver:weekly_payout"
+	TaskExpireOffers        = "dispatch:expire_offers"
+	TaskSubscriptionRun     = "subscription:run"
+	TaskCashoutProcess      = "cashout:process"
+	TaskMerchantBatchPayout = "cashout:merchant_batch" // daily 18:00 WAT standard withdrawals
+	TaskEscrowReconcile     = "ledger:escrow_reconcile"
+	TaskPlatformSnapshot    = "ledger:platform_snapshot"
+	TaskOnboardUser         = "user:onboard"
+	TaskPurgeRecipientPII   = "order:purge_recipient_pii"
 )
 
 // ── Scheduler (cron) ──────────────────────────────────────────────────────────
@@ -38,6 +39,8 @@ func NewScheduler(redisURL string) *asynq.Scheduler {
 	s.Register("*/1 * * * *", asynq.NewTask(TaskExpireOffers, nil))
 	// Subscription charge check — daily 06:00 UTC
 	s.Register("0 6 * * *", asynq.NewTask(TaskSubscriptionRun, nil))
+	// Merchant standard withdrawal batch — daily 17:00 UTC (18:00 WAT)
+	s.Register("0 17 * * *", asynq.NewTask(TaskMerchantBatchPayout, nil))
 	// Escrow reconciliation — daily 02:30 WAT (01:30 UTC)
 	s.Register("30 1 * * *", asynq.NewTask(TaskEscrowReconcile, nil))
 	// Platform balance snapshot — daily 03:00 WAT (02:00 UTC)
@@ -75,6 +78,7 @@ type Handlers struct {
 	ledger        *service.LedgerService
 	onboarding    onboardingRunner
 	orders        *service.OrderService
+	asynqClient   *asynq.Client
 }
 
 // onboardingRunner is the subset of ports.OnboardingRunner used by the worker.
@@ -82,8 +86,8 @@ type onboardingRunner interface {
 	RunByID(ctx context.Context, userID string) error
 }
 
-func NewHandlers(wallet *service.WalletService, dispatch *service.DispatchService, ledger *service.LedgerService, subscriptions *service.SubscriptionService, onboarding onboardingRunner) *Handlers {
-	return &Handlers{wallet: wallet, dispatch: dispatch, ledger: ledger, subscriptions: subscriptions, onboarding: onboarding}
+func NewHandlers(wallet *service.WalletService, dispatch *service.DispatchService, ledger *service.LedgerService, subscriptions *service.SubscriptionService, onboarding onboardingRunner, asynqClient *asynq.Client) *Handlers {
+	return &Handlers{wallet: wallet, dispatch: dispatch, ledger: ledger, subscriptions: subscriptions, onboarding: onboarding, asynqClient: asynqClient}
 }
 
 // InjectOrders wires OrderService after construction (avoids widening the
@@ -97,6 +101,7 @@ func (h *Handlers) Register(mux *asynq.ServeMux) {
 	mux.HandleFunc(TaskExpireOffers, h.handleExpireOffers)
 	mux.HandleFunc(TaskSubscriptionRun, h.handleSubscriptionRun)
 	mux.HandleFunc(TaskCashoutProcess, h.handleCashoutProcess)
+	mux.HandleFunc(TaskMerchantBatchPayout, h.handleMerchantBatchPayout)
 	mux.HandleFunc(TaskEscrowReconcile, h.handleEscrowReconcile)
 	mux.HandleFunc(TaskPlatformSnapshot, h.handlePlatformSnapshot)
 	mux.HandleFunc(TaskOnboardUser, h.handleOnboardUser)
@@ -226,7 +231,7 @@ func (h *Handlers) handleCashoutProcess(ctx context.Context, t *asynq.Task) erro
 	return nil
 }
 
-// EnqueueCashout enqueues a cashout processing task with a 5-minute delay.
+// EnqueueCashout enqueues a cashout processing task for immediate execution.
 func EnqueueCashout(client *asynq.Client, cashoutID string) error {
 	payload, _ := json.Marshal(CashoutPayload{CashoutID: cashoutID})
 	task := asynq.NewTask(TaskCashoutProcess, payload,
@@ -236,6 +241,31 @@ func EnqueueCashout(client *asynq.Client, cashoutID string) error {
 	)
 	_, err := client.Enqueue(task)
 	return err
+}
+
+func (h *Handlers) handleMerchantBatchPayout(ctx context.Context, _ *asynq.Task) error {
+	slog.Info("worker: merchant batch payout starting")
+	// Find all pending standard merchant cashouts and enqueue them now.
+	// "standard" cashouts were not enqueued at creation — this is their trigger.
+	var pending []model.CashoutRequest
+	if err := h.wallet.DB().WithContext(ctx).
+		Where("actor_type = 'merchant' AND status = 'pending'").
+		Find(&pending).Error; err != nil {
+		return fmt.Errorf("merchant batch: query pending: %w", err)
+	}
+	slog.Info("worker: merchant batch payout", "count", len(pending))
+	for _, c := range pending {
+		payload, _ := json.Marshal(CashoutPayload{CashoutID: c.ID.String()})
+		task := asynq.NewTask(TaskCashoutProcess, payload,
+			asynq.Queue("default"),
+			asynq.MaxRetry(3),
+			asynq.TaskID("cashout:"+c.ID.String()), // deduplication key
+		)
+		if _, err := h.asynqClient.Enqueue(task); err != nil {
+			observability.CaptureError(ctx, err, "merchant batch: enqueue failed", "cashout_id", c.ID.String())
+		}
+	}
+	return nil
 }
 
 // OnboardPayload is the typed payload for user onboarding tasks.

@@ -23,6 +23,7 @@ type WalletService struct {
 	provider payment.Provider
 	email    walletEmailSender
 	users    repo.UserRepo
+	enqueue  func(cashoutID string) error // injected after construction
 }
 
 type walletEmailSender interface {
@@ -32,6 +33,12 @@ type walletEmailSender interface {
 
 func NewWalletService(db *gorm.DB, ledger *LedgerService, pins ports.PINVerifier, provider payment.Provider, email walletEmailSender, users repo.UserRepo) *WalletService {
 	return &WalletService{db: db, ledger: ledger, pins: pins, provider: provider, email: email, users: users}
+}
+
+// InjectQueue wires the asynq enqueue function after construction to avoid a
+// circular dependency. Must be called before any cashout is initiated.
+func (s *WalletService) InjectQueue(fn func(cashoutID string) error) {
+	s.enqueue = fn
 }
 
 // ── Fund wallet (pay-in) ──────────────────────────────────────────────────────
@@ -244,7 +251,7 @@ func (s *WalletService) Transfer(ctx context.Context, senderID, recipientID uuid
 const EWACashoutFeeKobo = 10000 // ₦100 instant cashout fee
 
 func (s *WalletService) EWACashout(ctx context.Context, driverID uuid.UUID, amountKobo int64, idempotencyKey string) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Idempotency
 		var existing model.CashoutRequest
 		if err := tx.Where("idempotency_key = ?", idempotencyKey).First(&existing).Error; err == nil {
@@ -291,8 +298,19 @@ func (s *WalletService) EWACashout(ctx context.Context, driverID uuid.UUID, amou
 			IdempotencyKey: idempotencyKey,
 		}
 		return tx.Create(&cashout).Error
-		// Actual provider transfer dispatched by asynq worker
 	})
+	if err != nil {
+		return err
+	}
+	// Enqueue outside the transaction — only fires after DB commit is durable.
+	if s.enqueue != nil {
+		var created model.CashoutRequest
+		s.db.WithContext(ctx).Where("idempotency_key = ?", idempotencyKey).First(&created)
+		if enqErr := s.enqueue(created.ID.String()); enqErr != nil {
+			observability.CaptureError(ctx, enqErr, "EWACashout: enqueue failed", "idempotency_key", idempotencyKey)
+		}
+	}
+	return nil
 }
 
 // ── Weekly auto-payout (called by asynq cron) ─────────────────────────────────
@@ -369,7 +387,7 @@ func (s *WalletService) MerchantWithdraw(ctx context.Context, merchantID uuid.UU
 		return fmt.Errorf("pin verification failed")
 	}
 
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Idempotency
 		var existing model.CashoutRequest
 		if err := tx.Where("idempotency_key = ?", idempotencyKey).First(&existing).Error; err == nil {
@@ -442,6 +460,22 @@ func (s *WalletService) MerchantWithdraw(ctx context.Context, merchantID uuid.UU
 		}
 		return tx.Create(&cashout).Error
 	})
+	if err != nil {
+		return err
+	}
+	// Enqueue outside the transaction — only fires after DB commit is durable.
+	// instant → immediate processing; standard → picked up by 18:00 WAT batch.
+	if s.enqueue != nil {
+		var created model.CashoutRequest
+		s.db.WithContext(ctx).Where("idempotency_key = ?", idempotencyKey).First(&created)
+		if withdrawalType == "instant" {
+			if enqErr := s.enqueue(created.ID.String()); enqErr != nil {
+				observability.CaptureError(ctx, enqErr, "MerchantWithdraw: enqueue failed", "idempotency_key", idempotencyKey)
+			}
+		}
+		// standard withdrawals are picked up by the daily batch cron — no immediate enqueue
+	}
+	return nil
 }
 
 // ReverseCashout credits the wallet back when a provider transfer fails permanently.

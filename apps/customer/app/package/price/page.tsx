@@ -32,7 +32,7 @@ const PACKAGE_MERCHANT_ID = process.env['NEXT_PUBLIC_PACKAGE_MERCHANT_ID'] ?? ''
 
 export default function PackagePricePage() {
   const router = useRouter();
-  const { pickup, dropoff, size, weight, quote, paymentMethod, isMultiDrop, stops, setQuote, setPaymentMethod, setOrderId } = usePackageFlowStore();
+  const { pickup, dropoff, size, weight, quote, paymentMethod, isMultiDrop, stops, recipientName, recipientPhone, setQuote, setPaymentMethod, setOrderId } = usePackageFlowStore();
 
   const requestQuote = useRequestQuote();
   const requestMultiStopQuote = useRequestMultiStopQuote();
@@ -76,6 +76,8 @@ export default function PackagePricePage() {
         deliveryAddressId: isMultiDrop && stops.length > 0 ? stops[0]!.address.id : dropoff.id,
         paymentMethod,
         items: [{ productId: 'package-delivery', name: 'Package delivery', quantity: 1, unitPriceKobo: 0, weightKg: WEIGHT_KG[weight ?? 'light'], sizeCategory: size ?? 'small' }],
+        recipientName: !isMultiDrop ? recipientName || undefined : undefined,
+        recipientPhone: !isMultiDrop ? recipientPhone || undefined : undefined,
         stops: isMultiDrop ? stops.map((s) => ({ sequence: s.sequence, addressId: s.address.id, recipientName: s.recipientName, recipientPhone: s.recipientPhone, notes: s.notes || undefined })) : undefined,
       } as Parameters<typeof createOrder.mutate>[0],
       {
