@@ -352,15 +352,33 @@ type DriverEarning struct {
 }
 
 type CashoutRequest struct {
-	ID           uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	DriverID     uuid.UUID  `gorm:"type:uuid;not null;index"`
-	AmountKobo   int64      `gorm:"not null"`
-	FeeKobo      int64      `gorm:"not null"`
-	Status       string     `gorm:"default:'pending'"` // pending|processing|paid|failed
-	ProviderRef  *string
-	IdempotencyKey string   `gorm:"uniqueIndex;not null"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID             uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	DriverID       uuid.UUID  `gorm:"type:uuid;not null;index"`
+	MerchantID     *uuid.UUID `gorm:"type:uuid;index"` // set for merchant withdrawals
+	ActorType      string     `gorm:"not null;default:'driver'"` // driver|merchant
+	AmountKobo     int64      `gorm:"not null"`
+	FeeKobo        int64      `gorm:"not null"`
+	Status         string     `gorm:"default:'pending'"` // pending|processing|paid|failed
+	ProviderRef    *string
+	IdempotencyKey string     `gorm:"uniqueIndex;not null"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+// MerchantBankAccount stores the verified bank account a merchant withdraws to.
+// account_name is resolved via the payment provider's account-resolution API
+// before saving — never trusted from the request body.
+type MerchantBankAccount struct {
+	ID            uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	MerchantID    uuid.UUID `gorm:"type:uuid;uniqueIndex;not null"`
+	BankCode      string    `gorm:"not null"`
+	BankName      string    `gorm:"not null"`
+	AccountNumber string    `gorm:"not null"`
+	AccountName   string    `gorm:"not null"` // provider-resolved, not user-supplied
+	Provider      string    `gorm:"not null;default:'paystack'"`
+	IsVerified    bool      `gorm:"not null;default:true"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 type OrderSplit struct {

@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { merchantApi, type MerchantOrder, type MerchantProduct, type ProductInput } from '@speedplus/api-client';
+import { merchantApi, type MerchantOrder, type MerchantProduct, type ProductInput, type MerchantPrescription } from '@speedplus/api-client';
+import { DashboardIcon, ReceiptIcon, PillIcon, BoxIcon, WalletIcon, ShieldCheckIcon, PowerIcon, type DuotoneIconProps } from '@speedplus/ui';
 import { useMerchantStore, type MerchantTab } from '../lib/store/merchant.store';
 import { useMerchantAuthStore } from '../lib/store/auth.store';
 
@@ -24,13 +25,13 @@ const ORDER_STAGE_META: Record<
   cancelled: { status: 'CANCELLED', chipC: '#B4231F', chipB: '#FEF2F2', dot: '#DC2626', actLabel: null, next: null, doneLabel: 'Cancelled' },
 };
 
-const NAV_ITEMS: { id: MerchantTab; label: string; icon: string }[] = [
-  { id: 'dash', label: 'Dashboard', icon: '▦' },
-  { id: 'orders', label: 'Orders', icon: '🛒' },
-  { id: 'rx', label: 'Prescriptions', icon: '💊' },
-  { id: 'prod', label: 'Products', icon: '📋' },
-  { id: 'earn', label: 'Earnings', icon: '₦' },
-  { id: 'set', label: 'Verification', icon: '⚙' },
+const NAV_ITEMS: { id: MerchantTab; label: string; Icon: (props: DuotoneIconProps) => React.JSX.Element }[] = [
+  { id: 'dash', label: 'Dashboard', Icon: DashboardIcon },
+  { id: 'orders', label: 'Orders', Icon: ReceiptIcon },
+  { id: 'rx', label: 'Prescriptions', Icon: PillIcon },
+  { id: 'prod', label: 'Products', Icon: BoxIcon },
+  { id: 'earn', label: 'Earnings', Icon: WalletIcon },
+  { id: 'set', label: 'Verification', Icon: ShieldCheckIcon },
 ];
 
 const EMPTY_PRODUCT: ProductInput = { name: '', description: undefined, priceKobo: 0, category: '', isAvailable: true };
@@ -89,6 +90,38 @@ export default function MerchantPortalPage() {
 
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [newProduct, setNewProduct] = useState<ProductInput>(EMPTY_PRODUCT);
+
+  // Earnings — bank account + withdrawal
+  const bankAccountQuery = useQuery({
+    queryKey: ['merchant-bank-account'],
+    queryFn: () => merchantApi.getBankAccount(),
+    enabled: tab === 'earn',
+  });
+  const [showBankForm, setShowBankForm] = useState(false);
+  const [bankDraft, setBankDraft] = useState({ bankCode: '', bankName: '', accountNumber: '', accountName: '' });
+  const saveBankMutation = useMutation({
+    mutationFn: () => merchantApi.saveBankAccount(bankDraft),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['merchant-bank-account'] }); setShowBankForm(false); },
+  });
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawPin, setWithdrawPin] = useState('');
+  const [withdrawType, setWithdrawType] = useState<'standard' | 'instant'>('standard');
+  const withdrawMutation = useMutation({
+    mutationFn: () => merchantApi.withdraw(
+      Math.round(Number(withdrawAmount) * 100),
+      withdrawPin,
+      crypto.randomUUID(),
+      withdrawType,
+    ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['merchant-wallet'] });
+      qc.invalidateQueries({ queryKey: ['merchant-transactions'] });
+      setShowWithdraw(false);
+      setWithdrawAmount('');
+      setWithdrawPin('');
+    },
+  });
   const createProductMutation = useMutation({
     mutationFn: (input: ProductInput) => merchantApi.createProduct(input),
     onSuccess: () => {
@@ -97,6 +130,26 @@ export default function MerchantPortalPage() {
       setNewProduct(EMPTY_PRODUCT);
     },
   });
+
+  // Prescriptions — always polled (not gated on tab) so the sidebar badge
+  // shows the pending count regardless of which tab is currently open.
+  const prescriptionsQuery = useQuery({
+    queryKey: ['merchant-prescriptions'],
+    queryFn: () => merchantApi.listPrescriptions('pending'),
+    refetchInterval: 20_000,
+  });
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectNote, setRejectNote] = useState('');
+  const reviewMutation = useMutation({
+    mutationFn: ({ id, approve, note }: { id: string; approve: boolean; note?: string }) =>
+      merchantApi.reviewPrescription(id, approve, note),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['merchant-prescriptions'] });
+      setRejectingId(null);
+      setRejectNote('');
+    },
+  });
+  const pendingRxCount = prescriptionsQuery.data?.prescriptions.length ?? 0;
 
   const orders: MerchantOrder[] = ordersQuery.data?.orders ?? [];
   const products: MerchantProduct[] = productsQuery.data?.products ?? [];
@@ -134,7 +187,7 @@ export default function MerchantPortalPage() {
         <nav className="flex flex-col gap-1">
           {NAV_ITEMS.map((item) => {
             const active = tab === item.id;
-            const count = item.id === 'orders' ? newCount : null;
+            const count = item.id === 'orders' ? newCount : item.id === 'rx' ? pendingRxCount : null;
             return (
               <button
                 key={item.id}
@@ -143,7 +196,8 @@ export default function MerchantPortalPage() {
                   active ? 'bg-lime/[.14] text-lime font-semibold' : 'text-sand/70 hover:bg-sand/[.08] hover:text-sand'
                 }`}
               >
-                {item.icon} {item.label}
+                <item.Icon active={active} color="#C4C0B4" accent="#7BA05B" />
+                {item.label}
                 {count !== null && count > 0 && (
                   <span className="ml-auto text-[10.5px] font-bold rounded-full px-2 py-0.5" style={{ color: '#0A3D2C', background: '#C6F24E' }}>
                     {count}
@@ -164,8 +218,8 @@ export default function MerchantPortalPage() {
               {profileQuery.data?.kycStatus === 'approved' ? 'Verified ✓' : profileQuery.data?.kycStatus.replace('_', ' ') ?? '—'}
             </span>
           </span>
-          <button onClick={clearAuth} className="text-[10px] text-sand/40 hover:text-sand/70" aria-label="Sign out">
-            ⏻
+          <button onClick={clearAuth} className="text-sand/40 hover:text-sand/70" aria-label="Sign out">
+            <PowerIcon color="currentColor" />
           </button>
         </div>
       </aside>
@@ -256,13 +310,71 @@ export default function MerchantPortalPage() {
         {tab === 'rx' && (
           <>
             <h1 className="font-display font-semibold text-[26px] tracking-tight">Prescription review</h1>
-            <div className="bg-white border border-line rounded-2xl p-6 flex flex-col gap-2 items-start">
-              <span className="text-[13px] font-semibold">Coming soon</span>
-              <span className="text-[12.5px] text-mid max-w-[48ch]">
-                Prescription approval isn&apos;t wired to the live backend yet — orders requiring a prescription
-                are still gated server-side (an order can&apos;t be placed without an approved prescription), but
-                the merchant-side review screen is not yet built.
-              </span>
+            {prescriptionsQuery.isLoading && <p className="text-sm text-mid">Loading…</p>}
+            {!prescriptionsQuery.isLoading && (prescriptionsQuery.data?.prescriptions.length ?? 0) === 0 && (
+              <p className="text-sm text-mid">No prescriptions awaiting review.</p>
+            )}
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
+              {(prescriptionsQuery.data?.prescriptions ?? []).map((rx: MerchantPrescription) => (
+                <div key={rx.id} className="bg-white border border-line rounded-2xl overflow-hidden flex flex-col">
+                  <div className="h-[220px] bg-tile flex items-center justify-center overflow-hidden">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={rx.viewUrl} alt="Prescription" className="w-full h-full object-contain" />
+                  </div>
+                  <div className="p-4 flex flex-col gap-3">
+                    <span className="text-[11px] text-mid">Customer #{rx.customerId.slice(0, 8)} · {new Date(rx.createdAt).toLocaleString()}</span>
+
+                    {rejectingId === rx.id ? (
+                      <div className="flex flex-col gap-2">
+                        <input
+                          placeholder="Reason for rejection (shown to customer)"
+                          value={rejectNote}
+                          onChange={(e) => setRejectNote(e.target.value)}
+                          className="border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => reviewMutation.mutate({ id: rx.id, approve: false, note: rejectNote || undefined })}
+                            disabled={reviewMutation.isPending}
+                            className="flex-1 font-display text-xs font-semibold rounded-[10px] py-2.5 disabled:opacity-50"
+                            style={{ color: '#B4231F', border: '1.5px solid #E5B5B3' }}
+                          >
+                            Confirm reject
+                          </button>
+                          <button
+                            onClick={() => { setRejectingId(null); setRejectNote(''); }}
+                            className="flex-1 font-display text-xs font-semibold text-mid border border-line rounded-[10px] py-2.5"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2.5">
+                        <button
+                          onClick={() => reviewMutation.mutate({ id: rx.id, approve: true })}
+                          disabled={reviewMutation.isPending}
+                          className="flex-[2] font-display text-xs font-semibold text-emerald bg-lime rounded-[10px] py-2.5 hover:bg-lime-600 transition-colors disabled:opacity-50"
+                        >
+                          ✓ Approve
+                        </button>
+                        <button
+                          onClick={() => setRejectingId(rx.id)}
+                          disabled={reviewMutation.isPending}
+                          className="flex-1 font-display text-xs font-semibold rounded-[10px] py-2.5 border-[1.5px] transition-colors disabled:opacity-50"
+                          style={{ color: '#B4231F', borderColor: '#E5B5B3' }}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    )}
+
+                    {reviewMutation.isError && (
+                      <span className="text-[11px] text-red-600">{(reviewMutation.error as Error).message}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </>
         )}
@@ -350,11 +462,17 @@ export default function MerchantPortalPage() {
           <>
             <h1 className="font-display font-semibold text-[26px] tracking-tight">Earnings</h1>
             <div className="grid grid-cols-2 gap-3.5">
-              <div className="bg-emerald rounded-2xl p-4.5 flex flex-col gap-1">
+              <div className="bg-emerald rounded-2xl p-4.5 flex flex-col gap-2">
                 <span className="text-[10.5px] font-semibold text-sand/60 tracking-[.5px]">WALLET BALANCE</span>
                 <span className="font-display text-[28px] font-bold text-lime">
                   {walletQuery.isLoading ? '…' : `₦${naira(walletQuery.data?.balanceKobo ?? 0)}`}
                 </span>
+                <button
+                  onClick={() => setShowWithdraw(true)}
+                  className="mt-1 self-start font-display text-xs font-semibold text-emerald bg-lime rounded-[10px] px-3.5 py-1.75 hover:bg-lime-600 transition-colors"
+                >
+                  Withdraw
+                </button>
               </div>
               <div className="bg-white border border-line rounded-2xl p-4.5 flex flex-col gap-1">
                 <span className="text-[10.5px] font-semibold text-mid tracking-[.5px]">PLATFORM COMMISSION</span>
@@ -362,6 +480,127 @@ export default function MerchantPortalPage() {
                 <span className="text-[11px] text-mid">flat, no hidden charges</span>
               </div>
             </div>
+
+            {/* Bank account */}
+            <div className="bg-white border border-line rounded-2xl px-4.5 py-3.75 flex items-center gap-3.5">
+              {bankAccountQuery.data ? (
+                <>
+                  <span className="flex-1 flex flex-col">
+                    <span className="text-[13px] font-semibold">{bankAccountQuery.data.accountName}</span>
+                    <span className="text-[11px] text-mid">{bankAccountQuery.data.bankName} · {bankAccountQuery.data.accountNumber}</span>
+                  </span>
+                  <button onClick={() => { setBankDraft(bankAccountQuery.data!); setShowBankForm(true); }} className="text-[11.5px] font-semibold text-emerald">Edit</button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 text-[13px] text-mid">No bank account linked — add one to withdraw</span>
+                  <button onClick={() => setShowBankForm(true)} className="font-display text-xs font-semibold text-emerald border-[1.5px] border-emerald rounded-[10px] px-3.5 py-1.75 hover:bg-emerald/[.07] transition-colors">Add account</button>
+                </>
+              )}
+            </div>
+
+            {showBankForm && (
+              <div className="bg-white border border-line rounded-2xl p-4.5 flex flex-col gap-3">
+                <span className="text-[11px] font-semibold text-mid tracking-[.5px]">BANK ACCOUNT DETAILS</span>
+                <div className="grid grid-cols-2 gap-3">
+                  {(['bankCode', 'bankName', 'accountNumber', 'accountName'] as const).map((f) => (
+                    <input
+                      key={f}
+                      placeholder={{ bankCode: 'Bank code', bankName: 'Bank name', accountNumber: 'Account number', accountName: 'Account name' }[f]}
+                      value={bankDraft[f]}
+                      onChange={(e) => setBankDraft((d) => ({ ...d, [f]: e.target.value }))}
+                      className="border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
+                    />
+                  ))}
+                </div>
+                <div className="flex gap-2.5">
+                  <button
+                    onClick={() => saveBankMutation.mutate()}
+                    disabled={!bankDraft.bankCode || !bankDraft.accountNumber || saveBankMutation.isPending}
+                    className="font-display text-xs font-semibold text-emerald bg-lime rounded-[10px] px-4 py-2.25 hover:bg-lime-600 transition-colors disabled:opacity-50"
+                  >
+                    {saveBankMutation.isPending ? 'Saving…' : 'Save'}
+                  </button>
+                  <button onClick={() => setShowBankForm(false)} className="font-display text-xs font-semibold text-mid px-4 py-2.25">Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {/* Withdraw modal */}
+            {showWithdraw && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+                <div className="bg-white rounded-2xl p-6 w-[360px] flex flex-col gap-4 shadow-xl">
+                  <span className="font-display font-semibold text-[18px]">Withdraw funds</span>
+                  {!bankAccountQuery.data ? (
+                    <p className="text-[13px] text-mid">Add a bank account first before withdrawing.</p>
+                  ) : (
+                    <>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[11px] font-semibold text-mid tracking-[.5px]">TO</span>
+                        <span className="text-[13px] font-semibold">{bankAccountQuery.data.accountName}</span>
+                        <span className="text-[11px] text-mid">{bankAccountQuery.data.bankName} · {bankAccountQuery.data.accountNumber}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(['standard', 'instant'] as const).map((type) => (
+                          <button
+                            key={type}
+                            onClick={() => setWithdrawType(type)}
+                            className={`rounded-xl border-[1.5px] px-3 py-2.5 text-left transition-colors ${
+                              withdrawType === type ? 'border-emerald bg-emerald/[.06]' : 'border-line'
+                            }`}
+                          >
+                            <span className="block text-[12.5px] font-semibold capitalize">{type}</span>
+                            <span className="block text-[11px] text-mid">
+                              {type === 'standard' ? 'Free · next business day' : '1% fee · within minutes'}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      <input
+                        type="number"
+                        placeholder="Amount (₦)"
+                        value={withdrawAmount}
+                        onChange={(e) => setWithdrawAmount(e.target.value)}
+                        className="border border-line rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
+                      />
+                      {withdrawType === 'instant' && Number(withdrawAmount) > 0 && (() => {
+                        const amtKobo = Math.round(Number(withdrawAmount) * 100);
+                        const fee = Math.min(Math.max(Math.round(amtKobo * 0.01), 1000), 50000);
+                        return (
+                          <span className="text-[11px] text-mid">
+                            Fee: ₦{(fee / 100).toLocaleString('en-NG')} · You receive: ₦{((amtKobo - fee) / 100).toLocaleString('en-NG')}
+                          </span>
+                        );
+                      })()}
+                      <input
+                        type="password"
+                        placeholder="Wallet PIN"
+                        maxLength={6}
+                        value={withdrawPin}
+                        onChange={(e) => setWithdrawPin(e.target.value)}
+                        className="border border-line rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
+                      />
+                      {withdrawMutation.isError && (
+                        <span className="text-[12px] text-red-600">{(withdrawMutation.error as Error).message}</span>
+                      )}
+                    </>
+                  )}
+                  <div className="flex gap-2.5">
+                    {bankAccountQuery.data && (
+                      <button
+                        onClick={() => withdrawMutation.mutate()}
+                        disabled={!withdrawAmount || !withdrawPin || withdrawMutation.isPending}
+                        className="flex-1 font-display text-sm font-semibold text-emerald bg-lime rounded-[10px] py-2.5 hover:bg-lime-600 transition-colors disabled:opacity-50"
+                      >
+                        {withdrawMutation.isPending ? 'Processing…' : 'Confirm'}
+                      </button>
+                    )}
+                    <button onClick={() => setShowWithdraw(false)} className="flex-1 font-display text-sm font-semibold text-mid border border-line rounded-[10px] py-2.5">Cancel</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="bg-white border border-line rounded-2xl overflow-hidden">
               <div className="flex justify-between px-4.5 py-3.25 border-b border-[#EFECE3] text-[11px] font-semibold text-mid tracking-[.5px]">
                 <span>DESCRIPTION</span>
@@ -370,7 +609,7 @@ export default function MerchantPortalPage() {
               {(transactionsQuery.data?.transactions as { id: string; description: string; amountKobo: number; createdAt: string }[] | undefined ?? []).map((tx, i, arr) => (
                 <div key={tx.id} className={`flex justify-between px-4.5 py-3.25 text-[13px] ${i < arr.length - 1 ? 'border-b border-[#EFECE3]' : ''}`}>
                   <span>{tx.description}</span>
-                  <b className={tx.amountKobo >= 0 ? 'text-emerald' : 'text-[#B4231F]'}>
+                  <b className={tx.amountKobo >= 0 ? 'text-emerald' : 'text-red-600'}>
                     {tx.amountKobo >= 0 ? '+' : ''}₦{naira(tx.amountKobo)}
                   </b>
                 </div>
@@ -389,7 +628,7 @@ export default function MerchantPortalPage() {
               Your customers see this status — trust is the product.
             </span>
             <div className="bg-white border border-line rounded-2xl px-4.5 py-3.75 flex items-center gap-3.25" style={{ maxWidth: 760 }}>
-              <span className="text-[17px]">🏥</span>
+              <ShieldCheckIcon size={22} />
               <span className="flex-1 flex flex-col">
                 <span className="text-[13.5px] font-semibold">{profileQuery.data?.businessName}</span>
                 <span className="text-[11px] text-mid capitalize">Vertical: {profileQuery.data?.vertical}</span>

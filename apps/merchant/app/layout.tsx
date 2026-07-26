@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Instrument_Sans, Space_Grotesk } from 'next/font/google';
 import { Providers } from './providers';
+import { MerchantAuthGuard } from './components/auth-guard';
 import './globals.css';
 
 const instrumentSans = Instrument_Sans({ subsets: ['latin'], variable: '--font-body', display: 'swap' });
@@ -15,7 +16,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${instrumentSans.variable} ${spaceGrotesk.variable}`}>
-      <body><Providers>{children}</Providers></body>
+      <body>
+        <Providers>
+          <MerchantAuthGuard>{children}</MerchantAuthGuard>
+        </Providers>
+      </body>
     </html>
   );
 }

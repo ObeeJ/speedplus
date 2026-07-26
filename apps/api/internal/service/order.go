@@ -19,6 +19,7 @@ var (
 	ErrQuoteInvalid      = errors.New("quote invalid or expired")
 	ErrMerchantClosed    = errors.New("merchant is currently closed")
 	ErrRxRequired        = errors.New("prescription required for this order")
+	ErrRxNotApproved     = errors.New("prescription is not yet approved by the pharmacy")
 )
 
 type CreateOrderInput struct {
@@ -139,9 +140,24 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 		return nil, fmt.Errorf("%w: %s", ErrQuoteInvalid, err)
 	}
 
-	// Pharmacy vertical requires approved prescription
-	if in.Vertical == "pharmacy" && in.PrescriptionID == nil {
-		return nil, ErrRxRequired
+	// Pharmacy vertical requires a prescription that has actually been
+	// approved by the merchant — a present-but-pending/rejected ID must not
+	// be enough to place the order (the comment claimed "approved
+	// prescription" but the code never checked status until now).
+	if in.Vertical == "pharmacy" {
+		if in.PrescriptionID == nil {
+			return nil, ErrRxRequired
+		}
+		var rx model.Prescription
+		if err := s.db.WithContext(ctx).First(&rx, *in.PrescriptionID).Error; err != nil {
+			return nil, ErrRxRequired
+		}
+		if rx.CustomerID != in.CustomerID {
+			return nil, ErrRxRequired
+		}
+		if rx.Status != "approved" {
+			return nil, ErrRxNotApproved
+		}
 	}
 
 	// Pay-on-arrival gate: trust-ladder checks only.

@@ -131,7 +131,7 @@ func main() {
 	ussdSvc := service.NewUSSDService(gormDB, monnifyProvider)
 	giftCardSvc := service.NewGiftCardService(gormDB, ledgerSvc)
 	subscriptionSvc := service.NewSubscriptionService(gormDB, orderSvc, ledgerSvc)
-	catalogSvc := service.NewCatalogService(catalogRepo)
+	catalogSvc := service.NewCatalogService(catalogRepo, r2Client)
 	merchantSvc := service.NewMerchantService(gormDB)
 	adminSvc := service.NewAdminService(gormDB, ledgerSvc)
 	affordabilitySvc := service.NewAffordabilityService(ledgerSvc, affordabilityRepo)
@@ -185,7 +185,7 @@ func main() {
 	giftCardH := handler.NewGiftCardHandler(giftCardSvc)
 	subscriptionH := handler.NewSubscriptionHandler(subscriptionSvc)
 	catalogH := handler.NewCatalogHandler(catalogSvc)
-	merchantH := handler.NewMerchantHandler(merchantSvc, orderSvc, catalogSvc)
+	merchantH := handler.NewMerchantHandler(merchantSvc, orderSvc, catalogSvc, walletSvc)
 	adminH := handler.NewAdminHandler(adminSvc, ledgerSvc, feeConfigSvc)
 	affordabilityH := handler.NewAffordabilityHandler(affordabilitySvc)
 	pricingH := handler.NewPricingHandler(pricingSvc)
@@ -396,6 +396,11 @@ func main() {
 		merchantGroup.POST("/products/:id/availability", merchantH.SetProductAvailability)
 		merchantGroup.GET("/wallet", walletH.GetBalance)
 		merchantGroup.GET("/wallet/transactions", walletH.GetTransactions)
+		merchantGroup.GET("/bank-account", merchantH.GetBankAccount)
+		merchantGroup.POST("/bank-account", merchantH.SaveBankAccount)
+		merchantGroup.POST("/withdraw", middleware.Idempotency(rdb, 24*time.Hour), merchantH.Withdraw)
+		merchantGroup.GET("/prescriptions", merchantH.ListPrescriptions)
+		merchantGroup.POST("/prescriptions/:id/review", merchantH.ReviewPrescription)
 	}
 
 	// Driver dispatch

@@ -24,6 +24,11 @@ type CatalogRepo interface {
 	CreateProduct(ctx context.Context, p *model.Product) error
 	UpdateProduct(ctx context.Context, p *model.Product) error
 	ListProductsForMerchant(ctx context.Context, merchantID uuid.UUID) ([]model.Product, error)
+
+	// Merchant prescription review queue.
+	ListPrescriptionsForMerchant(ctx context.Context, merchantID uuid.UUID, status string) ([]model.Prescription, error)
+	GetPrescriptionByID(ctx context.Context, id uuid.UUID) (*model.Prescription, error)
+	UpdatePrescription(ctx context.Context, p *model.Prescription) error
 }
 
 type catalogRepo struct{ db *gorm.DB }
@@ -118,4 +123,26 @@ func (r *catalogRepo) ListProductsForMerchant(ctx context.Context, merchantID uu
 		Order("created_at DESC").
 		Find(&products).Error
 	return products, err
+}
+
+func (r *catalogRepo) ListPrescriptionsForMerchant(ctx context.Context, merchantID uuid.UUID, status string) ([]model.Prescription, error) {
+	q := r.db.WithContext(ctx).
+		Where("merchant_id = ?", merchantID).
+		Order("created_at DESC")
+	if status != "" {
+		q = q.Where("status = ?", status)
+	}
+	var prescriptions []model.Prescription
+	err := q.Find(&prescriptions).Error
+	return prescriptions, err
+}
+
+func (r *catalogRepo) GetPrescriptionByID(ctx context.Context, id uuid.UUID) (*model.Prescription, error) {
+	var p model.Prescription
+	err := r.db.WithContext(ctx).First(&p, id).Error
+	return &p, err
+}
+
+func (r *catalogRepo) UpdatePrescription(ctx context.Context, p *model.Prescription) error {
+	return r.db.WithContext(ctx).Save(p).Error
 }

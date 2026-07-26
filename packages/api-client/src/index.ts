@@ -43,7 +43,7 @@ export { earningsApi } from './endpoints/earnings';
 
 // Merchant self-service
 export { merchantApi } from './endpoints/merchant';
-export type { MerchantProfile, MerchantProduct, MerchantOrder, ProductInput } from './endpoints/merchant';
+export type { MerchantProfile, MerchantProduct, MerchantOrder, ProductInput, BankAccount, MerchantPrescription } from './endpoints/merchant';
 
 // Admin
 export { adminApi } from './endpoints/admin';

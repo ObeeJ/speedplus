@@ -114,6 +114,8 @@ func (h *OrderHandler) Create(c *gin.Context) {
 			c.JSON(http.StatusConflict, errResp("MERCHANT_CLOSED", "Merchant is currently closed", ""))
 		case service.ErrRxRequired:
 			c.JSON(http.StatusUnprocessableEntity, errResp("PRESCRIPTION_REQUIRED", "Prescription required", "prescriptionId"))
+		case service.ErrRxNotApproved:
+			c.JSON(http.StatusUnprocessableEntity, errResp("PRESCRIPTION_NOT_APPROVED", err.Error(), "prescriptionId"))
 		default:
 			internalError(c, err)
 		}

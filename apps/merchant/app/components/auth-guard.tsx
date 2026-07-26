@@ -4,22 +4,17 @@ import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useMerchantAuthStore } from '@/lib/store/auth.store';
 
-const PUBLIC_PATHS = ['/login'];
-
-export function AuthGuard({ children }: { children: React.ReactNode }) {
+export function MerchantAuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const isAuthenticated = useMerchantAuthStore((s) => s.isAuthenticated);
 
   useEffect(() => {
-    if (!isAuthenticated && !PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
-      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+    if (!isAuthenticated && !pathname.startsWith('/login')) {
+      router.replace('/login');
     }
   }, [isAuthenticated, pathname, router]);
 
-  if (!isAuthenticated && !PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
-    return null;
-  }
-
+  if (!isAuthenticated && !pathname.startsWith('/login')) return null;
   return <>{children}</>;
 }

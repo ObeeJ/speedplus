@@ -10,3 +10,13 @@ export { Progress } from './components/progress';
 export { SelectionCard } from './components/selection-card';
 export { StatusSteps } from './components/status-steps';
 export { cn } from './lib/utils';
+export {
+  DashboardIcon,
+  ReceiptIcon,
+  PillIcon,
+  BoxIcon,
+  WalletIcon,
+  ShieldCheckIcon,
+  PowerIcon,
+  type DuotoneIconProps,
+} from './icons';

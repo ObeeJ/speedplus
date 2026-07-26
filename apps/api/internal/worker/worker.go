@@ -7,8 +7,11 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
+	"github.com/speedplus/api/internal/model"
 	"github.com/speedplus/api/internal/observability"
+	"github.com/speedplus/api/internal/payment"
 	"github.com/speedplus/api/internal/service"
 )
 
@@ -160,8 +163,66 @@ func (h *Handlers) handleCashoutProcess(ctx context.Context, t *asynq.Task) erro
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
 		return fmt.Errorf("cashout payload: %w", err)
 	}
-	slog.Info("worker: processing cashout", "id", p.CashoutID)
-	// TODO: call provider transfer API, update cashout status
+
+	cashoutID, err := uuid.Parse(p.CashoutID)
+	if err != nil {
+		return fmt.Errorf("cashout: invalid id: %w", err)
+	}
+
+	// Load cashout
+	var cashout model.CashoutRequest
+	if err := h.wallet.DB().WithContext(ctx).First(&cashout, "id = ?", cashoutID).Error; err != nil {
+		return fmt.Errorf("cashout not found: %w", err)
+	}
+	if cashout.Status != "pending" {
+		slog.Info("worker: cashout already processed", "id", cashoutID, "status", cashout.Status)
+		return nil // idempotent
+	}
+
+	// Resolve bank account
+	recipientCode, reason, err := h.wallet.ResolveCashoutRecipient(ctx, &cashout)
+	if err != nil {
+		return fmt.Errorf("cashout recipient: %w", err)
+	}
+
+	// Mark processing to prevent duplicate transfers on concurrent retries
+	cashout.Status = "processing"
+	if err := h.wallet.DB().WithContext(ctx).Save(&cashout).Error; err != nil {
+		return fmt.Errorf("cashout: mark processing: %w", err)
+	}
+
+	// Initiate provider transfer
+	resp, err := h.wallet.Provider().InitiateTransfer(ctx, payment.TransferRequest{
+		AmountKobo:    cashout.AmountKobo,
+		RecipientCode: recipientCode,
+		Reference:     cashout.ID.String(),
+		Reason:        reason,
+	})
+
+	if err != nil {
+		// Check if this is the last retry — asynq sets retried count in context
+		retried, _ := asynq.GetRetryCount(ctx)
+		maxRetry, _ := asynq.GetMaxRetry(ctx)
+		if retried >= maxRetry {
+			// Final failure — reverse the ledger debit so merchant gets money back
+			slog.Error("worker: cashout final failure, reversing", "id", cashoutID, "err", err)
+			if reverseErr := h.wallet.ReverseCashout(ctx, &cashout); reverseErr != nil {
+				observability.CaptureError(ctx, reverseErr, "cashout: reversal failed", "cashout_id", cashoutID.String())
+			}
+			return nil // don't retry after reversal
+		}
+		return fmt.Errorf("cashout: provider transfer: %w", err) // retryable
+	}
+
+	// Success — mark paid and store provider reference
+	cashout.Status = "paid"
+	cashout.ProviderRef = &resp.TransferCode
+	if err := h.wallet.DB().WithContext(ctx).Save(&cashout).Error; err != nil {
+		observability.CaptureError(ctx, err, "cashout: mark paid failed", "cashout_id", cashoutID.String())
+		// Transfer already sent — don't retry or we'd double-send. Log and move on.
+		return nil
+	}
+	slog.Info("worker: cashout paid", "id", cashoutID, "provider_ref", resp.TransferCode)
 	return nil
 }
 

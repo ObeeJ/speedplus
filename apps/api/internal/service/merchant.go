@@ -58,3 +58,43 @@ func (s *MerchantService) SetOpen(ctx context.Context, userID uuid.UUID, isOpen 
 		Where("id = ?", merchant.ID).
 		Update("is_open", isOpen).Error
 }
+
+// ── Bank account management ─────────────────────────────────────────────────────────────────
+
+// GetBankAccount returns the merchant's saved withdrawal bank account, if any.
+func (s *MerchantService) GetBankAccount(ctx context.Context, userID uuid.UUID) (*model.MerchantBankAccount, error) {
+	merchant, err := s.ResolveByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	var acct model.MerchantBankAccount
+	if err := s.db.WithContext(ctx).Where("merchant_id = ?", merchant.ID).First(&acct).Error; err != nil {
+		return nil, nil // no account saved yet — not an error
+	}
+	return &acct, nil
+}
+
+// SaveBankAccount upserts the merchant's withdrawal bank account.
+// accountName must be pre-resolved by the caller via the payment provider's
+// account-resolution API — this function trusts it as already verified.
+func (s *MerchantService) SaveBankAccount(ctx context.Context, userID uuid.UUID, bankCode, bankName, accountNumber, accountName string) (*model.MerchantBankAccount, error) {
+	merchant, err := s.ResolveByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	acct := model.MerchantBankAccount{
+		MerchantID:    merchant.ID,
+		BankCode:      bankCode,
+		BankName:      bankName,
+		AccountNumber: accountNumber,
+		AccountName:   accountName,
+		IsVerified:    true,
+	}
+	if err := s.db.WithContext(ctx).
+		Where("merchant_id = ?", merchant.ID).
+		Assign(acct).
+		FirstOrCreate(&acct).Error; err != nil {
+		return nil, err
+	}
+	return &acct, nil
+}
