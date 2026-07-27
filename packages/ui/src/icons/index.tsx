@@ -84,6 +84,78 @@ export function ShieldCheckIcon({ size = 20, active = false, color = DEFAULT_COL
   );
 }
 
+/** Camera — photo capture / upload affordances. */
+export function CameraIcon({ size = 20, active = false, color = DEFAULT_COLOR, accent = DEFAULT_ACCENT }: DuotoneIconProps) {
+  const stroke = active ? ACTIVE_COLOR : color;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.5 8.5h3l1.5-2.5h8l1.5 2.5h3v10h-17z" />
+      <circle cx="12" cy="13" r="3.4" stroke={accent} />
+    </svg>
+  );
+}
+
+// ── Driver milestone badges ───────────────────────────────────────────────────
+// One per badge_type in driver_badges (zero_complaints reuses ShieldCheckIcon).
+
+/** first_delivery — a single spark/burst. */
+export function SparkIcon({ size = 20, active = false, color = DEFAULT_COLOR, accent = DEFAULT_ACCENT }: DuotoneIconProps) {
+  const stroke = active ? ACTIVE_COLOR : color;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3.5l2.2 5.6 5.8 1.9-4.6 3.6.6 6-4-3.1-4 3.1.6-6-4.6-3.6 5.8-1.9z" />
+      <path d="M12 8.5v4" stroke={accent} />
+    </svg>
+  );
+}
+
+/** 10_deliveries — stacked parcels. */
+export function BoxStackIcon({ size = 20, active = false, color = DEFAULT_COLOR, accent = DEFAULT_ACCENT }: DuotoneIconProps) {
+  const stroke = active ? ACTIVE_COLOR : color;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 13l8-3.5 8 3.5v5.5L12 21.5 4 18.5z" />
+      <path d="M4 13l8 3.5 8-3.5" />
+      <path d="M7.5 6.5L12 4.5l4.5 2" stroke={accent} />
+    </svg>
+  );
+}
+
+/** 50_deliveries — a rocket, for sustained volume. */
+export function RocketIcon({ size = 20, active = false, color = DEFAULT_COLOR, accent = DEFAULT_ACCENT }: DuotoneIconProps) {
+  const stroke = active ? ACTIVE_COLOR : color;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2.5c3 2.5 4.5 6 4.5 9.5L12 16l-4.5-4c0-3.5 1.5-7 4.5-9.5z" />
+      <path d="M7.5 12L5 14.5l1.5 4 3-2M16.5 12L19 14.5l-1.5 4-3-2" stroke={accent} />
+      <circle cx="12" cy="9" r="1.6" />
+    </svg>
+  );
+}
+
+/** 100_deliveries — trophy. */
+export function TrophyIcon({ size = 20, active = false, color = DEFAULT_COLOR, accent = DEFAULT_ACCENT }: DuotoneIconProps) {
+  const stroke = active ? ACTIVE_COLOR : color;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7.5 4h9v5a4.5 4.5 0 01-9 0z" />
+      <path d="M7.5 5.5H5a2.5 2.5 0 002.5 2.5M16.5 5.5H19a2.5 2.5 0 01-2.5 2.5" stroke={accent} />
+      <path d="M12 13.5v3.5M8.5 20.5h7" />
+    </svg>
+  );
+}
+
+/** top_rated — star. */
+export function StarIcon({ size = 20, active = false, color = DEFAULT_COLOR, accent = DEFAULT_ACCENT }: DuotoneIconProps) {
+  const stroke = active ? ACTIVE_COLOR : color;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3.5l2.6 5.5 6 .8-4.3 4.3 1 6-5.3-2.9-5.3 2.9 1-6L3.4 9.8l6-.8z" />
+      <path d="M10.5 13.5l1.5 1.5 2.5-3" stroke={accent} />
+    </svg>
+  );
+}
+
 export function PowerIcon({ size = 16, color = '#9A968D' }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">

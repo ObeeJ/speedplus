@@ -109,6 +109,8 @@ type Order struct {
 	DeliveredAt       *time.Time
 	CancelReason      *string
 	PaymentMethod     string      `gorm:"type:varchar(20);default:'wallet'"` // wallet|pay_on_arrival
+	DeclaredValueKobo *int64      `gorm:"default:null"`                      // sender-stated package value; nil = not declared
+	TrackingRef       *string     `gorm:"type:varchar(12);uniqueIndex"`      // short human-readable ref e.g. SPX-A3K9
 	IdempotencyKey    string      `gorm:"uniqueIndex;not null"`
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
@@ -527,6 +529,28 @@ type ProofMedia struct {
 	CapturedAt  time.Time `gorm:"not null"`
 	CapturedBy  uuid.UUID `gorm:"type:uuid;not null"` // the driver
 	CreatedAt   time.Time
+}
+
+// OrderReview is a post-delivery rating + comment left by the customer.
+// One review per order per reviewee_type — enforced by DB unique constraint.
+type OrderReview struct {
+	ID           uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	OrderID      uuid.UUID `gorm:"type:uuid;not null;index"`
+	ReviewerID   uuid.UUID `gorm:"type:uuid;not null"`
+	RevieweeID   uuid.UUID `gorm:"type:uuid;not null;index"`
+	RevieweeType string    `gorm:"type:varchar(10);not null"` // driver|merchant
+	Rating       int       `gorm:"not null"`                  // 1-5
+	Comment      *string   `gorm:"type:text"`
+	CreatedAt    time.Time
+}
+
+// DriverBadge is a milestone badge awarded to a driver by the platform.
+type DriverBadge struct {
+	ID                 uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	DriverID           uuid.UUID `gorm:"type:uuid;not null;index"`
+	BadgeType          string    `gorm:"type:varchar(30);not null"` // first_delivery|10_deliveries|50_deliveries|100_deliveries|top_rated|zero_complaints
+	OrderCountAtAward  int       `gorm:"not null;default:0"`
+	AwardedAt          time.Time `gorm:"not null"`
 }
 
 // FeeConfig is a versioned, append-only pricing configuration row per vertical.

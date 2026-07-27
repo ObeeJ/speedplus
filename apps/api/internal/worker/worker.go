@@ -25,6 +25,7 @@ const (
 	TaskPlatformSnapshot    = "ledger:platform_snapshot"
 	TaskOnboardUser         = "user:onboard"
 	TaskPurgeRecipientPII   = "order:purge_recipient_pii"
+	TaskReviewAggregate     = "review:aggregate" // recompute rating + award badges
 )
 
 // ── Scheduler (cron) ──────────────────────────────────────────────────────────
@@ -106,6 +107,7 @@ func (h *Handlers) Register(mux *asynq.ServeMux) {
 	mux.HandleFunc(TaskPlatformSnapshot, h.handlePlatformSnapshot)
 	mux.HandleFunc(TaskOnboardUser, h.handleOnboardUser)
 	mux.HandleFunc(TaskPurgeRecipientPII, h.handlePurgeRecipientPII)
+	mux.HandleFunc(TaskReviewAggregate, h.handleReviewAggregate)
 }
 
 func (h *Handlers) handleWeeklyPayout(ctx context.Context, _ *asynq.Task) error {
@@ -280,6 +282,50 @@ func (h *Handlers) handleOnboardUser(ctx context.Context, t *asynq.Task) error {
 	}
 	slog.Info("worker: onboarding user", "user_id", p.UserID)
 	return h.onboarding.RunByID(ctx, p.UserID)
+}
+
+// ReviewAggregatePayload is the typed payload for post-review recomputation.
+type ReviewAggregatePayload struct {
+	RevieweeID   string `json:"reviewee_id"`
+	RevieweeType string `json:"reviewee_type"` // driver|merchant
+}
+
+// handleReviewAggregate recomputes the reviewee's average rating and, for
+// drivers, awards any newly-earned milestone badges. Runs in the worker so a
+// failure is retried and observable instead of vanishing in a goroutine.
+func (h *Handlers) handleReviewAggregate(ctx context.Context, t *asynq.Task) error {
+	var p ReviewAggregatePayload
+	if err := json.Unmarshal(t.Payload(), &p); err != nil {
+		return fmt.Errorf("review aggregate payload: %w", err)
+	}
+	if h.orders == nil {
+		return fmt.Errorf("review aggregate: OrderService not injected")
+	}
+	revieweeID, err := uuid.Parse(p.RevieweeID)
+	if err != nil {
+		return fmt.Errorf("review aggregate: bad reviewee_id %q: %w", p.RevieweeID, err)
+	}
+	if err := h.orders.UpdateAggregateRating(ctx, revieweeID, p.RevieweeType); err != nil {
+		return fmt.Errorf("review aggregate: rating: %w", err)
+	}
+	if p.RevieweeType == "driver" {
+		if err := h.orders.AwardBadgeIfEligible(ctx, revieweeID); err != nil {
+			return fmt.Errorf("review aggregate: badges: %w", err)
+		}
+	}
+	return nil
+}
+
+// EnqueueReviewAggregate schedules rating recomputation + badge award after a
+// review is submitted. Replaces two fire-and-forget goroutines.
+func EnqueueReviewAggregate(client *asynq.Client, revieweeID, revieweeType string) error {
+	payload, _ := json.Marshal(ReviewAggregatePayload{RevieweeID: revieweeID, RevieweeType: revieweeType})
+	task := asynq.NewTask(TaskReviewAggregate, payload,
+		asynq.Queue("low"),
+		asynq.MaxRetry(3),
+	)
+	_, err := client.Enqueue(task)
+	return err
 }
 
 // EnqueueOnboarding enqueues DVA + card + trust-tier creation for a new user.

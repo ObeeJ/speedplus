@@ -1,9 +1,18 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, type ReactElement } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDriverStore } from '../lib/store/driver.store';
 import { dispatchApi, paycodesApi, walletApi } from '@speedplus/api-client';
+import {
+  SparkIcon,
+  BoxStackIcon,
+  RocketIcon,
+  TrophyIcon,
+  StarIcon,
+  ShieldCheckIcon,
+  type DuotoneIconProps,
+} from '@speedplus/ui';
 import { ProofCapture } from './components/proof-capture';
 import { useQuery } from '@tanstack/react-query';
 
@@ -13,6 +22,33 @@ const LOCATION_INTERVAL_MS = 10_000;
 function naira(kobo: number) {
   return `₦${(kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 0 })}`;
 }
+
+// ── Badge metadata ────────────────────────────────────────────────────────────
+// Keys mirror driver_badges.badge_type. Duotone icons, not emoji — the accent
+// stroke carries the second color. Module-scope so it isn't rebuilt per render.
+type BadgeMeta = {
+  label: string;
+  Icon: (props: DuotoneIconProps) => ReactElement;
+  color: string;
+  accent: string;
+};
+
+const BADGE_META: Record<string, BadgeMeta> = {
+  first_delivery:   { label: 'First delivery',  Icon: SparkIcon,       color: '#FFF7E6', accent: '#D9A408' },
+  '10_deliveries':  { label: '10 deliveries',   Icon: BoxStackIcon,    color: '#E9F3D8', accent: '#7BA05B' },
+  '50_deliveries':  { label: '50 deliveries',   Icon: RocketIcon,      color: '#E9F3D8', accent: '#7BA05B' },
+  '100_deliveries': { label: '100 deliveries',  Icon: TrophyIcon,      color: '#FFF7E6', accent: '#D9A408' },
+  top_rated:        { label: 'Top rated',       Icon: StarIcon,        color: '#FFF7E6', accent: '#D9A408' },
+  zero_complaints:  { label: 'Zero complaints', Icon: ShieldCheckIcon, color: '#E9F3D8', accent: '#7BA05B' },
+};
+
+// Unknown badge_type from a newer API build still renders something sane.
+const FALLBACK_BADGE = (badgeType: string): BadgeMeta => ({
+  label: badgeType.replace(/_/g, ' '),
+  Icon: SparkIcon,
+  color: '#F7F5EF',
+  accent: '#9A968D',
+});
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 function HomeIcon() {
@@ -71,6 +107,36 @@ export default function DriverAppPage() {
     staleTime: 30_000,
   });
 
+  // Fetch driver badges for Me tab
+  const { data: badgesData } = useQuery({
+    queryKey: ['driver-badges'],
+    queryFn: async () => {
+      const { data } = await (await import('@speedplus/api-client')).apiClient.get('/users/me/driver-profile');
+      const profile = (data as { success: boolean; data: { userId: string } }).data;
+      const res = await (await import('@speedplus/api-client')).apiClient.get(`/drivers/${profile.userId}/badges`);
+      return (res.data as { success: boolean; data: { badges: { badgeType: string; awardedAt: string }[] } }).data.badges;
+    },
+    enabled: tab === 'me',
+    staleTime: 60_000,
+  });
+
+  // Subscribe to active order WS for cancellation / status updates
+  useEffect(() => {
+    if (!activeJob) return;
+    const ws = new WebSocket(WS_URL);
+    ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', channel: `order:${activeJob.orderId}` }));
+    ws.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data as string) as { event: string };
+        if (msg.event === 'order_cancelled') {
+          clearJob();
+          setTab('home');
+        }
+      } catch { /* ignore */ }
+    };
+    return () => ws.close();
+  }, [activeJob?.orderId, clearJob, setTab]);
+
   // Location updates when online
   const sendLocation = useCallback(() => {
     if (!online) return;
@@ -120,6 +186,19 @@ export default function DriverAppPage() {
     if (!pendingOffer) return;
     try {
       await dispatchApi.acceptOffer(pendingOffer.offerId);
+
+      // Fetch stops from API for multi-drop orders
+      let stops: import('../lib/store/driver.store').JobStop[] = [];
+      if ((pendingOffer.stopCount ?? 0) > 1) {
+        try {
+          const { data } = await (await import('@speedplus/api-client')).apiClient.get(
+            `/orders/${pendingOffer.orderId}/stops`,
+          );
+          const raw = (data as { success: boolean; data: { stops: { sequence: number; addressId: string; recipientName?: string; recipientPhone?: string; notes?: string; status: string }[] } }).data.stops;
+          stops = raw.map((s) => ({ ...s, status: s.status as 'pending' | 'confirmed' }));
+        } catch { /* non-fatal — driver proceeds without stop details */ }
+      }
+
       setActiveJob({
         orderId: pendingOffer.orderId,
         stage: 1,
@@ -130,13 +209,12 @@ export default function DriverAppPage() {
         totalKobo: pendingOffer.totalKobo,
         deliveryCode: '',
         paymentMethod: 'wallet',
-        stops: [],
+        stops,
         currentStopIndex: 0,
       });
       setPendingOffer(null);
       setTab('job');
     } catch {
-      // offer taken — clear it
       setPendingOffer(null);
     }
   }
@@ -465,6 +543,30 @@ export default function DriverAppPage() {
                 <span className="text-[11.5px] text-mid">Rider · SpeedPlus</span>
               </span>
             </div>
+
+            {/* Badges */}
+            {badgesData && badgesData.length > 0 && (
+              <div className="bg-white border border-line rounded-2xl p-4 flex flex-col gap-2.5">
+                <span className="text-[10.5px] font-semibold text-mid tracking-[.5px]">YOUR BADGES</span>
+                <div className="flex flex-wrap gap-2">
+                  {badgesData.map((b) => {
+                    const meta = BADGE_META[b.badgeType] ?? FALLBACK_BADGE(b.badgeType);
+                    const { Icon, label, color, accent } = meta;
+                    return (
+                      <div
+                        key={b.badgeType}
+                        className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold"
+                        style={{ background: color }}
+                      >
+                        <Icon size={15} accent={accent} />
+                        <span>{label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <button
               onClick={() => router.push('/login')}
               className="text-sm font-semibold text-[#DC2626] text-left"

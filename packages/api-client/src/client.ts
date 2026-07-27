@@ -8,6 +8,10 @@ export function setAuthToken(token: string | null): void {
   authToken = token;
 }
 
+export function getAuthToken(): string | null {
+  return authToken;
+}
+
 export function setRefreshToken(token: string | null): void {
   refreshToken = token;
 }

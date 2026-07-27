@@ -18,5 +18,11 @@ export {
   WalletIcon,
   ShieldCheckIcon,
   PowerIcon,
+  CameraIcon,
+  SparkIcon,
+  BoxStackIcon,
+  RocketIcon,
+  TrophyIcon,
+  StarIcon,
   type DuotoneIconProps,
 } from './icons';

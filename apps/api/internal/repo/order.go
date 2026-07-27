@@ -88,11 +88,11 @@ func (r *orderRepo) ListByDriver(ctx context.Context, driverID uuid.UUID, cursor
 }
 
 func (r *orderRepo) listWithCursor(ctx context.Context, where string, arg interface{}, cursor *uuid.UUID, limit int) ([]model.Order, error) {
-	q := r.db.WithContext(ctx).Where(where, arg).Order("created_at DESC").Limit(limit)
+	q := r.db.WithContext(ctx).Where(where, arg).Order("created_at DESC, id DESC").Limit(limit)
 	if cursor != nil {
 		var pivot model.Order
 		if err := r.db.WithContext(ctx).First(&pivot, cursor).Error; err == nil {
-			q = q.Where("created_at < ?", pivot.CreatedAt)
+			q = q.Where("(created_at, id) < (?, ?)", pivot.CreatedAt, pivot.ID)
 		}
 	}
 	var orders []model.Order

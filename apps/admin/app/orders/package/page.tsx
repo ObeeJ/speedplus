@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from 'react';
 import { adminApi, type OrderDetail } from '@speedplus/api-client';
 import { apiClient } from '@speedplus/api-client';
 import type { ApiResponse } from '@speedplus/types';
-import { Badge } from '@speedplus/ui';
+import { Badge, BoxIcon } from '@speedplus/ui';
 
 function naira(k: number) {
   return `₦${(k / 100).toLocaleString('en-NG', { minimumFractionDigits: 0 })}`;
@@ -199,7 +199,10 @@ export default function PackageOrdersPage() {
   return (
     <div className="px-8 py-7 flex flex-col gap-4">
       <div className="flex items-baseline justify-between">
-        <h1 className="font-display font-semibold text-[26px] tracking-tight">📦 Package Orders</h1>
+        <h1 className="font-display font-semibold text-[26px] tracking-tight flex items-center gap-2">
+          <BoxIcon size={24} />
+          Package Orders
+        </h1>
         <span className="text-sm text-mid">{orders.length} orders</span>
       </div>
 

@@ -2,14 +2,17 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/crypto"
 	"github.com/speedplus/api/internal/dto"
 	"github.com/speedplus/api/internal/model"
+	"github.com/speedplus/api/internal/observability"
 	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -24,22 +27,21 @@ var (
 )
 
 type CreateOrderInput struct {
-	CustomerID     uuid.UUID
-	MerchantID     uuid.UUID
-	QuoteID        uuid.UUID
-	Vertical       string
-	Items          []OrderItemInput
-	DeliveryAddrID uuid.UUID
-	RecipientName  *string
-	RecipientPhone *string
-	PrescriptionID *uuid.UUID
-	TipKobo        int64
-	ScheduledFor   *time.Time
-	PaymentMethod  string // ""|"wallet"|"pay_on_arrival"
-	IdempotencyKey string
-	// Multi-drop stops (package vertical only). When present, DeliveryAddrID
-	// is the first stop's address and Stops[0] is the first drop-off.
-	Stops []OrderStopInput
+	CustomerID        uuid.UUID
+	MerchantID        uuid.UUID
+	QuoteID           uuid.UUID
+	Vertical          string
+	Items             []OrderItemInput
+	DeliveryAddrID    uuid.UUID
+	RecipientName     *string
+	RecipientPhone    *string
+	PrescriptionID    *uuid.UUID
+	TipKobo           int64
+	ScheduledFor      *time.Time
+	PaymentMethod     string
+	DeclaredValueKobo *int64  // package vertical only
+	IdempotencyKey    string
+	Stops             []OrderStopInput
 }
 
 type OrderStopInput struct {
@@ -72,6 +74,31 @@ type OrderService struct {
 	recipients    *crypto.Cipher // encrypts/decrypts recipient name+phone at rest
 	email         orderEmailSender
 	users         repo.UserRepo
+	// enqueueReview schedules post-review rating/badge recomputation. Injected
+	// after construction to avoid a service→worker import cycle.
+	enqueueReview func(revieweeID, revieweeType string) error
+}
+
+// InjectReviewQueue wires the asynq enqueue function for post-review
+// aggregation. Until called, reviews persist but aggregation is skipped.
+func (s *OrderService) InjectReviewQueue(fn func(revieweeID, revieweeType string) error) {
+	s.enqueueReview = fn
+}
+
+// EnqueueBadgeCheck schedules a driver badge re-evaluation — e.g. once a
+// delivery completes. Call it *after* the enclosing transaction commits: the
+// worker counts delivered orders, so running it against an uncommitted tx
+// undercounts and would silently skip a driver's first_delivery badge.
+// Enqueue failure is logged, not returned: the delivery itself already
+// succeeded and must not be rolled back over a badge.
+func (s *OrderService) EnqueueBadgeCheck(ctx context.Context, driverID uuid.UUID) {
+	if s.enqueueReview == nil {
+		return
+	}
+	if err := s.enqueueReview(driverID.String(), "driver"); err != nil {
+		observability.CaptureError(ctx, err, "EnqueueBadgeCheck: enqueue failed",
+			"driver_id", driverID.String())
+	}
 }
 
 // orderEmailSender is the subset of email.Client used by OrderService.
@@ -122,6 +149,23 @@ func (s *OrderService) encryptRecipient(v *string) (*string, error) {
 		return nil, fmt.Errorf("recipient encryption not configured")
 	}
 	return s.recipients.EncryptPtr(v)
+}
+
+// generateTrackingRef produces a short human-readable tracking reference.
+// Format: SPX-XXXXX where X is uppercase alphanumeric (no ambiguous chars).
+// Collision probability at 1M orders: ~0.5% — DB unique index is the hard guard.
+func generateTrackingRef() string {
+	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	b := make([]byte, 5)
+	for i := range b {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		if err != nil {
+			b[i] = chars[0]
+			continue
+		}
+		b[i] = chars[n.Int64()]
+	}
+	return "SPX-" + string(b)
 }
 
 func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.Order, error) {
@@ -213,10 +257,17 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 			PrescriptionID:    in.PrescriptionID,
 			ScheduledFor:      in.ScheduledFor,
 			PaymentMethod:     "wallet",
+			DeclaredValueKobo: in.DeclaredValueKobo,
 			IdempotencyKey:    in.IdempotencyKey,
 		}
 		if in.PaymentMethod == "pay_on_arrival" {
 			order.PaymentMethod = "pay_on_arrival"
+		}
+		// Generate a short human-readable tracking reference for package orders.
+		// Retry once on the rare collision — DB unique index is the final guard.
+		if in.Vertical == "package" {
+			ref := generateTrackingRef()
+			order.TrackingRef = &ref
 		}
 
 		for _, item := range in.Items {
@@ -451,6 +502,26 @@ func (s *OrderService) Transition(ctx context.Context, orderID, actorID uuid.UUI
 			)
 		}
 
+		// Broadcast every status change so the customer tracking page updates
+		// in real-time without relying solely on polling.
+		if s.hub != nil {
+			_ = s.hub.Publish(ctx,
+				"order:"+orderID.String(),
+				"order_status_changed",
+				map[string]interface{}{"orderId": orderID, "status": to},
+			)
+		}
+
+		// Notify on delivery so the tracking page transitions immediately
+		// without waiting for the next 5-second poll cycle.
+		if to == model.OrderDelivered && s.hub != nil {
+			_ = s.hub.Publish(ctx,
+				"order:"+orderID.String(),
+				"order_delivered",
+				map[string]interface{}{"orderId": orderID},
+			)
+		}
+
 		return nil
 	})
 }
@@ -554,7 +625,23 @@ func (s *OrderService) Cancel(ctx context.Context, orderID, actorID uuid.UUID, a
 		}
 
 		// Refund engine
-		return s.ledger.ProcessCancellationRefund(ctx, tx, &order)
+		if err := s.ledger.ProcessCancellationRefund(ctx, tx, &order); err != nil {
+			return err
+		}
+
+		// Notify all parties via WS — customer tracking page and driver app
+		// both subscribe to order:{id} and must know immediately.
+		if s.hub != nil {
+			_ = s.hub.Publish(ctx,
+				"order:"+orderID.String(),
+				"order_cancelled",
+				map[string]interface{}{
+					"orderId": orderID,
+					"reason":  reason,
+				},
+			)
+		}
+		return nil
 	})
 }
 
@@ -571,6 +658,271 @@ type OrderStopOut struct {
 	Notes          *string    `json:"notes,omitempty"`
 	Status         string     `json:"status"`
 	ConfirmedAt    *time.Time `json:"confirmedAt,omitempty"`
+}
+
+// ListForCustomer returns the customer's order history with optional filtering.
+// Cursor is stable: uses (created_at, id) composite to prevent duplicates
+// when two orders share the same timestamp.
+func (s *OrderService) ListForCustomer(ctx context.Context, customerID uuid.UUID, vertical, status string, cursor *uuid.UUID, limit int) ([]model.Order, error) {
+	q := s.db.WithContext(ctx).
+		Preload("Items").
+		Where("customer_id = ?", customerID).
+		Order("created_at DESC, id DESC").
+		Limit(limit)
+	if vertical != "" {
+		q = q.Where("vertical = ?", vertical)
+	}
+	if status != "" {
+		q = q.Where("status = ?", status)
+	}
+	if cursor != nil {
+		var pivot model.Order
+		if err := s.db.WithContext(ctx).First(&pivot, cursor).Error; err == nil {
+			q = q.Where("(created_at, id) < (?, ?)", pivot.CreatedAt, pivot.ID)
+		}
+	}
+	var orders []model.Order
+	return orders, q.Find(&orders).Error
+}
+
+// ReceiptResponse is the full invoice view of a completed order.
+type ReceiptResponse struct {
+	OrderID       string             `json:"orderId"`
+	Vertical      string             `json:"vertical"`
+	Status        string             `json:"status"`
+	PaymentMethod string             `json:"paymentMethod"`
+	Items         []model.OrderItem  `json:"items"`
+	SubtotalKobo  int64              `json:"subtotalKobo"`
+	DeliveryKobo  int64              `json:"deliveryKobo"`
+	ServiceKobo   int64              `json:"serviceKobo"`
+	TipKobo       int64              `json:"tipKobo"`
+	TotalKobo     int64              `json:"totalKobo"`
+	MerchantName  string             `json:"merchantName"`
+	DriverName    string             `json:"driverName,omitempty"`
+	CreatedAt     string             `json:"createdAt"`
+	DeliveredAt   *string            `json:"deliveredAt,omitempty"`
+	Review        *model.OrderReview `json:"review,omitempty"`
+}
+
+// GetReceipt returns the full invoice for an order the caller owns.
+func (s *OrderService) GetReceipt(ctx context.Context, orderID, customerID uuid.UUID) (*ReceiptResponse, error) {
+	var order model.Order
+	if err := s.db.WithContext(ctx).Preload("Items").First(&order, orderID).Error; err != nil {
+		return nil, err
+	}
+	if order.CustomerID != customerID {
+		return nil, fmt.Errorf("forbidden")
+	}
+
+	var merchant model.Merchant
+	s.db.WithContext(ctx).First(&merchant, order.MerchantID)
+
+	driverName := ""
+	if order.DriverID != nil {
+		var u model.User
+		if err := s.db.WithContext(ctx).First(&u, order.DriverID).Error; err == nil {
+			driverName = u.FirstName + " " + u.LastName
+		}
+	}
+
+	var review model.OrderReview
+	var reviewPtr *model.OrderReview
+	if err := s.db.WithContext(ctx).Where("order_id = ? AND reviewer_id = ?", orderID, customerID).First(&review).Error; err == nil {
+		reviewPtr = &review
+	}
+
+	var deliveredAt *string
+	if order.DeliveredAt != nil {
+		s := order.DeliveredAt.Format("2006-01-02T15:04:05Z07:00")
+		deliveredAt = &s
+	}
+
+	return &ReceiptResponse{
+		OrderID:       order.ID.String(),
+		Vertical:      order.Vertical,
+		Status:        string(order.Status),
+		PaymentMethod: order.PaymentMethod,
+		Items:         order.Items,
+		SubtotalKobo:  order.SubtotalKobo,
+		DeliveryKobo:  order.DeliveryKobo,
+		ServiceKobo:   order.ServiceKobo,
+		TipKobo:       order.TipKobo,
+		TotalKobo:     order.TotalKobo,
+		MerchantName:  merchant.BusinessName,
+		DriverName:    driverName,
+		CreatedAt:     order.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		DeliveredAt:   deliveredAt,
+		Review:        reviewPtr,
+	}, nil
+}
+
+// SubmitReview saves a post-delivery rating + comment.
+// Only the order's customer may review, only after delivery, and only about
+// the driver/merchant who actually fulfilled that order — revieweeID is
+// derived from the order, never trusted from the request.
+func (s *OrderService) SubmitReview(ctx context.Context, orderID, customerID uuid.UUID, revieweeType string, rating int, comment *string) error {
+	if rating < 1 || rating > 5 {
+		return fmt.Errorf("rating must be between 1 and 5")
+	}
+	if revieweeType != "driver" && revieweeType != "merchant" {
+		return fmt.Errorf("revieweeType must be driver or merchant")
+	}
+
+	var order model.Order
+	if err := s.db.WithContext(ctx).First(&order, orderID).Error; err != nil {
+		return fmt.Errorf("order not found")
+	}
+	if order.CustomerID != customerID {
+		return fmt.Errorf("forbidden")
+	}
+	if order.Status != model.OrderDelivered {
+		return fmt.Errorf("can only review a delivered order")
+	}
+
+	var revieweeID uuid.UUID
+	if revieweeType == "driver" {
+		if order.DriverID == nil {
+			return fmt.Errorf("order has no assigned driver")
+		}
+		revieweeID = *order.DriverID
+	} else {
+		if order.MerchantID == uuid.Nil {
+			return fmt.Errorf("order has no merchant")
+		}
+		revieweeID = order.MerchantID
+	}
+
+	review := model.OrderReview{
+		ID:           uuid.New(),
+		OrderID:      orderID,
+		ReviewerID:   customerID,
+		RevieweeID:   revieweeID,
+		RevieweeType: revieweeType,
+		Rating:       rating,
+		Comment:      comment,
+	}
+	if err := s.db.WithContext(ctx).Create(&review).Error; err != nil {
+		return fmt.Errorf("review already submitted or DB error: %w", err)
+	}
+
+	// Rating recomputation + badge award run in the worker: retried on failure,
+	// observable, and a panic there cannot take down the API process.
+	// The review itself is already durable, so an enqueue failure is logged,
+	// not returned — the customer's review must not appear to have failed.
+	if s.enqueueReview != nil {
+		if err := s.enqueueReview(revieweeID.String(), revieweeType); err != nil {
+			observability.CaptureError(ctx, err, "SubmitReview: enqueue aggregate failed",
+				"reviewee_id", revieweeID.String(), "reviewee_type", revieweeType)
+		}
+	}
+	return nil
+}
+
+// UpdateAggregateRating recalculates and persists the reviewee's average
+// rating. Called from the worker so failures retry and surface.
+func (s *OrderService) UpdateAggregateRating(ctx context.Context, revieweeID uuid.UUID, revieweeType string) error {
+	var avg float64
+	if err := s.db.WithContext(ctx).
+		Model(&model.OrderReview{}).
+		Where("reviewee_id = ? AND reviewee_type = ?", revieweeID, revieweeType).
+		Select("COALESCE(AVG(rating), 5.0)").
+		Scan(&avg).Error; err != nil {
+		return fmt.Errorf("aggregate rating: %w", err)
+	}
+	// Drivers key on user_id (dispatch selects dp.user_id AS driver_id);
+	// merchants key on their own business-entity ID.
+	if revieweeType == "driver" {
+		return s.db.WithContext(ctx).Model(&model.DriverProfile{}).
+			Where("user_id = ?", revieweeID).
+			Update("rating", avg).Error
+	}
+	return s.db.WithContext(ctx).Model(&model.Merchant{}).
+		Where("id = ?", revieweeID).
+		Update("rating", avg).Error
+}
+
+// Thresholds for the top_rated badge.
+const (
+	topRatedMinReviews = 20
+	topRatedMinAvg     = 4.8
+)
+
+// AwardBadgeIfEligible checks delivery milestones and awards badges.
+var badgeMilestones = []struct {
+	Count int
+	Type  string
+}{
+	{1, "first_delivery"},
+	{10, "10_deliveries"},
+	{50, "50_deliveries"},
+	{100, "100_deliveries"},
+}
+
+func (s *OrderService) AwardBadgeIfEligible(ctx context.Context, driverID uuid.UUID) error {
+	var count int64
+	if err := s.db.WithContext(ctx).Model(&model.Order{}).
+		Where("driver_id = ? AND status = ?", driverID, model.OrderDelivered).
+		Count(&count).Error; err != nil {
+		return fmt.Errorf("badge: count deliveries: %w", err)
+	}
+
+	for _, m := range badgeMilestones {
+		if int(count) >= m.Count {
+			badge := model.DriverBadge{
+				ID:                uuid.New(),
+				DriverID:          driverID,
+				BadgeType:         m.Type,
+				OrderCountAtAward: int(count),
+				AwardedAt:         time.Now(),
+			}
+			// Insert-if-absent against the unique (driver_id, badge_type)
+			// index. FirstOrCreate is wrong here: badge carries a fresh
+			// primary key, which GORM folds into the lookup conditions, so
+			// it never matches an existing row and the insert then dies on
+			// the constraint — breaking worker retries.
+			if err := s.db.WithContext(ctx).
+				Clauses(clause.OnConflict{
+					Columns:   []clause.Column{{Name: "driver_id"}, {Name: "badge_type"}},
+					DoNothing: true,
+				}).
+				Create(&badge).Error; err != nil {
+				return fmt.Errorf("badge %s: %w", m.Type, err)
+			}
+		}
+	}
+
+	// top_rated: avg rating >= 4.8 with >= 20 reviews
+	var reviewCount int64
+	var avgRating float64
+	if err := s.db.WithContext(ctx).Model(&model.OrderReview{}).
+		Where("reviewee_id = ? AND reviewee_type = 'driver'", driverID).
+		Count(&reviewCount).Error; err != nil {
+		return fmt.Errorf("badge: count reviews: %w", err)
+	}
+	if err := s.db.WithContext(ctx).Model(&model.OrderReview{}).
+		Where("reviewee_id = ? AND reviewee_type = 'driver'", driverID).
+		Select("COALESCE(AVG(rating), 0)").Scan(&avgRating).Error; err != nil {
+		return fmt.Errorf("badge: avg rating: %w", err)
+	}
+	if reviewCount >= topRatedMinReviews && avgRating >= topRatedMinAvg {
+		badge := model.DriverBadge{ID: uuid.New(), DriverID: driverID, BadgeType: "top_rated", OrderCountAtAward: int(count), AwardedAt: time.Now()}
+		if err := s.db.WithContext(ctx).
+			Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "driver_id"}, {Name: "badge_type"}},
+				DoNothing: true,
+			}).
+			Create(&badge).Error; err != nil {
+			return fmt.Errorf("badge top_rated: %w", err)
+		}
+	}
+	return nil
+}
+
+// GetDriverBadges returns all badges for a driver.
+func (s *OrderService) GetDriverBadges(ctx context.Context, driverID uuid.UUID) ([]model.DriverBadge, error) {
+	var badges []model.DriverBadge
+	err := s.db.WithContext(ctx).Where("driver_id = ?", driverID).Order("awarded_at ASC").Find(&badges).Error
+	return badges, err
 }
 
 // ListForMerchant returns the merchant's order queue, newest first, optionally

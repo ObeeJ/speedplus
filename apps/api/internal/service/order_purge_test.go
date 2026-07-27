@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
+	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
 )
 
@@ -96,8 +97,15 @@ func TestPurgeStaleRecipientPII_SkipsOpenDisputes(t *testing.T) {
 		cipher := testRecipientCipher(t)
 		disputed := seedDeliveredPackageOrder(t, tx, time.Now().AddDate(0, 0, -recipientPIIRetentionDays-1), cipher)
 
+		// escrow_holds.account_id has an FK to ledger_accounts — create a real
+		// account rather than a free-floating UUID.
+		ledger := NewLedgerService(tx, repo.NewLedgerRepo(tx), nil)
+		holdAcct, err := ledger.EnsureWallet(context.Background(), tx, seedWalletOwner(t, tx).ID)
+		if err != nil {
+			t.Fatalf("ensure hold account: %v", err)
+		}
 		hold := &model.EscrowHold{
-			ID: uuid.New(), OrderID: disputed.ID, AccountID: uuid.New(),
+			ID: uuid.New(), OrderID: disputed.ID, AccountID: holdAcct.ID,
 			AmountKobo: 1000, Status: model.EscrowFrozen,
 		}
 		mustCreate(t, tx, hold)

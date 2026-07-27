@@ -62,7 +62,15 @@ func TestQuoteMultiStop_PricesRouteAndPerStopFee(t *testing.T) {
 		cfg := &config.Config{JWTSecret: "test-secret-at-least-32-bytes-long!!"}
 		svc := &PricingService{db: tx, cfg: cfg, osrmURL: srv.URL, httpClient: srv.Client()}
 
-		customerID, merchantID := uuid.New(), uuid.New()
+		// pricing_quotes.customer_id/merchant_id carry FKs — seed real rows.
+		customer := seedWalletOwner(t, tx)
+		merchantUser := seedWalletOwner(t, tx)
+		merchant := &model.Merchant{
+			ID: uuid.New(), UserID: merchantUser.ID,
+			BusinessName: "MultiStop " + uuid.NewString()[:8], Vertical: model.VerticalPackage,
+		}
+		mustCreate(t, tx, merchant)
+		customerID, merchantID := customer.ID, merchant.ID
 		quote, err := svc.QuoteMultiStop(context.Background(), MultiStopQuoteRequest{
 			CustomerID:   customerID,
 			MerchantID:   merchantID,

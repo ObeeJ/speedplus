@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -92,7 +93,8 @@ type WebhookPayload struct {
 var ErrWebhookRetryable = errors.New("transient webhook error — retry")
 
 func (s *WalletService) ProcessWebhook(ctx context.Context, p WebhookPayload) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var notify *fundedNotice
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Dedupe: skip if already processed — non-retryable, return nil → 200
 		var existing model.WebhookEvent
 		if err := tx.Where("provider = ? AND event_id = ?", p.Provider, p.EventID).First(&existing).Error; err == nil {
@@ -156,15 +158,51 @@ func (s *WalletService) ProcessWebhook(ctx context.Context, p WebhookPayload) er
 		}
 
 		newBal, _ := s.ledger.GetBalance(ctx, intent.UserID)
-		go func(userID uuid.UUID, amount, balance int64) {
-			u, err := s.users.FindByID(context.Background(), userID)
-			if err == nil && u.Email != nil {
-				s.email.SendWalletFunded(context.Background(), *u.Email, u.FirstName, amount, balance)
-			}
-		}(intent.UserID, verified.AmountKobo, newBal)
+		// Defer the funding email until after commit. Querying from a
+		// goroutine here would share the connection the open transaction is
+		// still using; concurrent use of one connection panics inside pgx,
+		// and a panic in a detached goroutine takes down the whole process.
+		notify = &fundedNotice{
+			userID:  intent.UserID,
+			amount:  verified.AmountKobo,
+			balance: newBal,
+		}
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if notify != nil {
+		s.sendFundedEmail(*notify)
+	}
+	return nil
+}
+
+// fundedNotice carries the data needed to send a wallet-funded email once the
+// crediting transaction has committed.
+type fundedNotice struct {
+	userID  uuid.UUID
+	amount  int64
+	balance int64
+}
+
+// sendFundedEmail delivers the wallet-funded notification best-effort, on its
+// own connection, with panic recovery so a notification failure can never take
+// down the API process or affect the already-committed credit.
+func (s *WalletService) sendFundedEmail(n fundedNotice) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("wallet funded email panicked", "user_id", n.userID.String(), "panic", r)
+			}
+		}()
+		u, err := s.users.FindByID(context.Background(), n.userID)
+		if err != nil || u.Email == nil {
+			return
+		}
+		s.email.SendWalletFunded(context.Background(), *u.Email, u.FirstName, n.amount, n.balance)
+	}()
 }
 
 // ── Wallet-to-wallet transfer ─────────────────────────────────────────────────
@@ -287,7 +325,9 @@ func (s *WalletService) EWACashout(ctx context.Context, driverID uuid.UUID, amou
 		if err := s.ledger.journal(ctx, tx, entries); err != nil {
 			return err
 		}
-		s.ledger.adjustBalance(ctx, tx, driverWallet.ID, -(amountKobo + EWACashoutFeeKobo))
+		if err := s.ledger.adjustBalance(ctx, tx, driverWallet.ID, -(amountKobo + EWACashoutFeeKobo)); err != nil {
+			return fmt.Errorf("EWACashout: adjust driver balance: %w", err)
+		}
 
 		cashout := model.CashoutRequest{
 			ID:             uuid.New(),

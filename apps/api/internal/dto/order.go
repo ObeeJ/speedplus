@@ -111,6 +111,7 @@ type OrderResponse struct {
 	DriverPhone       *string             `json:"driverPhone,omitempty"`
 	Vertical          string              `json:"vertical"`
 	Status            model.OrderStatus   `json:"status"`
+	PaymentMethod     string              `json:"paymentMethod"`
 	Items             []OrderItemResponse `json:"items"`
 	Subtotal          MoneyResponse       `json:"subtotal"`
 	DeliveryFee       MoneyResponse       `json:"deliveryFee"`
@@ -123,6 +124,8 @@ type OrderResponse struct {
 	EstimatedAt       *time.Time          `json:"estimatedDeliveryAt,omitempty"`
 	DeliveredAt       *time.Time          `json:"deliveredAt,omitempty"`
 	CancelReason      *string             `json:"cancellationReason,omitempty"`
+	TrackingRef       *string             `json:"trackingRef,omitempty"`
+	DeclaredValueKobo *int64              `json:"declaredValueKobo,omitempty"`
 	CreatedAt         time.Time           `json:"createdAt"`
 	UpdatedAt         time.Time           `json:"updatedAt"`
 }
@@ -156,6 +159,7 @@ func OrderFromModel(o *model.Order) OrderResponse {
 		DriverID:          o.DriverID,
 		Vertical:          o.Vertical,
 		Status:            o.Status,
+		PaymentMethod:     o.PaymentMethod,
 		Items:             items,
 		Subtotal:          MoneyResponse{Amount: o.SubtotalKobo, Currency: "NGN"},
 		DeliveryFee:       MoneyResponse{Amount: o.DeliveryKobo, Currency: "NGN"},
@@ -168,6 +172,8 @@ func OrderFromModel(o *model.Order) OrderResponse {
 		EstimatedAt:       o.EstimatedAt,
 		DeliveredAt:       o.DeliveredAt,
 		CancelReason:      o.CancelReason,
+		TrackingRef:       o.TrackingRef,
+		DeclaredValueKobo: o.DeclaredValueKobo,
 		CreatedAt:         o.CreatedAt,
 		UpdatedAt:         o.UpdatedAt,
 	}

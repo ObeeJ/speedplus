@@ -34,19 +34,29 @@ export default function PackageTrackingPage() {
   const [cancelError, setCancelError] = useState('');
   const [deliveryCode, setDeliveryCode] = useState<string | null>(null);
 
-  // WS listener for delivery code
+  // WS listener for delivery code and real-time status updates
   useEffect(() => {
     if (!orderId) return;
     const ws = new WebSocket(process.env['NEXT_PUBLIC_WS_URL'] ?? 'ws://localhost:8000/api/v1/ws');
     ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', channel: `order:${orderId}` }));
     ws.onmessage = (evt) => {
       try {
-        const msg = JSON.parse(evt.data as string) as { event: string; data: { code?: string } };
+        const msg = JSON.parse(evt.data as string) as { event: string; data: { code?: string; status?: string } };
         if (msg.event === 'delivery_code' && msg.data.code) setDeliveryCode(msg.data.code);
+        if (msg.event === 'order_status_changed' || msg.event === 'order_delivered' || msg.event === 'driver_assigned') {
+          // Invalidate the tracking query so it refetches immediately
+          void import('@tanstack/react-query').then(({ useQueryClient: _ }) => {});
+          // Force refetch by invalidating — simplest approach without importing qc here
+          window.dispatchEvent(new CustomEvent('speedplus:order_update', { detail: { orderId } }));
+        }
+        if (msg.event === 'order_cancelled') {
+          reset();
+          router.replace('/');
+        }
       } catch { /* ignore */ }
     };
     return () => ws.close();
-  }, [orderId]);
+  }, [orderId, reset, router]);
 
   const stepIndex = order ? (STATUS_STEP[order.status] ?? 0) : 0;
   const etaMinutes = quote?.etaMinutes ?? 0;
@@ -179,6 +189,24 @@ export default function PackageTrackingPage() {
               <path d="M5 12h14M12 5l7 7-7 7" />
             </svg>
             <span className="font-medium text-[#121216] truncate">{dropoff.street}</span>
+          </div>
+        )}
+
+        {/* Tracking reference — share with recipient */}
+        {(order as (typeof order & { trackingRef?: string }) | undefined)?.trackingRef && (
+          <div className="bg-white rounded-2xl border border-[#E4E0D6] px-4 py-3 flex items-center justify-between">
+            <div>
+              <p className="text-[10.5px] font-semibold text-[#9A968D] tracking-[0.6px]">TRACKING REF</p>
+              <p className="font-display font-bold text-[18px] text-[#0A3D2C] tracking-[3px] mt-0.5">
+                {(order as (typeof order & { trackingRef?: string })).trackingRef}
+              </p>
+            </div>
+            <button
+              onClick={() => navigator.clipboard?.writeText((order as (typeof order & { trackingRef?: string })).trackingRef ?? '')}
+              className="text-[11px] font-semibold text-[#0A3D2C] border border-[#0A3D2C]/20 rounded-xl px-3 py-1.5 hover:bg-[#E9F3D8] transition-colors"
+            >
+              Copy
+            </button>
           </div>
         )}
 

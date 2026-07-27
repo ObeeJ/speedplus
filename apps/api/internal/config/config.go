@@ -45,6 +45,8 @@ type Config struct {
 
 	PINThresholdKobo int64 // require PIN above this amount
 
+	OSRMURL string // OSRM routing engine base URL — required for pricing
+
 	EncryptionKey string // 32-byte key (raw) for AES-GCM field encryption of recipient PII
 
 	Environment string // "development" | "production"
@@ -79,6 +81,7 @@ func Load() (*Config, error) {
 		SendbyteAPIKey:     getEnv("SENDBYTE_API_KEY", ""),
 		SendbyteFromAddr:   getEnv("SENDBYTE_FROM_ADDRESS", "SpeedPlus <noreply@speedplus.app>"),
 		PINThresholdKobo:   int64(getEnvInt("PIN_THRESHOLD_KOBO", 5000000)), // ₦50,000
+		OSRMURL:            getEnv("OSRM_URL", "http://router.project-osrm.org"),
 		EncryptionKey:      getEnv("ENCRYPTION_KEY", ""),
 		Environment:        getEnv("ENVIRONMENT", "development"),
 	}
@@ -103,11 +106,14 @@ func Load() (*Config, error) {
 		}
 	}
 
-	// ENCRYPTION_KEY protects recipient PII (name/phone) at rest. Missing or
-	// wrong-sized in production means every package order would either fail
-	// to encrypt or fall back to plaintext — fail fast at boot instead.
+	// ENCRYPTION_KEY protects recipient PII (name/phone) at rest.
 	if cfg.Environment == "production" && len(cfg.EncryptionKey) != 32 {
 		return nil, fmt.Errorf("ENCRYPTION_KEY must be set to exactly 32 bytes in production")
+	}
+
+	// OSRM_URL is required in production — every quote and order fails without it.
+	if cfg.Environment == "production" && cfg.OSRMURL == "http://router.project-osrm.org" {
+		return nil, fmt.Errorf("OSRM_URL must be set to a private OSRM instance in production")
 	}
 
 	return cfg, nil

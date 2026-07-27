@@ -156,7 +156,8 @@ func (s *PaycodeService) Resolve(ctx context.Context, payload string, scannerID 
 // Confirm atomically: wallet debit (if unpaid) + escrow release + settlement + order → delivered.
 // This is the ONLY path that releases escrow — satisfies the no-bypass rule.
 func (s *PaycodeService) Confirm(ctx context.Context, paycodeID, driverID uuid.UUID, pin *string) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var badgeDriverID *uuid.UUID
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var pc model.Paycode
 		if err := tx.First(&pc, paycodeID).Error; err != nil {
 			return ErrPaycodeInvalid
@@ -215,6 +216,12 @@ func (s *PaycodeService) Confirm(ctx context.Context, paycodeID, driverID uuid.U
 		// Record completed order for trust tier evaluation (non-blocking).
 		go s.tier.RecordCompletion(context.Background(), order.CustomerID)
 		s.settleReferral(order.CustomerID, order.SubtotalKobo)
+		// Enqueued post-commit — the worker counts delivered orders and would
+		// not yet see this one from inside the open transaction.
+		if order.DriverID != nil {
+			did := *order.DriverID
+			badgeDriverID = &did
+		}
 
 		// Order delivered email — best-effort, non-blocking.
 		go func(o model.Order) {
@@ -233,6 +240,13 @@ func (s *PaycodeService) Confirm(ctx context.Context, paycodeID, driverID uuid.U
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if badgeDriverID != nil {
+		s.orders.EnqueueBadgeCheck(ctx, *badgeDriverID)
+	}
+	return nil
 }
 
 func (s *PaycodeService) sign(payload string) string {
@@ -257,7 +271,8 @@ func (s *PaycodeService) GenerateDeliveryCode(ctx context.Context, orderID uuid.
 // lat/lng are the rider's GPS at code entry — optional evidence, flag-only:
 // a far or missing location never blocks settlement.
 func (s *PaycodeService) ConfirmByCode(ctx context.Context, orderID, driverID uuid.UUID, code string, lat, lng *float64) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var badgeDriverID *uuid.UUID
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 1. Load and validate the order
 		var order model.Order
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, orderID).Error; err != nil {
@@ -313,6 +328,11 @@ func (s *PaycodeService) ConfirmByCode(ctx context.Context, orderID, driverID uu
 
 		go s.tier.RecordCompletion(context.Background(), order.CustomerID)
 		s.settleReferral(order.CustomerID, order.SubtotalKobo)
+		// Enqueued post-commit — see Confirm for why.
+		if order.DriverID != nil {
+			did := *order.DriverID
+			badgeDriverID = &did
+		}
 		go func(o model.Order) {
 			customer, err := s.users.FindByID(context.Background(), o.CustomerID)
 			if err != nil || customer.Email == nil {
@@ -329,6 +349,13 @@ func (s *PaycodeService) ConfirmByCode(ctx context.Context, orderID, driverID uu
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if badgeDriverID != nil {
+		s.orders.EnqueueBadgeCheck(ctx, *badgeDriverID)
+	}
+	return nil
 }
 
 // ConfirmByCard is the offline delivery path.

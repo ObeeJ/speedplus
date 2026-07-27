@@ -1,4 +1,5 @@
-export { apiClient, setAuthToken, setRefreshToken, getRefreshToken } from './client';
+export { apiClient, setAuthToken, getAuthToken, setRefreshToken, getRefreshToken } from './client';
+export { buildWsUrl } from './ws';
 export { SpeedPlusError } from './errors';
 
 // Auth & users

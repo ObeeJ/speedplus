@@ -15,15 +15,25 @@ const (
 
 func Auth(authSvc *service.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		header := c.GetHeader("Authorization")
-		if !strings.HasPrefix(header, "Bearer ") {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": gin.H{"code": "UNAUTHORIZED", "message": "Session expired. Please log in again."},
-			})
-			return
+		// WebSocket connections cannot send Authorization headers from browsers.
+		// Accept token as ?token= query param for WS upgrades only.
+		// For all other requests the header is required.
+		var raw string
+		if isWSUpgrade(c.Request) {
+			raw = c.Query("token")
+		}
+		if raw == "" {
+			header := c.GetHeader("Authorization")
+			if !strings.HasPrefix(header, "Bearer ") {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+					"error": gin.H{"code": "UNAUTHORIZED", "message": "Session expired. Please log in again."},
+				})
+				return
+			}
+			raw = strings.TrimPrefix(header, "Bearer ")
 		}
 
-		claims, err := authSvc.ValidateAccessToken(strings.TrimPrefix(header, "Bearer "))
+		claims, err := authSvc.ValidateAccessToken(raw)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error": gin.H{"code": "UNAUTHORIZED", "message": "Session expired. Please log in again."},
@@ -35,6 +45,11 @@ func Auth(authSvc *service.AuthService) gin.HandlerFunc {
 		c.Set(CtxUserRole, claims.Role)
 		c.Next()
 	}
+}
+
+// isWSUpgrade returns true when the request is a WebSocket upgrade.
+func isWSUpgrade(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
 }
 
 // RequireRole enforces vertical RBAC.

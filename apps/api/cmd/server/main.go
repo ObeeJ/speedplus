@@ -91,7 +91,7 @@ func main() {
 	kycProvider := kyc.NewPrembly(cfg.PremblyAPIKey, cfg.PremblyBaseURL, cfg.PremblyAppID)
 	kycSvc := service.NewKYCService(gormDB, kycProvider)
 	feeConfigSvc := service.NewFeeConfigService(gormDB)
-	pricingSvc := service.NewPricingService(gormDB, cfg, os.Getenv("OSRM_URL"), feeConfigSvc)
+	pricingSvc := service.NewPricingService(gormDB, cfg, cfg.OSRMURL, feeConfigSvc)
 	ledgerSvc := service.NewLedgerService(gormDB, ledgerRepo, pricingSvc)
 	ledgerSvc.InjectFeeConfigs(feeConfigSvc)
 	tierSvc := service.NewTierService(gormDB, tierRepo)
@@ -144,6 +144,9 @@ func main() {
 	})
 	walletSvc.InjectQueue(func(cashoutID string) error {
 		return worker.EnqueueCashout(asynqClient, cashoutID)
+	})
+	orderSvc.InjectReviewQueue(func(revieweeID, revieweeType string) error {
+		return worker.EnqueueReviewAggregate(asynqClient, revieweeID, revieweeType)
 	})
 
 	workerHandlers := worker.NewHandlers(walletSvc, dispatchSvc, ledgerSvc, subscriptionSvc, onboardingSvc, asynqClient)
@@ -289,20 +292,22 @@ func main() {
 	// Orders
 	orders := authed.Group("/orders")
 	{
-		orders.POST("", middleware.Idempotency(rdb, 24*time.Hour), orderH.Create)
+		orders.GET("", orderH.List)
+		orders.POST("", middleware.RateLimit(rdb, "order-create", 10, time.Minute), middleware.Idempotency(rdb, 24*time.Hour), orderH.Create)
 		orders.GET("/:id", orderH.GetByID)
 		orders.GET("/:id/track", orderH.GetByID)
+		orders.GET("/:id/receipt", orderH.Receipt)
+		orders.POST("/:id/review", orderH.Review)
 		orders.GET("/:id/stops", orderH.GetStops)
 		orders.POST("/:id/stops/confirm", middleware.RequireRole("driver"), orderH.ConfirmStop)
-		orders.POST("/:id/cancel", orderH.Cancel)
-
-		// Proof-of-delivery media (chain of custody). Presign/confirm are
-		// driver-only (enforced again in the service via assigned-driver
-		// check); viewing is limited to the order's customer or an admin.
+		orders.POST("/:id/cancel", middleware.RateLimit(rdb, "order-cancel", 5, time.Minute), orderH.Cancel)
 		orders.POST("/:id/proof/presign", middleware.RequireRole("driver"), proofMediaH.PresignUpload)
 		orders.POST("/:id/proof/confirm", middleware.RequireRole("driver"), proofMediaH.ConfirmUpload)
 		orders.GET("/:id/proof", proofMediaH.GetMedia)
 	}
+
+	// Driver badges — public, no auth required
+	v1.GET("/drivers/:id/badges", orderH.DriverBadges)
 
 	// Wallet
 	wallet := authed.Group("/wallet")

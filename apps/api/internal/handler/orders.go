@@ -25,16 +25,17 @@ func (h *OrderHandler) Create(c *gin.Context) {
 	}
 
 	var req struct {
-		MerchantID     string  `json:"merchantId" binding:"required"`
-		QuoteID        string  `json:"quoteId" binding:"required"`
-		Vertical       string  `json:"vertical" binding:"required"`
-		DeliveryAddrID string  `json:"deliveryAddressId" binding:"required"`
-		RecipientName  *string `json:"recipientName"`
-		RecipientPhone *string `json:"recipientPhone"`
-		PaymentMethod  string  `json:"paymentMethod"`
-		PrescriptionID *string `json:"prescriptionId"`
-		TipKobo        int64   `json:"tipKobo"`
-		Items          []struct {
+		MerchantID        string  `json:"merchantId" binding:"required"`
+		QuoteID           string  `json:"quoteId" binding:"required"`
+		Vertical          string  `json:"vertical" binding:"required"`
+		DeliveryAddrID    string  `json:"deliveryAddressId" binding:"required"`
+		RecipientName     *string `json:"recipientName"`
+		RecipientPhone    *string `json:"recipientPhone"`
+		PaymentMethod     string  `json:"paymentMethod"`
+		PrescriptionID    *string `json:"prescriptionId"`
+		TipKobo           int64   `json:"tipKobo"`
+		DeclaredValueKobo *int64  `json:"declaredValueKobo"` // package vertical only
+		Items []struct {
 			ProductID        string  `json:"productId" binding:"required"`
 			Name             string  `json:"name"`
 			Quantity         int     `json:"quantity" binding:"required,min=1"`
@@ -63,16 +64,17 @@ func (h *OrderHandler) Create(c *gin.Context) {
 	addrID, _ := uuid.Parse(req.DeliveryAddrID)
 
 	in := service.CreateOrderInput{
-		CustomerID:     customerID,
-		MerchantID:     merchantID,
-		QuoteID:        quoteID,
-		Vertical:       req.Vertical,
-		DeliveryAddrID: addrID,
-		RecipientName:  req.RecipientName,
-		RecipientPhone: req.RecipientPhone,
-		PaymentMethod:  req.PaymentMethod,
-		TipKobo:        req.TipKobo,
-		IdempotencyKey: idempotencyKey,
+		CustomerID:        customerID,
+		MerchantID:        merchantID,
+		QuoteID:           quoteID,
+		Vertical:          req.Vertical,
+		DeliveryAddrID:    addrID,
+		RecipientName:     req.RecipientName,
+		RecipientPhone:    req.RecipientPhone,
+		PaymentMethod:     req.PaymentMethod,
+		TipKobo:           req.TipKobo,
+		DeclaredValueKobo: req.DeclaredValueKobo,
+		IdempotencyKey:    idempotencyKey,
 	}
 
 	if req.PrescriptionID != nil {
@@ -81,7 +83,15 @@ func (h *OrderHandler) Create(c *gin.Context) {
 	}
 
 	for _, item := range req.Items {
-		pid, _ := uuid.Parse(item.ProductID)
+		// For the package vertical, productId is a sentinel string (not a real
+		// catalog product). Accept uuid.Nil for package items — the service
+		// layer does not join on product_id for package orders.
+		pid, parseErr := uuid.Parse(item.ProductID)
+		if parseErr != nil && req.Vertical != "package" {
+			c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR",
+				"item productId must be a valid UUID", "items.productId"))
+			return
+		}
 		in.Items = append(in.Items, service.OrderItemInput{
 			ProductID:        pid,
 			Name:             item.Name,
@@ -219,4 +229,84 @@ func (h *OrderHandler) Cancel(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, successResp(gin.H{"message": "order cancelled"}))
+}
+
+// List — GET /orders?vertical=package&status=delivered&cursor=...
+func (h *OrderHandler) List(c *gin.Context) {
+	customerID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	var cursor *uuid.UUID
+	if raw := c.Query("cursor"); raw != "" {
+		if id, err := uuid.Parse(raw); err == nil {
+			cursor = &id
+		}
+	}
+	orders, err := h.orders.ListForCustomer(
+		c.Request.Context(), customerID,
+		c.Query("vertical"), c.Query("status"),
+		cursor, 20,
+	)
+	if err != nil {
+		internalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, successResp(gin.H{"orders": orders}))
+}
+
+// Receipt — GET /orders/:id/receipt
+func (h *OrderHandler) Receipt(c *gin.Context) {
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Invalid order ID", "id"))
+		return
+	}
+	customerID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	receipt, err := h.orders.GetReceipt(c.Request.Context(), orderID, customerID)
+	if err != nil {
+		if err.Error() == "forbidden" {
+			c.JSON(http.StatusForbidden, errResp("FORBIDDEN", "Access denied", ""))
+			return
+		}
+		c.JSON(http.StatusNotFound, errResp("NOT_FOUND", "Order not found", ""))
+		return
+	}
+	c.JSON(http.StatusOK, successResp(receipt))
+}
+
+// Review — POST /orders/:id/review
+func (h *OrderHandler) Review(c *gin.Context) {
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Invalid order ID", "id"))
+		return
+	}
+	var req struct {
+		RevieweeType string  `json:"revieweeType" binding:"required"`
+		Rating       int     `json:"rating"       binding:"required,min=1,max=5"`
+		Comment      *string `json:"comment"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		validationError(c, err)
+		return
+	}
+	customerID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	if err := h.orders.SubmitReview(c.Request.Context(), orderID, customerID, req.RevieweeType, req.Rating, req.Comment); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", err.Error(), ""))
+		return
+	}
+	c.JSON(http.StatusCreated, successResp(gin.H{"message": "review submitted"}))
+}
+
+// Badges — GET /drivers/:id/badges
+func (h *OrderHandler) DriverBadges(c *gin.Context) {
+	driverID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Invalid driver ID", "id"))
+		return
+	}
+	badges, err := h.orders.GetDriverBadges(c.Request.Context(), driverID)
+	if err != nil {
+		internalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, successResp(gin.H{"badges": badges}))
 }
