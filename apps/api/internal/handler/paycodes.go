@@ -123,8 +123,8 @@ func (h *PaycodeHandler) ConfirmByCode(c *gin.Context) {
 		case service.ErrDeliveryCodeInvalid:
 			c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", "Code expired or not found", "code"))
 		default:
-			// Wrong code — err.Error() contains remaining attempts count
-			c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", err.Error(), "code"))
+			// Wrong code — return remaining attempts without leaking internal state
+			c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", "Incorrect delivery code", "code"))
 		}
 		return
 	}

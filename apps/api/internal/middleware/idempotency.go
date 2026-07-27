@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -61,7 +60,7 @@ func Idempotency(rdb *redis.Client, ttl time.Duration) gin.HandlerFunc {
 		// All idempotency-protected routes sit behind Auth, so CtxUserID is set.
 		userID := c.GetString(CtxUserID)
 		redisKey := "idem:" + userID + ":" + key
-		ctx := context.Background()
+		ctx := c.Request.Context()
 
 		claimed, err := rdb.SetNX(ctx, redisKey, idemProcessingSentinel, idemProcessingWaitTTL).Result()
 		if err != nil {

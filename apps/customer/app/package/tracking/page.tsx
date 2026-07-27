@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Avatar, StatusSteps, Skeleton } from '@speedplus/ui';
 import { usePackageFlowStore } from '../../../lib/store/package-flow.store';
 import { useTrackOrder } from '../../../lib/hooks/use-order-mutations';
-import { ordersApi } from '@speedplus/api-client';
+import { ordersApi, buildWsUrl } from '@speedplus/api-client';
 
 function naira(n: number) {
   return `₦${(n / 100).toLocaleString('en-NG', { minimumFractionDigits: 0 })}`;
@@ -37,7 +37,7 @@ export default function PackageTrackingPage() {
   // WS listener for delivery code and real-time status updates
   useEffect(() => {
     if (!orderId) return;
-    const ws = new WebSocket(process.env['NEXT_PUBLIC_WS_URL'] ?? 'ws://localhost:8000/api/v1/ws');
+    const ws = new WebSocket(buildWsUrl());
     ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', channel: `order:${orderId}` }));
     ws.onmessage = (evt) => {
       try {

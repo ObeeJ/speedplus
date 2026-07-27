@@ -297,7 +297,7 @@ func main() {
 		orders.GET("/:id", orderH.GetByID)
 		orders.GET("/:id/track", orderH.GetByID)
 		orders.GET("/:id/receipt", orderH.Receipt)
-		orders.POST("/:id/review", orderH.Review)
+		orders.POST("/:id/review", middleware.Idempotency(rdb, 24*time.Hour), orderH.Review)
 		orders.GET("/:id/stops", orderH.GetStops)
 		orders.POST("/:id/stops/confirm", middleware.RequireRole("driver"), orderH.ConfirmStop)
 		orders.POST("/:id/cancel", middleware.RateLimit(rdb, "order-cancel", 5, time.Minute), orderH.Cancel)

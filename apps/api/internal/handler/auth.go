@@ -216,7 +216,9 @@ func errResp(code, message, field string) gin.H {
 }
 
 func validationError(c *gin.Context, err error) {
-	c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", err.Error(), ""))
+	// Do not forward raw Gin/validator error strings — they expose internal
+	// struct field names and Go type tags. Return a generic message instead.
+	c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Invalid request body", ""))
 }
 
 func internalError(c *gin.Context, err error) {

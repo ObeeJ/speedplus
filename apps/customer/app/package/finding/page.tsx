@@ -3,8 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePackageFlowStore } from '../../../lib/store/package-flow.store';
-
-const WS_URL = process.env['NEXT_PUBLIC_WS_URL'] ?? 'ws://localhost:8000/api/v1/ws';
+import { buildWsUrl } from '@speedplus/api-client';
 const TIMEOUT_MS = 90_000;
 
 export default function PackageFindingPage() {
@@ -23,7 +22,7 @@ export default function PackageFindingPage() {
   useEffect(() => {
     if (!orderId) { router.replace('/package/where'); return; }
 
-    const ws = new WebSocket(WS_URL);
+    const ws = new WebSocket(buildWsUrl());
     wsRef.current = ws;
     ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', channel: `order:${orderId}` }));
     ws.onmessage = (evt) => {

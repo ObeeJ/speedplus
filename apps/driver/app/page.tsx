@@ -14,9 +14,9 @@ import {
   type DuotoneIconProps,
 } from '@speedplus/ui';
 import { ProofCapture } from './components/proof-capture';
+import { buildWsUrl } from '@speedplus/api-client';
 import { useQuery } from '@tanstack/react-query';
 
-const WS_URL = process.env['NEXT_PUBLIC_WS_URL'] ?? 'ws://localhost:8000/api/v1/ws';
 const LOCATION_INTERVAL_MS = 10_000;
 
 function naira(kobo: number) {
@@ -123,7 +123,7 @@ export default function DriverAppPage() {
   // Subscribe to active order WS for cancellation / status updates
   useEffect(() => {
     if (!activeJob) return;
-    const ws = new WebSocket(WS_URL);
+    const ws = new WebSocket(buildWsUrl());
     ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', channel: `order:${activeJob.orderId}` }));
     ws.onmessage = (evt) => {
       try {
@@ -157,7 +157,7 @@ export default function DriverAppPage() {
 
   // WS connection for offer push
   useEffect(() => {
-    const ws = new WebSocket(WS_URL);
+    const ws = new WebSocket(buildWsUrl());
     wsRef.current = ws;
 
     ws.onmessage = (evt) => {

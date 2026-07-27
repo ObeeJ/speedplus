@@ -220,11 +220,14 @@ func (h *OrderHandler) Cancel(c *gin.Context) {
 	actorRole := c.GetString(middleware.CtxUserRole)
 
 	if err := h.orders.Cancel(c.Request.Context(), orderID, actorID, actorRole, req.Reason); err != nil {
-		if err == service.ErrIllegalTransition {
+		switch err {
+		case service.ErrIllegalTransition:
 			c.JSON(http.StatusConflict, errResp("VALIDATION_ERROR", err.Error(), ""))
-			return
+		case service.ErrOrderNotFound:
+			c.JSON(http.StatusNotFound, errResp("NOT_FOUND", "Order not found", ""))
+		default:
+			internalError(c, err)
 		}
-		internalError(c, err)
 		return
 	}
 
@@ -274,6 +277,11 @@ func (h *OrderHandler) Receipt(c *gin.Context) {
 
 // Review — POST /orders/:id/review
 func (h *OrderHandler) Review(c *gin.Context) {
+	idempotencyKey := c.GetHeader("Idempotency-Key")
+	if idempotencyKey == "" {
+		c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Idempotency-Key header required", "Idempotency-Key"))
+		return
+	}
 	orderID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Invalid order ID", "id"))

@@ -15,12 +15,19 @@ const (
 
 func Auth(authSvc *service.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// WebSocket connections cannot send Authorization headers from browsers.
-		// Accept token as ?token= query param for WS upgrades only.
-		// For all other requests the header is required.
+		// Browsers cannot set an Authorization header on a WebSocket handshake.
+		// Preferred carrier is the Sec-WebSocket-Protocol header ("bearer,
+		// <token>"), which keeps the credential out of the URL entirely.
+		// ?token= remains as a deprecated fallback for older clients: query
+		// strings are commonly captured by upstream proxy/CDN access logs
+		// (our own logger records only URL.Path). Remove the fallback once
+		// every client has moved to the subprotocol form.
 		var raw string
 		if isWSUpgrade(c.Request) {
-			raw = c.Query("token")
+			raw = wsTokenFromSubprotocol(c.Request)
+			if raw == "" {
+				raw = c.Query("token")
+			}
 		}
 		if raw == "" {
 			header := c.GetHeader("Authorization")
@@ -50,6 +57,35 @@ func Auth(authSvc *service.AuthService) gin.HandlerFunc {
 // isWSUpgrade returns true when the request is a WebSocket upgrade.
 func isWSUpgrade(r *http.Request) bool {
 	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+}
+
+// WSBearerSubprotocol is the sentinel value a client sends alongside its token
+// in Sec-WebSocket-Protocol: new WebSocket(url, ["bearer", token]).
+const WSBearerSubprotocol = "bearer"
+
+// wsTokenFromSubprotocol extracts the access token from the
+// Sec-WebSocket-Protocol header. The browser API sends the requested
+// subprotocols as a comma-separated list, so ["bearer", token] arrives as
+// "bearer, <token>". Returns "" when the header is absent or malformed, so
+// the caller can fall back to the deprecated query parameter.
+//
+// The server must echo the accepted subprotocol back on the handshake or the
+// browser closes the connection — see ws.upgrader.
+func wsTokenFromSubprotocol(r *http.Request) string {
+	header := r.Header.Get("Sec-WebSocket-Protocol")
+	if header == "" {
+		return ""
+	}
+	parts := strings.Split(header, ",")
+	for i, p := range parts {
+		if !strings.EqualFold(strings.TrimSpace(p), WSBearerSubprotocol) {
+			continue
+		}
+		if i+1 < len(parts) {
+			return strings.TrimSpace(parts[i+1])
+		}
+	}
+	return ""
 }
 
 // RequireRole enforces vertical RBAC.

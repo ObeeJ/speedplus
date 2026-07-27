@@ -111,7 +111,7 @@ func (s *OnboardingService) createCard(ctx context.Context, user *model.User) er
 	return s.repo.CreateUserCard(ctx, &model.UserCard{
 		ID:      uuid.New(),
 		UserID:  user.ID,
-		Payload: card.BuildPayload(user.ID, s.cfg.JWTSecret),
+		Payload: card.BuildPayload(user.ID, s.cfg.PaycodeSecret),
 	})
 }
 

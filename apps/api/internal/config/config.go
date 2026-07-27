@@ -49,6 +49,8 @@ type Config struct {
 
 	EncryptionKey string // 32-byte key (raw) for AES-GCM field encryption of recipient PII
 
+	PaycodeSecret string // 32+ byte key for signing QR paycodes and card payloads — separate from JWTSecret
+
 	Environment string // "development" | "production"
 }
 
@@ -83,11 +85,21 @@ func Load() (*Config, error) {
 		PINThresholdKobo:   int64(getEnvInt("PIN_THRESHOLD_KOBO", 5000000)), // ₦50,000
 		OSRMURL:            getEnv("OSRM_URL", "http://router.project-osrm.org"),
 		EncryptionKey:      getEnv("ENCRYPTION_KEY", ""),
+		PaycodeSecret:      getEnv("PAYCODE_SECRET", ""),
 		Environment:        getEnv("ENVIRONMENT", "development"),
 	}
 
 	if len(cfg.JWTSecret) < 32 {
 		return nil, fmt.Errorf("JWT_SECRET must be at least 32 bytes")
+	}
+
+	// PAYCODE_SECRET must be set in all environments — it signs payment QR codes
+	// and card payloads. Sharing it with JWT_SECRET is a key-separation violation.
+	if len(cfg.PaycodeSecret) < 32 {
+		return nil, fmt.Errorf("PAYCODE_SECRET must be at least 32 bytes (separate from JWT_SECRET)")
+	}
+	if cfg.PaycodeSecret == cfg.JWTSecret {
+		return nil, fmt.Errorf("PAYCODE_SECRET must differ from JWT_SECRET")
 	}
 
 	// In production every payment provider key must be set.
@@ -107,8 +119,9 @@ func Load() (*Config, error) {
 	}
 
 	// ENCRYPTION_KEY protects recipient PII (name/phone) at rest.
-	if cfg.Environment == "production" && len(cfg.EncryptionKey) != 32 {
-		return nil, fmt.Errorf("ENCRYPTION_KEY must be set to exactly 32 bytes in production")
+	// Required in all environments so developers catch missing config before production.
+	if len(cfg.EncryptionKey) != 32 {
+		return nil, fmt.Errorf("ENCRYPTION_KEY must be exactly 32 bytes")
 	}
 
 	// OSRM_URL is required in production — every quote and order fails without it.

@@ -18,13 +18,31 @@ const (
 	maxOfferCascade = 10
 )
 
-// vehicleClassRules maps vertical → minimum vehicle type required.
+// vehicleClassRules maps vertical → minimum vehicle type for non-gas verticals.
 var vehicleClassRules = map[string]model.VehicleType{
-	"gas":     model.VehicleVan,
-	"grocery": model.VehicleMotorcycle,
-	"food":    model.VehicleMotorcycle,
+	"grocery":  model.VehicleMotorcycle,
+	"food":     model.VehicleMotorcycle,
 	"pharmacy": model.VehicleMotorcycle,
-	"package": model.VehicleMotorcycle,
+	"package":  model.VehicleMotorcycle,
+}
+
+// vehicleClassFor returns the minimum vehicle class for an order.
+// Gas derives from total cylinder weight; all other verticals use the static map.
+func vehicleClassFor(vertical string, totalKg float64) model.VehicleType {
+	if vertical == "gas" {
+		switch {
+		case totalKg <= 6:
+			return model.VehicleMotorcycle
+		case totalKg <= 12.5:
+			return model.VehicleCar
+		default:
+			return model.VehicleVan
+		}
+	}
+	if v, ok := vehicleClassRules[vertical]; ok {
+		return v
+	}
+	return model.VehicleMotorcycle
 }
 
 type DispatchService struct {
@@ -68,7 +86,7 @@ type DispatchCandidate struct {
 // left null — an offer only that driver may accept).
 // Returns the ordered list of candidates to notify (via WS).
 func (s *DispatchService) Dispatch(ctx context.Context, order *model.Order, merchantLat, merchantLng float64) ([]DispatchCandidate, error) {
-	minVehicle := vehicleClassRules[order.Vertical]
+	minVehicle := vehicleClassFor(order.Vertical, order.WeightKg)
 
 	// PostGIS KNN: find online approved drivers within 5km, ordered by distance
 	type row struct {

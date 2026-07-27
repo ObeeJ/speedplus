@@ -152,12 +152,12 @@ func (r *ledgerRepo) GetTransactions(ctx context.Context, ownerID uuid.UUID, cur
 	}
 	q := r.db.WithContext(ctx).
 		Where("account_id = ?", acct.ID).
-		Order("created_at DESC").
+		Order("created_at DESC, id DESC").
 		Limit(limit)
 	if cursor != nil {
 		var pivot model.LedgerEntry
 		if err := r.db.WithContext(ctx).First(&pivot, cursor).Error; err == nil {
-			q = q.Where("created_at < ?", pivot.CreatedAt)
+			q = q.Where("(created_at, id) < (?, ?)", pivot.CreatedAt, pivot.ID)
 		}
 	}
 	var entries []model.LedgerEntry

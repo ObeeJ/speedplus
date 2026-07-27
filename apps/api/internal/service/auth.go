@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"time"
 
@@ -152,7 +153,14 @@ func (s *AuthService) Register(ctx context.Context, in RegisterInput) (*model.Us
 	// Wire referral link if a valid code was supplied.
 	if referralCode != "" && s.referrals != nil {
 		if referrer, err := s.repo.FindByReferralCode(ctx, referralCode); err == nil {
-			go func() { _ = s.referrals.Record(context.Background(), user.ID, referrer.ID) }()
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("referral record goroutine panic", "panic", r)
+					}
+				}()
+				_ = s.referrals.Record(context.Background(), user.ID, referrer.ID)
+			}()
 		}
 	}
 
@@ -167,7 +175,14 @@ func (s *AuthService) Register(ctx context.Context, in RegisterInput) (*model.Us
 
 	// Welcome email — best-effort, non-blocking.
 	if user.Email != nil {
-		go s.email.SendWelcome(context.Background(), *user.Email, user.FirstName)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("welcome email goroutine panic", "panic", r)
+				}
+			}()
+			s.email.SendWelcome(context.Background(), *user.Email, user.FirstName)
+		}()
 	}
 
 	access, refresh, err := s.issueTokenPair(ctx, user)
@@ -275,7 +290,14 @@ func (s *AuthService) RequestOTP(ctx context.Context, phone, purpose string) (st
 	// OTP email — only when user has an email address on file.
 	// Phone-only users receive the code via SMS (SMS transport is a separate concern).
 	if u, err := s.repo.FindByPhone(ctx, phone); err == nil && u.Email != nil {
-		go s.email.SendOTP(context.Background(), *u.Email, u.FirstName, code, purpose)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("OTP email goroutine panic", "panic", r)
+				}
+			}()
+			s.email.SendOTP(context.Background(), *u.Email, u.FirstName, code, purpose)
+		}()
 	}
 	return code, nil
 }

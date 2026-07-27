@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"time"
 
@@ -24,6 +25,7 @@ var (
 	ErrMerchantClosed    = errors.New("merchant is currently closed")
 	ErrRxRequired        = errors.New("prescription required for this order")
 	ErrRxNotApproved     = errors.New("prescription is not yet approved by the pharmacy")
+	ErrOrderNotFound     = errors.New("order not found")
 )
 
 type CreateOrderInput struct {
@@ -349,6 +351,11 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 	// Merchant lat/lng is used as the pickup point for KNN driver search.
 	if s.dispatch != nil {
 		go func(o *model.Order) {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("dispatch goroutine panic", "panic", r, "order_id", o.ID)
+				}
+			}()
 			var merchant model.Merchant
 			if dbErr := s.db.First(&merchant, o.MerchantID).Error; dbErr != nil {
 				return
@@ -475,6 +482,11 @@ func (s *OrderService) Transition(ctx context.Context, orderID, actorID uuid.UUI
 			// Send code to customer — best-effort, non-blocking after tx commits.
 			if s.email != nil && s.users != nil {
 				go func(customerID uuid.UUID, c, oid string) {
+					defer func() {
+						if r := recover(); r != nil {
+							slog.Error("delivery code email goroutine panic", "panic", r)
+						}
+					}()
 					u, err := s.users.FindByID(context.Background(), customerID)
 					if err != nil || u.Email == nil {
 						return
@@ -587,10 +599,11 @@ func (s *OrderService) Cancel(ctx context.Context, orderID, actorID uuid.UUID, a
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var order model.Order
 		if err := tx.First(&order, orderID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrOrderNotFound
+			}
 			return err
 		}
-
-		// Validate transition
 		allowed := model.ValidTransitions[order.Status]
 		canCancel := false
 		for _, s := range allowed {
@@ -928,17 +941,21 @@ func (s *OrderService) GetDriverBadges(ctx context.Context, driverID uuid.UUID) 
 // ListForMerchant returns the merchant's order queue, newest first, optionally
 // filtered by status (e.g. "pending" for the incoming-orders tab). merchantID
 // is the resolved model.Merchant.ID (business entity), not the login user ID.
+// Uses (created_at, id) composite cursor — consistent with ListForCustomer.
 func (s *OrderService) ListForMerchant(ctx context.Context, merchantID uuid.UUID, status string, cursor *uuid.UUID, limit int) ([]model.Order, error) {
 	q := s.db.WithContext(ctx).
 		Preload("Items").
 		Where("merchant_id = ?", merchantID).
-		Order("created_at DESC").
+		Order("created_at DESC, id DESC").
 		Limit(limit)
 	if status != "" {
 		q = q.Where("status = ?", status)
 	}
 	if cursor != nil {
-		q = q.Where("id < ?", *cursor)
+		var pivot model.Order
+		if err := s.db.WithContext(ctx).First(&pivot, cursor).Error; err == nil {
+			q = q.Where("(created_at, id) < (?, ?)", pivot.CreatedAt, pivot.ID)
+		}
 	}
 	var orders []model.Order
 	err := q.Find(&orders).Error

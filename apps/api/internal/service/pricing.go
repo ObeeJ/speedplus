@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"time"
 
@@ -14,6 +15,14 @@ import (
 	"github.com/speedplus/api/internal/config"
 	"github.com/speedplus/api/internal/model"
 	"gorm.io/gorm"
+)
+
+// math shims so haversineFallback avoids a math import alias clash
+var (
+	sinSq = func(x float64) float64 { s := math.Sin(x); return s * s }
+	cos   = math.Cos
+	sqrt  = math.Sqrt
+	atan2 = math.Atan2
 )
 
 // SizeCategory classifies package dimensions.
@@ -52,7 +61,7 @@ var DefaultFeeTable = map[string]FeeConfig{
 	"food":     {BaseFeeKobo: 90000, PerKmKobo: 15000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
 	"grocery":  {BaseFeeKobo: 90000, PerKmKobo: 15000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
 	"pharmacy": {BaseFeeKobo: 100000, PerKmKobo: 15000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
-	"gas":      {BaseFeeKobo: 150000, PerKmKobo: 0, ServicePct: 0.03, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
+	"gas":      {BaseFeeKobo: 80000, PerKmKobo: 22000, PerKgKobo: 2000, PerStopKobo: 25000, ServicePct: 0.03, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
 	"package":  {BaseFeeKobo: 90000, PerKmKobo: 17000, PerKgKobo: 7000, PerStopKobo: 25000, ServicePct: 0.04, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
 }
 
@@ -106,9 +115,11 @@ func (s *PricingService) Quote(ctx context.Context, req QuoteRequest) (*model.Pr
 	deliveryKobo := fees.BaseFeeKobo + int64(distKm*float64(fees.PerKmKobo))
 	// Weather surcharge disabled — advisory shown to all parties but no fee charged.
 
-	// Weight + size surcharge for package vertical
-	if req.Vertical == "package" {
+	// Weight + size surcharge for package and gas verticals
+	if req.Vertical == "package" || req.Vertical == "gas" {
 		deliveryKobo += int64(req.WeightKg * float64(fees.PerKgKobo))
+	}
+	if req.Vertical == "package" {
 		deliveryKobo += sizeSurchargeKobo[req.SizeCategory]
 	}
 
@@ -183,6 +194,9 @@ func (s *PricingService) signQuote(q *model.PricingQuote) string {
 }
 
 // osrmRoute returns road distance (km) and travel duration (minutes) from OSRM.
+// Falls back to straight-line (Haversine) distance with a 1.4× road-factor
+// and 30 km/h average speed when OSRM is unreachable, so the quote endpoint
+// degrades gracefully instead of hard-failing.
 func (s *PricingService) osrmRoute(ctx context.Context, oLat, oLng, dLat, dLng float64) (distKm float64, etaMinutes int, err error) {
 	url := fmt.Sprintf("%s/route/v1/driving/%f,%f;%f,%f?overview=false",
 		s.osrmURL, oLng, oLat, dLng, dLat)
@@ -190,7 +204,7 @@ func (s *PricingService) osrmRoute(ctx context.Context, oLat, oLng, dLat, dLng f
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return 0, 0, err
+		return haversineFallback(oLat, oLng, dLat, dLng)
 	}
 	defer resp.Body.Close()
 
@@ -201,10 +215,28 @@ func (s *PricingService) osrmRoute(ctx context.Context, oLat, oLng, dLat, dLng f
 		} `json:"routes"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || len(result.Routes) == 0 {
-		return 0, 0, fmt.Errorf("osrm no route")
+		return haversineFallback(oLat, oLng, dLat, dLng)
 	}
 	distKm = result.Routes[0].Distance / 1000.0
 	etaMinutes = int(result.Routes[0].Duration/60) + 5 // +5 min pickup buffer
+	return distKm, etaMinutes, nil
+}
+
+// haversineFallback computes straight-line distance with a 1.4× road tortuosity
+// factor and estimates ETA at 30 km/h average urban speed.
+func haversineFallback(oLat, oLng, dLat, dLng float64) (float64, int, error) {
+	const (
+		earth       = 6371.0 // km
+		roadFactor  = 1.4
+		avgSpeedKmh = 30.0
+	)
+	dLat2 := (dLat - oLat) * (3.141592653589793 / 180)
+	dLng2 := (dLng - oLng) * (3.141592653589793 / 180)
+	a := sinSq(dLat2/2) + cos(oLat)*cos(dLat)*sinSq(dLng2/2)
+	c := 2 * atan2(sqrt(a), sqrt(1-a))
+	straightKm := earth * c
+	distKm := straightKm * roadFactor
+	etaMinutes := int(distKm/avgSpeedKmh*60) + 5
 	return distKm, etaMinutes, nil
 }
 
@@ -263,8 +295,10 @@ func (s *PricingService) QuoteMultiStop(ctx context.Context, req MultiStopQuoteR
 	extraStops := len(req.Stops) - 1
 	deliveryKobo := fees.BaseFeeKobo + int64(distKm*float64(fees.PerKmKobo)) + int64(extraStops)*fees.PerStopKobo
 
-	if req.Vertical == "package" {
+	if req.Vertical == "package" || req.Vertical == "gas" {
 		deliveryKobo += int64(req.WeightKg * float64(fees.PerKgKobo))
+	}
+	if req.Vertical == "package" {
 		deliveryKobo += sizeSurchargeKobo[req.SizeCategory]
 	}
 
@@ -314,7 +348,14 @@ func (s *PricingService) osrmTrip(ctx context.Context, waypoints []LatLng) (dist
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return 0, 0, err
+		// Fallback: sum straight-line segments between consecutive waypoints.
+		var totalKm float64
+		for i := 1; i < len(waypoints); i++ {
+			d, _, _ := haversineFallback(waypoints[i-1].Lat, waypoints[i-1].Lng, waypoints[i].Lat, waypoints[i].Lng)
+			totalKm += d
+		}
+		eta := int(totalKm/30.0*60) + 5
+		return totalKm, eta, nil
 	}
 	defer resp.Body.Close()
 
@@ -325,7 +366,14 @@ func (s *PricingService) osrmTrip(ctx context.Context, waypoints []LatLng) (dist
 		} `json:"trips"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || len(result.Trips) == 0 {
-		return 0, 0, fmt.Errorf("osrm trip: no route")
+		// Fallback on decode failure too.
+		var totalKm float64
+		for i := 1; i < len(waypoints); i++ {
+			d, _, _ := haversineFallback(waypoints[i-1].Lat, waypoints[i-1].Lng, waypoints[i].Lat, waypoints[i].Lng)
+			totalKm += d
+		}
+		eta := int(totalKm/30.0*60) + 5
+		return totalKm, eta, nil
 	}
 	distKm = result.Trips[0].Distance / 1000.0
 	etaMinutes = int(result.Trips[0].Duration/60) + 5 // +5 min pickup buffer

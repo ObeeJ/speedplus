@@ -158,14 +158,19 @@ func (s *WalletService) ProcessWebhook(ctx context.Context, p WebhookPayload) er
 		}
 
 		newBal, _ := s.ledger.GetBalance(ctx, intent.UserID)
-		// Defer the funding email until after commit. Querying from a
-		// goroutine here would share the connection the open transaction is
-		// still using; concurrent use of one connection panics inside pgx,
-		// and a panic in a detached goroutine takes down the whole process.
-		notify = &fundedNotice{
-			userID:  intent.UserID,
-			amount:  verified.AmountKobo,
-			balance: newBal,
+		// Resolve the recipient here, on the transaction's own connection, and
+		// hand the notifier plain values. The email goroutine must never touch
+		// the database: it would share the connection this transaction is
+		// using, and concurrent use of a single connection panics inside pgx —
+		// a panic in a detached goroutine takes down the whole process.
+		if u, uErr := s.users.FindByID(ctx, intent.UserID); uErr == nil && u.Email != nil {
+			notify = &fundedNotice{
+				email:     *u.Email,
+				firstName: u.FirstName,
+				userID:    intent.UserID,
+				amount:    verified.AmountKobo,
+				balance:   newBal,
+			}
 		}
 
 		return nil
@@ -179,17 +184,21 @@ func (s *WalletService) ProcessWebhook(ctx context.Context, p WebhookPayload) er
 	return nil
 }
 
-// fundedNotice carries the data needed to send a wallet-funded email once the
-// crediting transaction has committed.
+// fundedNotice carries everything the wallet-funded email needs, resolved
+// inside the crediting transaction. It holds plain values rather than IDs
+// precisely so the sender never has to query.
 type fundedNotice struct {
-	userID  uuid.UUID
-	amount  int64
-	balance int64
+	email     string
+	firstName string
+	userID    uuid.UUID // for log correlation only
+	amount    int64
+	balance   int64
 }
 
-// sendFundedEmail delivers the wallet-funded notification best-effort, on its
-// own connection, with panic recovery so a notification failure can never take
-// down the API process or affect the already-committed credit.
+// sendFundedEmail delivers the wallet-funded notification best-effort. It
+// performs no database access — see fundedNotice — and recovers from panics so
+// a notification failure can never take down the API process or affect the
+// already-committed credit.
 func (s *WalletService) sendFundedEmail(n fundedNotice) {
 	go func() {
 		defer func() {
@@ -197,11 +206,7 @@ func (s *WalletService) sendFundedEmail(n fundedNotice) {
 				slog.Error("wallet funded email panicked", "user_id", n.userID.String(), "panic", r)
 			}
 		}()
-		u, err := s.users.FindByID(context.Background(), n.userID)
-		if err != nil || u.Email == nil {
-			return
-		}
-		s.email.SendWalletFunded(context.Background(), *u.Email, u.FirstName, n.amount, n.balance)
+		s.email.SendWalletFunded(context.Background(), n.email, n.firstName, n.amount, n.balance)
 	}()
 }
 

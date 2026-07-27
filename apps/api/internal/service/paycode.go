@@ -58,6 +58,11 @@ func (s *PaycodeService) settleReferral(customerID uuid.UUID, subtotalKobo int64
 		return
 	}
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("settleReferral goroutine panic", "panic", r)
+			}
+		}()
 		if err := s.referrals.SettleCompletedOrder(context.Background(), customerID, subtotalKobo); err != nil {
 			slog.Error("referral settlement failed", "customer_id", customerID.String(), "error", err)
 		}
@@ -225,6 +230,11 @@ func (s *PaycodeService) Confirm(ctx context.Context, paycodeID, driverID uuid.U
 
 		// Order delivered email — best-effort, non-blocking.
 		go func(o model.Order) {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("order delivered email goroutine panic", "panic", r)
+				}
+			}()
 			customer, err := s.users.FindByID(context.Background(), o.CustomerID)
 			if err != nil || customer.Email == nil {
 				return
@@ -250,7 +260,7 @@ func (s *PaycodeService) Confirm(ctx context.Context, paycodeID, driverID uuid.U
 }
 
 func (s *PaycodeService) sign(payload string) string {
-	mac := hmac.New(sha256.New, []byte(s.cfg.JWTSecret))
+	mac := hmac.New(sha256.New, []byte(s.cfg.PaycodeSecret))
 	mac.Write([]byte(payload))
 	return hex.EncodeToString(mac.Sum(nil))
 }
@@ -334,6 +344,11 @@ func (s *PaycodeService) ConfirmByCode(ctx context.Context, orderID, driverID uu
 			badgeDriverID = &did
 		}
 		go func(o model.Order) {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("order delivered email goroutine panic", "panic", r)
+				}
+			}()
 			customer, err := s.users.FindByID(context.Background(), o.CustomerID)
 			if err != nil || customer.Email == nil {
 				return
@@ -364,7 +379,7 @@ func (s *PaycodeService) ConfirmByCode(ctx context.Context, orderID, driverID uu
 // This is the customer's explicit consent at the door.
 func (s *PaycodeService) ConfirmByCard(ctx context.Context, cardPayload string, driverID uuid.UUID, pin string) error {
 	// 1. Verify card signature → extract customerID
-	customerID, err := card.VerifyPayload(cardPayload, s.cfg.JWTSecret)
+	customerID, err := card.VerifyPayload(cardPayload, s.cfg.PaycodeSecret)
 	if err != nil {
 		return ErrPaycodeInvalid
 	}
