@@ -13,13 +13,20 @@ import (
 )
 
 type LedgerService struct {
-	db      *gorm.DB // kept for transaction boundaries only
-	repo    repo.LedgerRepo
-	pricing *PricingService
+	db         *gorm.DB // kept for transaction boundaries only
+	repo       repo.LedgerRepo
+	pricing    *PricingService
+	feeConfigs *FeeConfigService // nil => DefaultFeeTable fallback
 }
 
 func NewLedgerService(db *gorm.DB, r repo.LedgerRepo, pricing *PricingService) *LedgerService {
 	return &LedgerService{db: db, repo: r, pricing: pricing}
+}
+
+// InjectFeeConfigs wires the FeeConfigService after construction to break the
+// circular dependency: LedgerService ← FeeConfigService ← (nothing).
+func (s *LedgerService) InjectFeeConfigs(fc *FeeConfigService) {
+	s.feeConfigs = fc
 }
 
 // ── Core journal writer ───────────────────────────────────────────────────────
@@ -51,6 +58,19 @@ func (s *LedgerService) adjustBalance(ctx context.Context, tx *gorm.DB, accountI
 
 func (s *LedgerService) EnsureWallet(ctx context.Context, tx *gorm.DB, ownerID uuid.UUID) (*model.LedgerAccount, error) {
 	return s.repo.FindOrCreateWallet(ctx, tx, ownerID)
+}
+
+// EnsureMerchantWallet resolves a merchants.id to its owning user before
+// touching the ledger. ledger_accounts.owner_id carries an FK to users(id), so
+// every ledger account — merchant ones included — is keyed by User.ID.
+// Passing model.Merchant.ID straight through is an FK violation, not merely a
+// lookup miss.
+func (s *LedgerService) EnsureMerchantWallet(ctx context.Context, tx *gorm.DB, merchantID uuid.UUID) (*model.LedgerAccount, error) {
+	var m model.Merchant
+	if err := tx.WithContext(ctx).Select("user_id").First(&m, "id = ?", merchantID).Error; err != nil {
+		return nil, fmt.Errorf("resolve merchant %s to user: %w", merchantID, err)
+	}
+	return s.repo.FindOrCreateWallet(ctx, tx, m.UserID)
 }
 
 func (s *LedgerService) platformAccount(ctx context.Context, tx *gorm.DB, acctType model.AccountType) (*model.LedgerAccount, error) {
@@ -98,9 +118,13 @@ func (s *LedgerService) HoldEscrow(ctx context.Context, tx *gorm.DB, orderID, cu
 // ── Settlement ────────────────────────────────────────────────────────────────
 
 func (s *LedgerService) Settle(ctx context.Context, tx *gorm.DB, order *model.Order, paycodeEventID uuid.UUID) error {
-	fees, ok := DefaultFeeTable[order.Vertical]
-	if !ok {
-		fees = DefaultFeeTable["package"]
+	// Pin the split to the fee config in force when the order was created —
+	// an admin rate change mid-delivery must never reallocate money in flight.
+	var fees FeeConfig
+	if s.feeConfigs != nil {
+		fees = s.feeConfigs.GetFeesAt(ctx, order.Vertical, order.CreatedAt)
+	} else {
+		fees = defaultFees(order.Vertical)
 	}
 
 	hold, err := s.repo.LockEscrowHold(ctx, tx, order.ID, model.EscrowHeld)
@@ -125,7 +149,7 @@ func (s *LedgerService) Settle(ctx context.Context, tx *gorm.DB, order *model.Or
 	if err != nil {
 		return fmt.Errorf("settle: revenue account: %w", err)
 	}
-	merchantWallet, err := s.EnsureWallet(ctx, tx, order.MerchantID)
+	merchantWallet, err := s.EnsureMerchantWallet(ctx, tx, order.MerchantID)
 	if err != nil {
 		return fmt.Errorf("settle: merchant wallet: %w", err)
 	}
@@ -228,7 +252,7 @@ func (s *LedgerService) ProcessCancellationRefund(ctx context.Context, tx *gorm.
 		{ID: uuid.New(), JournalID: journalID, AccountID: customerWallet.ID, AmountKobo: refundKobo, Description: "cancellation refund to customer", RefType: "order", RefID: &order.ID},
 	}
 	if merchantComp > 0 {
-		mw, err := s.EnsureWallet(ctx, tx, order.MerchantID)
+		mw, err := s.EnsureMerchantWallet(ctx, tx, order.MerchantID)
 		if err != nil {
 			return fmt.Errorf("refund: merchant wallet: %w", err)
 		}
@@ -408,4 +432,19 @@ func (s *LedgerService) GetBalance(ctx context.Context, userID uuid.UUID) (int64
 
 func (s *LedgerService) GetTransactions(ctx context.Context, userID uuid.UUID, cursor *uuid.UUID, limit int) ([]model.LedgerEntry, error) {
 	return s.repo.GetTransactions(ctx, userID, cursor, limit)
+}
+
+// ResolveWalletOwner maps the authenticated caller to the ledger account ID
+// their wallet lives under. That is always their own User.ID: ledger_accounts
+// .owner_id has an FK to users(id), so the ledger is uniformly user-keyed for
+// every role. Merchant settlement reaches the same account by resolving
+// merchants.id -> user_id first (see EnsureMerchantWallet), so no translation
+// is needed on the read path.
+//
+// It is kept as a named seam rather than inlined because the merchant identity
+// split (model.Merchant.ID for the business profile vs User.ID for login) is
+// easy to get backwards; routing every balance read through here keeps the
+// rule stated in one place.
+func (s *LedgerService) ResolveWalletOwner(ctx context.Context, userID uuid.UUID, role string) (uuid.UUID, error) {
+	return userID, nil
 }

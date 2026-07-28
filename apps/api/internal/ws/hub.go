@@ -22,6 +22,12 @@ var upgrader = websocket.Upgrader{
 	},
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+	// Clients authenticate by sending ["bearer", <token>] as subprotocols so
+	// the credential stays out of the URL (see middleware.wsTokenFromSubprotocol).
+	// A browser aborts the handshake unless the server echoes an accepted
+	// subprotocol, so advertise "bearer" here. The token half is deliberately
+	// not negotiated — it is a credential, not a protocol name to echo back.
+	Subprotocols: []string{middleware.WSBearerSubprotocol},
 }
 
 type Message struct {

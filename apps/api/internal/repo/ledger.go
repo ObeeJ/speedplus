@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -63,16 +64,26 @@ func NewLedgerRepo(db *gorm.DB) LedgerRepo { return &ledgerRepo{db: db} }
 
 func (r *ledgerRepo) FindOrCreateWallet(ctx context.Context, tx *gorm.DB, ownerID uuid.UUID) (*model.LedgerAccount, error) {
 	var acct model.LedgerAccount
+	// Attrs (not a positional struct) supplies create-only values: GORM treats
+	// a struct passed to FirstOrCreate as extra *query conditions*, so the
+	// freshly generated ID would join the WHERE clause, never match the
+	// existing wallet, and the insert would then violate the
+	// (owner_id, type) unique index.
 	err := tx.WithContext(ctx).
 		Where("owner_id = ? AND type = ?", ownerID, model.AccountWallet).
-		FirstOrCreate(&acct, model.LedgerAccount{ID: uuid.New(), OwnerID: &ownerID, Type: model.AccountWallet}).Error
+		Attrs(model.LedgerAccount{ID: uuid.New(), OwnerID: &ownerID, Type: model.AccountWallet}).
+		FirstOrCreate(&acct).Error
 	if err != nil {
 		return nil, err
 	}
 	// Ensure balance row
-	tx.WithContext(ctx).
-		Where(model.WalletBalance{AccountID: acct.ID}).
-		FirstOrCreate(&model.WalletBalance{AccountID: acct.ID, BalanceKobo: 0})
+	var bal model.WalletBalance
+	if err := tx.WithContext(ctx).
+		Where("account_id = ?", acct.ID).
+		Attrs(model.WalletBalance{AccountID: acct.ID, BalanceKobo: 0}).
+		FirstOrCreate(&bal).Error; err != nil {
+		return nil, fmt.Errorf("ensure wallet balance: %w", err)
+	}
 	return &acct, nil
 }
 
@@ -80,7 +91,21 @@ func (r *ledgerRepo) FindOrCreatePlatformAccount(ctx context.Context, tx *gorm.D
 	var acct model.LedgerAccount
 	err := tx.WithContext(ctx).
 		Where("owner_id IS NULL AND type = ?", acctType).
-		FirstOrCreate(&acct, model.LedgerAccount{ID: uuid.New(), Type: acctType}).Error
+		Attrs(model.LedgerAccount{ID: uuid.New(), Type: acctType}).
+		FirstOrCreate(&acct).Error
+	if err != nil {
+		return nil, err
+	}
+	// Platform accounts need a balance row too — adjustBalance locks it and
+	// fails with "record not found" otherwise, which would break every escrow
+	// hold and settlement on an environment where it was never pre-seeded.
+	var bal model.WalletBalance
+	if err := tx.WithContext(ctx).
+		Where("account_id = ?", acct.ID).
+		Attrs(model.WalletBalance{AccountID: acct.ID, BalanceKobo: 0}).
+		FirstOrCreate(&bal).Error; err != nil {
+		return nil, fmt.Errorf("ensure platform balance: %w", err)
+	}
 	return &acct, err
 }
 
@@ -127,12 +152,12 @@ func (r *ledgerRepo) GetTransactions(ctx context.Context, ownerID uuid.UUID, cur
 	}
 	q := r.db.WithContext(ctx).
 		Where("account_id = ?", acct.ID).
-		Order("created_at DESC").
+		Order("created_at DESC, id DESC").
 		Limit(limit)
 	if cursor != nil {
 		var pivot model.LedgerEntry
 		if err := r.db.WithContext(ctx).First(&pivot, cursor).Error; err == nil {
-			q = q.Where("created_at < ?", pivot.CreatedAt)
+			q = q.Where("(created_at, id) < (?, ?)", pivot.CreatedAt, pivot.ID)
 		}
 	}
 	var entries []model.LedgerEntry

@@ -19,6 +19,7 @@ package service
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,9 +53,29 @@ func withTx(t *testing.T, gdb *gorm.DB, fn func(tx *gorm.DB)) {
 
 func mustCreate(t *testing.T, tx *gorm.DB, v interface{}) {
 	t.Helper()
+	// users.referral_code is uniqueIndex/not-null and is generated at
+	// registration in production. Fixtures build User structs directly, so
+	// fill it here — otherwise every test seeding more than one user
+	// collides on the empty-string default.
+	if u, ok := v.(*model.User); ok && u.ReferralCode == "" {
+		u.ReferralCode = "TEST" + strings.ToUpper(uuid.NewString()[:8])
+	}
 	if err := tx.Create(v).Error; err != nil {
 		t.Fatalf("create %T: %v", v, err)
 	}
+}
+
+// seedWalletOwner creates a real user to own a ledger account —
+// ledger_accounts.owner_id carries an FK to users(id).
+func seedWalletOwner(t *testing.T, tx *gorm.DB) *model.User {
+	t.Helper()
+	u := &model.User{
+		ID: uuid.New(), Role: model.RoleCustomer,
+		FirstName: "Wallet", LastName: "Owner",
+		Phone: "+234803" + uuid.NewString()[:8], PasswordHash: "x",
+	}
+	mustCreate(t, tx, u)
+	return u
 }
 
 func seedOrder(t *testing.T, tx *gorm.DB, totalKobo, subtotalKobo, deliveryKobo, serviceKobo, tipKobo int64) *model.Order {
@@ -116,7 +137,8 @@ func TestJournal_RejectsUnbalancedEntries(t *testing.T) {
 		ledgerRepo := repo.NewLedgerRepo(tx)
 		ledger := NewLedgerService(tx, ledgerRepo, nil)
 
-		acctA, err := ledger.EnsureWallet(context.Background(), tx, uuid.New())
+		// ledger_accounts.owner_id has an FK to users — seed a real owner.
+		acctA, err := ledger.EnsureWallet(context.Background(), tx, seedWalletOwner(t, tx).ID)
 		if err != nil {
 			t.Fatalf("ensure wallet: %v", err)
 		}
@@ -136,11 +158,11 @@ func TestJournal_AcceptsBalancedEntries(t *testing.T) {
 		ledgerRepo := repo.NewLedgerRepo(tx)
 		ledger := NewLedgerService(tx, ledgerRepo, nil)
 
-		acctA, err := ledger.EnsureWallet(context.Background(), tx, uuid.New())
+		acctA, err := ledger.EnsureWallet(context.Background(), tx, seedWalletOwner(t, tx).ID)
 		if err != nil {
 			t.Fatalf("ensure wallet: %v", err)
 		}
-		acctB, err := ledger.EnsureWallet(context.Background(), tx, uuid.New())
+		acctB, err := ledger.EnsureWallet(context.Background(), tx, seedWalletOwner(t, tx).ID)
 		if err != nil {
 			t.Fatalf("ensure wallet: %v", err)
 		}
@@ -201,7 +223,14 @@ func TestEscrowHoldAndSettle_FullLifecycle(t *testing.T) {
 			t.Errorf("escrow balance after settle = %d, want 0 (money left stranded in escrow)", escrowBal.BalanceKobo)
 		}
 
-		merchantBal, err := ledgerRepo.GetBalance(ctx, order.MerchantID)
+		// Ledger accounts are keyed by User.ID (ledger_accounts.owner_id has an
+		// FK to users), so read the merchant's balance through its owning user
+		// — the same resolution LedgerService.EnsureMerchantWallet performs.
+		var merchantRow model.Merchant
+		if err := tx.Select("user_id").First(&merchantRow, "id = ?", order.MerchantID).Error; err != nil {
+			t.Fatalf("resolve merchant user: %v", err)
+		}
+		merchantBal, err := ledgerRepo.GetBalance(ctx, merchantRow.UserID)
 		if err != nil {
 			t.Fatalf("get merchant balance: %v", err)
 		}

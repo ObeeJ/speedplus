@@ -28,6 +28,7 @@ func (h *CatalogHandler) ListMerchants(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
 		return
 	}
+	c.Header("Cache-Control", "public, max-age=60")
 	c.JSON(http.StatusOK, dto.OK(gin.H{"merchants": merchants}))
 }
 
@@ -42,6 +43,7 @@ func (h *CatalogHandler) GetMerchant(c *gin.Context) {
 		c.JSON(http.StatusNotFound, dto.Fail("NOT_FOUND", "Merchant not found", ""))
 		return
 	}
+	c.Header("Cache-Control", "public, max-age=60")
 	c.JSON(http.StatusOK, dto.OK(merchant))
 }
 
@@ -60,6 +62,7 @@ func (h *CatalogHandler) ListProducts(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
 		return
 	}
+	c.Header("Cache-Control", "public, max-age=60")
 	c.JSON(http.StatusOK, dto.OK(gin.H{"products": products}))
 }
 
@@ -74,6 +77,7 @@ func (h *CatalogHandler) GetProduct(c *gin.Context) {
 		c.JSON(http.StatusNotFound, dto.Fail("NOT_FOUND", "Product not found", ""))
 		return
 	}
+	c.Header("Cache-Control", "public, max-age=60")
 	c.JSON(http.StatusOK, dto.OK(product))
 }
 

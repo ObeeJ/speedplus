@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"time"
 
@@ -14,6 +15,14 @@ import (
 	"github.com/speedplus/api/internal/config"
 	"github.com/speedplus/api/internal/model"
 	"gorm.io/gorm"
+)
+
+// math shims so haversineFallback avoids a math import alias clash
+var (
+	sinSq = func(x float64) float64 { s := math.Sin(x); return s * s }
+	cos   = math.Cos
+	sqrt  = math.Sqrt
+	atan2 = math.Atan2
 )
 
 // SizeCategory classifies package dimensions.
@@ -30,6 +39,7 @@ type FeeConfig struct {
 	BaseFeeKobo      int64   // flat base
 	PerKmKobo        int64   // per km
 	PerKgKobo        int64   // per kg of weight (package vertical)
+	PerStopKobo      int64   // per additional stop beyond the first (multi-drop package orders)
 	ServicePct       float64 // platform service fee % of subtotal
 	MerchantTakeRate float64 // merchant share % (e.g. 0.92 = 8% commission)
 	DriverTakeRate   float64 // driver share % of delivery fee
@@ -43,13 +53,16 @@ var sizeSurchargeKobo = map[SizeCategory]int64{
 	SizeLarge:  40000, // ₦400
 }
 
-// DefaultFeeTable — rates per vertical. Merchant 8% commission per existing UI.
+// DefaultFeeTable — 2026 rates per vertical, calibrated so a rider nets a
+// living wage after fuel/maintenance at ₦1,400/L (dead-km included).
+// Merchant 8% commission. Gas is a flat fee (per-km 0): fixed cylinder runs.
+// Fallback only once fee_configs rows exist — live rates come from FeeConfigService.
 var DefaultFeeTable = map[string]FeeConfig{
-	"food":     {BaseFeeKobo: 50000, PerKmKobo: 10000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
-	"grocery":  {BaseFeeKobo: 50000, PerKmKobo: 10000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
-	"pharmacy": {BaseFeeKobo: 50000, PerKmKobo: 10000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
-	"gas":      {BaseFeeKobo: 80000, PerKmKobo: 15000, ServicePct: 0.03, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
-	"package":  {BaseFeeKobo: 60000, PerKmKobo: 12000, PerKgKobo: 5000, ServicePct: 0.04, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
+	"food":     {BaseFeeKobo: 90000, PerKmKobo: 15000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
+	"grocery":  {BaseFeeKobo: 90000, PerKmKobo: 15000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
+	"pharmacy": {BaseFeeKobo: 100000, PerKmKobo: 15000, ServicePct: 0.05, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
+	"gas":      {BaseFeeKobo: 80000, PerKmKobo: 22000, PerKgKobo: 2000, PerStopKobo: 25000, ServicePct: 0.03, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
+	"package":  {BaseFeeKobo: 90000, PerKmKobo: 17000, PerKgKobo: 7000, PerStopKobo: 25000, ServicePct: 0.04, MerchantTakeRate: 0.92, DriverTakeRate: 0.80, PlatformTakeRate: 0.20},
 }
 
 type PricingService struct {
@@ -57,14 +70,16 @@ type PricingService struct {
 	cfg        *config.Config
 	osrmURL    string
 	httpClient *http.Client
+	feeConfigs *FeeConfigService // nil => DefaultFeeTable fallback
 }
 
-func NewPricingService(db *gorm.DB, cfg *config.Config, osrmURL string) *PricingService {
+func NewPricingService(db *gorm.DB, cfg *config.Config, osrmURL string, feeConfigs *FeeConfigService) *PricingService {
 	return &PricingService{
 		db:         db,
 		cfg:        cfg,
 		osrmURL:    osrmURL,
 		httpClient: &http.Client{Timeout: 5 * time.Second},
+		feeConfigs: feeConfigs,
 	}
 }
 
@@ -88,18 +103,23 @@ func (s *PricingService) Quote(ctx context.Context, req QuoteRequest) (*model.Pr
 		return nil, fmt.Errorf("osrm: %w", err)
 	}
 
-	fees, ok := DefaultFeeTable[req.Vertical]
-	if !ok {
-		fees = DefaultFeeTable["package"]
+	var fees FeeConfig
+	if s.feeConfigs != nil {
+		fees = s.feeConfigs.GetFees(ctx, req.Vertical)
+	} else {
+		fees = defaultFees(req.Vertical)
 	}
 
-	weatherSurcharge, _ := s.weatherSurcharge(ctx, req.DestLat, req.DestLng)
+	weatherAdvisory := s.weatherAdvisory(ctx, req.DestLat, req.DestLng)
 
-	deliveryKobo := fees.BaseFeeKobo + int64(distKm*float64(fees.PerKmKobo)) + weatherSurcharge
+	deliveryKobo := fees.BaseFeeKobo + int64(distKm*float64(fees.PerKmKobo))
+	// Weather surcharge disabled — advisory shown to all parties but no fee charged.
 
-	// Weight + size surcharge for package vertical
-	if req.Vertical == "package" {
+	// Weight + size surcharge for package and gas verticals
+	if req.Vertical == "package" || req.Vertical == "gas" {
 		deliveryKobo += int64(req.WeightKg * float64(fees.PerKgKobo))
+	}
+	if req.Vertical == "package" {
 		deliveryKobo += sizeSurchargeKobo[req.SizeCategory]
 	}
 
@@ -107,18 +127,20 @@ func (s *PricingService) Quote(ctx context.Context, req QuoteRequest) (*model.Pr
 	totalKobo := req.SubtotalKobo + deliveryKobo + serviceKobo
 
 	quote := &model.PricingQuote{
-		ID:           uuid.New(),
-		CustomerID:   req.CustomerID,
-		MerchantID:   req.MerchantID,
-		DistanceKm:   distKm,
-		ETAMinutes:   etaMinutes,
-		WeightKg:     req.WeightKg,
-		SizeCategory: string(req.SizeCategory),
-		SubtotalKobo: req.SubtotalKobo,
-		DeliveryKobo: deliveryKobo,
-		ServiceKobo:  serviceKobo,
-		TotalKobo:    totalKobo,
-		ExpiresAt:    time.Now().Add(10 * time.Minute),
+		ID:              uuid.New(),
+		CustomerID:      req.CustomerID,
+		MerchantID:      req.MerchantID,
+		DistanceKm:      distKm,
+		ETAMinutes:      etaMinutes,
+		StopCount:       1, // single dropoff — must match the DB default so the signed hash agrees with the stored row
+		WeightKg:        req.WeightKg,
+		SizeCategory:    string(req.SizeCategory),
+		SubtotalKobo:    req.SubtotalKobo,
+		DeliveryKobo:    deliveryKobo,
+		ServiceKobo:     serviceKobo,
+		TotalKobo:       totalKobo,
+		WeatherAdvisory: weatherAdvisory,
+		ExpiresAt:       time.Now().Add(10 * time.Minute),
 	}
 	quote.QuoteHash = s.signQuote(quote)
 
@@ -158,9 +180,13 @@ func (s *PricingService) MarkQuoteUsed(ctx context.Context, quoteID uuid.UUID) e
 }
 
 func (s *PricingService) signQuote(q *model.PricingQuote) string {
-	payload := fmt.Sprintf("%s:%s:%s:%d:%d:%d:%d",
+	// StopCount is part of the signed payload: a multi-drop quote's per-stop
+	// fee is baked into DeliveryKobo at signing time, but without binding the
+	// count itself, nothing stops a client from submitting the order with
+	// extra stops appended after the quote was priced for fewer.
+	payload := fmt.Sprintf("%s:%s:%s:%d:%d:%d:%d:%d",
 		q.ID, q.CustomerID, q.MerchantID,
-		q.SubtotalKobo, q.DeliveryKobo, q.ServiceKobo, q.TotalKobo,
+		q.SubtotalKobo, q.DeliveryKobo, q.ServiceKobo, q.TotalKobo, q.StopCount,
 	)
 	mac := hmac.New(sha256.New, []byte(s.cfg.JWTSecret))
 	mac.Write([]byte(payload))
@@ -168,6 +194,9 @@ func (s *PricingService) signQuote(q *model.PricingQuote) string {
 }
 
 // osrmRoute returns road distance (km) and travel duration (minutes) from OSRM.
+// Falls back to straight-line (Haversine) distance with a 1.4× road-factor
+// and 30 km/h average speed when OSRM is unreachable, so the quote endpoint
+// degrades gracefully instead of hard-failing.
 func (s *PricingService) osrmRoute(ctx context.Context, oLat, oLng, dLat, dLng float64) (distKm float64, etaMinutes int, err error) {
 	url := fmt.Sprintf("%s/route/v1/driving/%f,%f;%f,%f?overview=false",
 		s.osrmURL, oLng, oLat, dLng, dLat)
@@ -175,7 +204,7 @@ func (s *PricingService) osrmRoute(ctx context.Context, oLat, oLng, dLat, dLng f
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return 0, 0, err
+		return haversineFallback(oLat, oLng, dLat, dLng)
 	}
 	defer resp.Body.Close()
 
@@ -186,21 +215,180 @@ func (s *PricingService) osrmRoute(ctx context.Context, oLat, oLng, dLat, dLng f
 		} `json:"routes"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || len(result.Routes) == 0 {
-		return 0, 0, fmt.Errorf("osrm no route")
+		return haversineFallback(oLat, oLng, dLat, dLng)
 	}
 	distKm = result.Routes[0].Distance / 1000.0
 	etaMinutes = int(result.Routes[0].Duration/60) + 5 // +5 min pickup buffer
 	return distKm, etaMinutes, nil
 }
 
-// weatherSurcharge calls Open-Meteo for rain/heat flag.
-// Returns extra kobo surcharge (0 if no adverse weather).
-func (s *PricingService) weatherSurcharge(ctx context.Context, lat, lng float64) (int64, error) {
+// haversineFallback computes straight-line distance with a 1.4× road tortuosity
+// factor and estimates ETA at 30 km/h average urban speed.
+func haversineFallback(oLat, oLng, dLat, dLng float64) (float64, int, error) {
+	const (
+		earth       = 6371.0 // km
+		roadFactor  = 1.4
+		avgSpeedKmh = 30.0
+	)
+	dLat2 := (dLat - oLat) * (3.141592653589793 / 180)
+	dLng2 := (dLng - oLng) * (3.141592653589793 / 180)
+	a := sinSq(dLat2/2) + cos(oLat)*cos(dLat)*sinSq(dLng2/2)
+	c := 2 * atan2(sqrt(a), sqrt(1-a))
+	straightKm := earth * c
+	distKm := straightKm * roadFactor
+	etaMinutes := int(distKm/avgSpeedKmh*60) + 5
+	return distKm, etaMinutes, nil
+}
+
+// LatLng is a waypoint for multi-stop routing.
+type LatLng struct {
+	Lat float64
+	Lng float64
+}
+
+// MultiStopQuoteRequest prices a package order with one pickup and one or
+// more dropoff stops. Precedence (pickup before its dropoffs) is implicit:
+// Origin is always visited first, then Stops in the given order.
+type MultiStopQuoteRequest struct {
+	CustomerID   uuid.UUID
+	MerchantID   uuid.UUID
+	Vertical     string
+	SubtotalKobo int64
+	Origin       LatLng
+	Stops        []LatLng // one or more dropoffs, in visiting order
+	WeightKg     float64
+	SizeCategory SizeCategory
+}
+
+const maxQuoteStops = 6 // guardrail: bounds rider load and OSRM trip payload size
+
+// QuoteMultiStop prices a multi-drop package order: full route distance
+// (via OSRM trip) + a per-stop fee for every stop beyond the first. The stop
+// count is baked into the signed quote hash so it can't be tampered down
+// after the route was priced.
+func (s *PricingService) QuoteMultiStop(ctx context.Context, req MultiStopQuoteRequest) (*model.PricingQuote, error) {
+	if len(req.Stops) == 0 {
+		return nil, fmt.Errorf("multistop quote requires at least one dropoff stop")
+	}
+	if len(req.Stops) > maxQuoteStops {
+		return nil, fmt.Errorf("too many stops: max %d per order", maxQuoteStops)
+	}
+
+	waypoints := make([]LatLng, 0, len(req.Stops)+1)
+	waypoints = append(waypoints, req.Origin)
+	waypoints = append(waypoints, req.Stops...)
+
+	distKm, etaMinutes, err := s.osrmTrip(ctx, waypoints)
+	if err != nil {
+		return nil, fmt.Errorf("osrm trip: %w", err)
+	}
+
+	var fees FeeConfig
+	if s.feeConfigs != nil {
+		fees = s.feeConfigs.GetFees(ctx, req.Vertical)
+	} else {
+		fees = defaultFees(req.Vertical)
+	}
+
+	weatherAdvisory := s.weatherAdvisory(ctx, req.Stops[len(req.Stops)-1].Lat, req.Stops[len(req.Stops)-1].Lng)
+
+	extraStops := len(req.Stops) - 1
+	deliveryKobo := fees.BaseFeeKobo + int64(distKm*float64(fees.PerKmKobo)) + int64(extraStops)*fees.PerStopKobo
+
+	if req.Vertical == "package" || req.Vertical == "gas" {
+		deliveryKobo += int64(req.WeightKg * float64(fees.PerKgKobo))
+	}
+	if req.Vertical == "package" {
+		deliveryKobo += sizeSurchargeKobo[req.SizeCategory]
+	}
+
+	serviceKobo := int64(float64(req.SubtotalKobo) * fees.ServicePct)
+	totalKobo := req.SubtotalKobo + deliveryKobo + serviceKobo
+
+	quote := &model.PricingQuote{
+		ID:              uuid.New(),
+		CustomerID:      req.CustomerID,
+		MerchantID:      req.MerchantID,
+		DistanceKm:      distKm,
+		ETAMinutes:      etaMinutes,
+		StopCount:       len(req.Stops),
+		WeightKg:        req.WeightKg,
+		SizeCategory:    string(req.SizeCategory),
+		SubtotalKobo:    req.SubtotalKobo,
+		DeliveryKobo:    deliveryKobo,
+		ServiceKobo:     serviceKobo,
+		TotalKobo:       totalKobo,
+		WeatherAdvisory: weatherAdvisory,
+		ExpiresAt:       time.Now().Add(10 * time.Minute),
+	}
+	quote.QuoteHash = s.signQuote(quote)
+
+	if err := s.db.WithContext(ctx).Create(quote).Error; err != nil {
+		return nil, err
+	}
+	return quote, nil
+}
+
+// osrmTrip calls OSRM's trip service (TSP) to get the optimized route
+// distance/duration across all waypoints, visited in order starting from the
+// first (source=first, roundtrip=false — we never return to origin).
+func (s *PricingService) osrmTrip(ctx context.Context, waypoints []LatLng) (distKm float64, etaMinutes int, err error) {
+	if len(waypoints) < 2 {
+		return 0, 0, fmt.Errorf("trip requires at least 2 waypoints")
+	}
+	coords := ""
+	for i, wp := range waypoints {
+		if i > 0 {
+			coords += ";"
+		}
+		coords += fmt.Sprintf("%f,%f", wp.Lng, wp.Lat)
+	}
+	url := fmt.Sprintf("%s/trip/v1/driving/%s?source=first&roundtrip=false&overview=false", s.osrmURL, coords)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		// Fallback: sum straight-line segments between consecutive waypoints.
+		var totalKm float64
+		for i := 1; i < len(waypoints); i++ {
+			d, _, _ := haversineFallback(waypoints[i-1].Lat, waypoints[i-1].Lng, waypoints[i].Lat, waypoints[i].Lng)
+			totalKm += d
+		}
+		eta := int(totalKm/30.0*60) + 5
+		return totalKm, eta, nil
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Trips []struct {
+			Distance float64 `json:"distance"` // metres
+			Duration float64 `json:"duration"` // seconds
+		} `json:"trips"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || len(result.Trips) == 0 {
+		// Fallback on decode failure too.
+		var totalKm float64
+		for i := 1; i < len(waypoints); i++ {
+			d, _, _ := haversineFallback(waypoints[i-1].Lat, waypoints[i-1].Lng, waypoints[i].Lat, waypoints[i].Lng)
+			totalKm += d
+		}
+		eta := int(totalKm/30.0*60) + 5
+		return totalKm, eta, nil
+	}
+	distKm = result.Trips[0].Distance / 1000.0
+	etaMinutes = int(result.Trips[0].Duration/60) + 5 // +5 min pickup buffer
+	return distKm, etaMinutes, nil
+}
+
+// weatherAdvisory calls Open-Meteo for rain/heat flag.
+// Returns a human-readable advisory string (empty = clear conditions).
+// No fee is charged — this is informational only for all parties.
+func (s *PricingService) weatherAdvisory(ctx context.Context, lat, lng float64) string {
 	url := fmt.Sprintf("https://api.open-meteo.com/v1/forecast?latitude=%f&longitude=%f&current_weather=true", lat, lng)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return 0, nil // non-fatal
+		return ""
 	}
 	defer resp.Body.Close()
 
@@ -211,13 +399,21 @@ func (s *PricingService) weatherSurcharge(ctx context.Context, lat, lng float64)
 		} `json:"current_weather"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return 0, nil
+		return ""
 	}
 
-	// WMO codes 51-99 = precipitation/storm; temp > 38°C = heat surcharge
 	code := result.CurrentWeather.Weathercode
-	if (code >= 51 && code <= 99) || result.CurrentWeather.Temperature > 38 {
-		return 20000, nil // ₦200 surcharge
+	temp := result.CurrentWeather.Temperature
+	switch {
+	case code >= 95 && code <= 99:
+		return "Thunderstorm expected — allow extra time for delivery"
+	case code >= 71 && code <= 77:
+		return "Heavy rain expected — rider may take longer than usual"
+	case code >= 51 && code <= 67:
+		return "Light rain in the area — rider is on the way"
+	case temp > 38:
+		return "Extreme heat today — rider may need a short break"
+	default:
+		return ""
 	}
-	return 0, nil
 }

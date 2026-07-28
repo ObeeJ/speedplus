@@ -37,11 +37,11 @@ type OTPVerifyReq struct {
 }
 
 type SetPINRequest struct {
-	PIN string `json:"pin" binding:"required,len=6"`
+	PIN string `json:"pin" binding:"required,len=4"`
 }
 
 type VerifyPINRequest struct {
-	PIN string `json:"pin" binding:"required,len=6"`
+	PIN string `json:"pin" binding:"required,len=4"`
 }
 
 // ── Responses ─────────────────────────────────────────────────────────────────

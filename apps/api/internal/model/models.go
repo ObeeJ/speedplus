@@ -36,21 +36,23 @@ type Product struct {
 }
 
 type PricingQuote struct {
-	ID            uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	CustomerID    uuid.UUID `gorm:"type:uuid;not null"`
-	MerchantID    uuid.UUID `gorm:"type:uuid;not null"`
-	DistanceKm    float64
-	ETAMinutes    int       // driving time from OSRM + pickup buffer
-	WeightKg      float64   // package vertical only
-	SizeCategory  string    `gorm:"type:varchar(10)"` // small|medium|large
-	SubtotalKobo  int64
-	DeliveryKobo  int64
-	ServiceKobo   int64
-	TotalKobo     int64
-	QuoteHash     string    `gorm:"uniqueIndex;not null"` // HMAC of fields — tamper-proof
-	ExpiresAt     time.Time `gorm:"not null"`
-	UsedAt        *time.Time
-	CreatedAt     time.Time
+	ID              uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	CustomerID      uuid.UUID `gorm:"type:uuid;not null"`
+	MerchantID      uuid.UUID `gorm:"type:uuid;not null"`
+	DistanceKm      float64
+	ETAMinutes      int       // driving time from OSRM + pickup buffer
+	StopCount       int       `gorm:"default:1"` // multi-drop package orders: number of dropoff stops
+	WeightKg        float64   // package vertical only
+	SizeCategory    string    `gorm:"type:varchar(10)"` // small|medium|large
+	SubtotalKobo    int64
+	DeliveryKobo    int64
+	ServiceKobo     int64
+	TotalKobo       int64
+	WeatherAdvisory string    `gorm:"type:text"` // informational only, no fee
+	QuoteHash       string    `gorm:"uniqueIndex;not null"` // HMAC of fields — tamper-proof
+	ExpiresAt       time.Time `gorm:"not null"`
+	UsedAt          *time.Time
+	CreatedAt       time.Time
 }
 
 // ── Phase 3: Orders ───────────────────────────────────────────────────────────
@@ -97,11 +99,18 @@ type Order struct {
 	TipKobo           int64       `gorm:"default:0"`
 	TotalKobo         int64
 	DeliveryAddressID uuid.UUID   `gorm:"type:uuid;not null"`
+	// AES-GCM ciphertext (base64) — never expose these columns directly in an
+	// API response. Decrypt only for an authorized reader via OrderService.
+	RecipientNameEnc  *string     `gorm:"column:recipient_name_enc;type:text"`
+	RecipientPhoneEnc *string     `gorm:"column:recipient_phone_enc;type:text"`
 	PrescriptionID    *uuid.UUID  `gorm:"type:uuid"`
 	ScheduledFor      *time.Time
 	EstimatedAt       *time.Time
 	DeliveredAt       *time.Time
 	CancelReason      *string
+	PaymentMethod     string      `gorm:"type:varchar(20);default:'wallet'"` // wallet|pay_on_arrival
+	DeclaredValueKobo *int64      `gorm:"default:null"`                      // sender-stated package value; nil = not declared
+	TrackingRef       *string     `gorm:"type:varchar(12);uniqueIndex"`      // short human-readable ref e.g. SPX-A3K9
 	IdempotencyKey    string      `gorm:"uniqueIndex;not null"`
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
@@ -137,13 +146,18 @@ type OrderEvent struct {
 }
 
 type OrderStop struct {
-	ID          uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	OrderID     uuid.UUID  `gorm:"type:uuid;not null;index"`
-	Sequence    int        `gorm:"not null"`
-	AddressID   uuid.UUID  `gorm:"type:uuid;not null"`
-	QRCode      string     `gorm:"not null"` // signed paycode
-	Status      string     `gorm:"default:'pending'"` // pending|confirmed|skipped
-	ConfirmedAt *time.Time
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	OrderID   uuid.UUID `gorm:"type:uuid;not null;index"`
+	Sequence  int       `gorm:"not null"`
+	AddressID uuid.UUID `gorm:"type:uuid;not null"`
+	// AES-GCM ciphertext (base64) — never expose directly in an API response.
+	// Decrypt only for the assigned driver, on the active stop, while in transit.
+	RecipientNameEnc  *string    `gorm:"column:recipient_name_enc;type:text"`
+	RecipientPhoneEnc *string    `gorm:"column:recipient_phone_enc;type:text"`
+	Notes             *string    `gorm:"type:text"`
+	QRCode            string     `gorm:"not null"`          // signed paycode per stop
+	Status            string     `gorm:"default:'pending'"` // pending|confirmed|skipped
+	ConfirmedAt       *time.Time
 }
 
 type Prescription struct {
@@ -320,6 +334,13 @@ type DeliveryCode struct {
 	ExpiresAt   time.Time  `gorm:"not null"`
 	UsedAt      *time.Time
 	CreatedAt   time.Time
+
+	// GPS evidence captured at successful confirmation. Flag-only — a far or
+	// missing location never blocks settlement, it queues the order for review.
+	ConfirmLat       *float64
+	ConfirmLng       *float64
+	ConfirmDistanceM *float64
+	LocationFlagged  bool `gorm:"not null;default:false"`
 }
 
 type DriverEarning struct {
@@ -333,15 +354,33 @@ type DriverEarning struct {
 }
 
 type CashoutRequest struct {
-	ID           uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	DriverID     uuid.UUID  `gorm:"type:uuid;not null;index"`
-	AmountKobo   int64      `gorm:"not null"`
-	FeeKobo      int64      `gorm:"not null"`
-	Status       string     `gorm:"default:'pending'"` // pending|processing|paid|failed
-	ProviderRef  *string
-	IdempotencyKey string   `gorm:"uniqueIndex;not null"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID             uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	DriverID       uuid.UUID  `gorm:"type:uuid;not null;index"`
+	MerchantID     *uuid.UUID `gorm:"type:uuid;index"` // set for merchant withdrawals
+	ActorType      string     `gorm:"not null;default:'driver'"` // driver|merchant
+	AmountKobo     int64      `gorm:"not null"`
+	FeeKobo        int64      `gorm:"not null"`
+	Status         string     `gorm:"default:'pending'"` // pending|processing|paid|failed
+	ProviderRef    *string
+	IdempotencyKey string     `gorm:"uniqueIndex;not null"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+// MerchantBankAccount stores the verified bank account a merchant withdraws to.
+// account_name is resolved via the payment provider's account-resolution API
+// before saving — never trusted from the request body.
+type MerchantBankAccount struct {
+	ID            uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	MerchantID    uuid.UUID `gorm:"type:uuid;uniqueIndex;not null"`
+	BankCode      string    `gorm:"not null"`
+	BankName      string    `gorm:"not null"`
+	AccountNumber string    `gorm:"not null"`
+	AccountName   string    `gorm:"not null"` // provider-resolved, not user-supplied
+	Provider      string    `gorm:"not null;default:'paystack'"`
+	IsVerified    bool      `gorm:"not null;default:true"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 type OrderSplit struct {
@@ -465,11 +504,74 @@ type CancellationRule struct {
 type AdminAuditLog struct {
 	ID         uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
 	AdminID    uuid.UUID `gorm:"type:uuid;not null;index"`
-	Action     string    `gorm:"not null"` // merchant_status_change|driver_status_change|escrow_freeze|escrow_release
-	TargetType string    `gorm:"not null"` // merchant_profile|driver_profile|escrow_hold
+	Action     string    `gorm:"not null"` // merchant_status_change|driver_status_change|escrow_freeze|escrow_release|fee_config_change
+	TargetType string    `gorm:"not null"` // merchant_profile|driver_profile|escrow_hold|fee_config
 	TargetID   uuid.UUID `gorm:"type:uuid;not null"`
 	Reason     string    `gorm:"not null"`
 	CreatedAt  time.Time `gorm:"index"`
+}
+
+// ProofMedia is chain-of-custody evidence for a package delivery: a photo or
+// short video captured live in the driver app at pickup/dropoff. r2_key
+// points at a private R2 object (never a public URL); sha256 lets a dispute
+// prove the file wasn't swapped after capture. Insert-only — never
+// update/delete once written (see migration 018's DB rules).
+type ProofMedia struct {
+	ID          uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	OrderID     uuid.UUID  `gorm:"type:uuid;not null;index"`
+	StopID      *uuid.UUID `gorm:"type:uuid;index"` // nil for single-drop orders
+	Kind        string     `gorm:"not null"`        // pickup_photo|pickup_video|dropoff_photo|dropoff_video
+	R2Key       string     `gorm:"not null"`
+	SHA256      string     `gorm:"not null"`
+	SealSerial  *string
+	CapturedLat *float64
+	CapturedLng *float64
+	CapturedAt  time.Time `gorm:"not null"`
+	CapturedBy  uuid.UUID `gorm:"type:uuid;not null"` // the driver
+	CreatedAt   time.Time
+}
+
+// OrderReview is a post-delivery rating + comment left by the customer.
+// One review per order per reviewee_type — enforced by DB unique constraint.
+type OrderReview struct {
+	ID           uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	OrderID      uuid.UUID `gorm:"type:uuid;not null;index"`
+	ReviewerID   uuid.UUID `gorm:"type:uuid;not null"`
+	RevieweeID   uuid.UUID `gorm:"type:uuid;not null;index"`
+	RevieweeType string    `gorm:"type:varchar(10);not null"` // driver|merchant
+	Rating       int       `gorm:"not null"`                  // 1-5
+	Comment      *string   `gorm:"type:text"`
+	CreatedAt    time.Time
+}
+
+// DriverBadge is a milestone badge awarded to a driver by the platform.
+type DriverBadge struct {
+	ID                 uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	DriverID           uuid.UUID `gorm:"type:uuid;not null;index"`
+	BadgeType          string    `gorm:"type:varchar(30);not null"` // first_delivery|10_deliveries|50_deliveries|100_deliveries|top_rated|zero_complaints
+	OrderCountAtAward  int       `gorm:"not null;default:0"`
+	AwardedAt          time.Time `gorm:"not null"`
+}
+
+// FeeConfig is a versioned, append-only pricing configuration row per vertical.
+// The row with the greatest effective_at <= now is live; settlement pins to the
+// row effective at order creation. Insert-only — the DB rules no-op UPDATE/DELETE.
+type FeeConfig struct {
+	ID               uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	Vertical         string    `gorm:"not null"                                      json:"vertical"` // food|grocery|pharmacy|gas|package
+	BaseFeeKobo      int64     `gorm:"not null"                                      json:"baseFeeKobo"`
+	PerKmKobo        int64     `gorm:"not null;default:0"                            json:"perKmKobo"`
+	PerKgKobo        int64     `gorm:"not null;default:0"                            json:"perKgKobo"`
+	PerStopKobo      int64     `gorm:"not null;default:0"                            json:"perStopKobo"`
+	ServicePct       float64   `gorm:"not null"                                      json:"servicePct"`
+	MerchantTakeRate float64   `gorm:"not null"                                      json:"merchantTakeRate"`
+	DriverTakeRate   float64   `gorm:"not null"                                      json:"driverTakeRate"`
+	PlatformTakeRate float64   `gorm:"not null"                                      json:"platformTakeRate"`
+	FuelPriceRefKobo int64     `gorm:"not null;default:0"                            json:"fuelPriceRefKobo"`
+	EffectiveAt      time.Time `gorm:"not null;index"                                json:"effectiveAt"`
+	UpdatedBy        uuid.UUID `gorm:"type:uuid;not null"                            json:"updatedBy"`
+	Reason           string    `gorm:"not null;default:''"                           json:"reason"`
+	CreatedAt        time.Time `json:"createdAt"`
 }
 
 

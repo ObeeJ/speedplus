@@ -18,13 +18,31 @@ const (
 	maxOfferCascade = 10
 )
 
-// vehicleClassRules maps vertical → minimum vehicle type required.
+// vehicleClassRules maps vertical → minimum vehicle type for non-gas verticals.
 var vehicleClassRules = map[string]model.VehicleType{
-	"gas":     model.VehicleVan,
-	"grocery": model.VehicleMotorcycle,
-	"food":    model.VehicleMotorcycle,
+	"grocery":  model.VehicleMotorcycle,
+	"food":     model.VehicleMotorcycle,
 	"pharmacy": model.VehicleMotorcycle,
-	"package": model.VehicleMotorcycle,
+	"package":  model.VehicleMotorcycle,
+}
+
+// vehicleClassFor returns the minimum vehicle class for an order.
+// Gas derives from total cylinder weight; all other verticals use the static map.
+func vehicleClassFor(vertical string, totalKg float64) model.VehicleType {
+	if vertical == "gas" {
+		switch {
+		case totalKg <= 6:
+			return model.VehicleMotorcycle
+		case totalKg <= 12.5:
+			return model.VehicleCar
+		default:
+			return model.VehicleVan
+		}
+	}
+	if v, ok := vehicleClassRules[vertical]; ok {
+		return v
+	}
+	return model.VehicleMotorcycle
 }
 
 type DispatchService struct {
@@ -56,10 +74,19 @@ func (h candidateHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i]; h[i].inde
 func (h *candidateHeap) Push(x interface{}) { *h = append(*h, x.(*driverCandidate)) }
 func (h *candidateHeap) Pop() interface{}   { old := *h; n := len(old); x := old[n-1]; *h = old[:n-1]; return x }
 
-// Dispatch finds nearby eligible drivers and creates offer records.
-// Returns the ordered list of driver IDs to notify (via WS).
-func (s *DispatchService) Dispatch(ctx context.Context, order *model.Order, merchantLat, merchantLng float64) ([]uuid.UUID, error) {
-	minVehicle := vehicleClassRules[order.Vertical]
+// DispatchCandidate is one driver targeted by a cascaded offer.
+type DispatchCandidate struct {
+	DriverID   uuid.UUID
+	OfferID    uuid.UUID
+	DistanceKm float64
+}
+
+// Dispatch finds nearby eligible drivers and creates offer records, each bound
+// to the specific driver it was cascaded to (DriverID is set at creation, not
+// left null — an offer only that driver may accept).
+// Returns the ordered list of candidates to notify (via WS).
+func (s *DispatchService) Dispatch(ctx context.Context, order *model.Order, merchantLat, merchantLng float64) ([]DispatchCandidate, error) {
+	minVehicle := vehicleClassFor(order.Vertical, order.WeightKg)
 
 	// PostGIS KNN: find online approved drivers within 5km, ordered by distance
 	type row struct {
@@ -101,21 +128,27 @@ func (s *DispatchService) Dispatch(ctx context.Context, order *model.Order, merc
 		})
 	}
 
-	// Create offer records for top N candidates
-	var notifyOrder []uuid.UUID
+	// Create offer records for top N candidates, each bound to its driver.
+	var notifyOrder []DispatchCandidate
 	exp := time.Now().Add(offerTTL)
 	for h.Len() > 0 && len(notifyOrder) < maxOfferCascade {
 		c := heap.Pop(h).(*driverCandidate)
+		driverID := c.DriverID
 		offer := model.DeliveryOffer{
 			ID:        uuid.New(),
 			OrderID:   order.ID,
+			DriverID:  &driverID,
 			Status:    "pending",
 			ExpiresAt: exp,
 		}
 		if err := s.db.WithContext(ctx).Create(&offer).Error; err != nil {
 			continue
 		}
-		notifyOrder = append(notifyOrder, c.DriverID)
+		notifyOrder = append(notifyOrder, DispatchCandidate{
+			DriverID:   c.DriverID,
+			OfferID:    offer.ID,
+			DistanceKm: c.DistanceKm,
+		})
 		exp = exp.Add(offerTTL) // cascade: each driver gets 15s window
 	}
 
@@ -123,20 +156,19 @@ func (s *DispatchService) Dispatch(ctx context.Context, order *model.Order, merc
 }
 
 // AcceptOffer atomically assigns the driver to the order.
-// Uses WHERE driver_id IS NULL to prevent race conditions.
+// Offers are bound to their target driver at creation (Dispatch sets DriverID),
+// so this requires driver_id = the calling driver — a driver can only accept
+// an offer actually cascaded to them, not any pending offer by ID.
 func (s *DispatchService) AcceptOffer(ctx context.Context, offerID, driverID uuid.UUID) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&model.DeliveryOffer{}).
-			Where("id = ? AND driver_id IS NULL AND status = 'pending' AND expires_at > ?", offerID, time.Now()).
-			Updates(map[string]interface{}{
-				"driver_id": driverID,
-				"status":    "accepted",
-			})
+			Where("id = ? AND driver_id = ? AND status = 'pending' AND expires_at > ?", offerID, driverID, time.Now()).
+			Update("status", "accepted")
 		if result.Error != nil {
 			return result.Error
 		}
 		if result.RowsAffected == 0 {
-			return fmt.Errorf("offer already taken or expired")
+			return fmt.Errorf("offer not found, not yours, already taken, or expired")
 		}
 
 		// Assign driver to order

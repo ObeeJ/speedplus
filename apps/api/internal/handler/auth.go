@@ -21,11 +21,14 @@ func NewAuthHandler(auth *service.AuthService) *AuthHandler {
 
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req struct {
-		FirstName string `json:"firstName" binding:"required"`
-		LastName  string `json:"lastName" binding:"required"`
-		Phone     string `json:"phone" binding:"required"`
-		Password  string `json:"password" binding:"required,min=8"`
-		Role      string `json:"role"`
+		FirstName    string `json:"firstName" binding:"required"`
+		LastName     string `json:"lastName" binding:"required"`
+		Phone        string `json:"phone" binding:"required"`
+		Password     string `json:"password" binding:"required,min=8"`
+		Role         string `json:"role"`
+		ReferralCode string `json:"referralCode"` // optional
+		VehicleType  string `json:"vehicleType"`  // required when role=driver: bicycle|motorcycle|car|van
+		VehiclePlate string `json:"vehiclePlate"` // required when role=driver
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		validationError(c, err)
@@ -39,13 +42,25 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		role = model.RoleMerchant
 	}
 
-	user, access, refresh, err := h.auth.Register(c.Request.Context(), req.FirstName, req.LastName, req.Phone, req.Password, role)
+	user, access, refresh, err := h.auth.Register(c.Request.Context(), service.RegisterInput{
+		FirstName:    req.FirstName,
+		LastName:     req.LastName,
+		Phone:        req.Phone,
+		Password:     req.Password,
+		Role:         role,
+		ReferralCode: req.ReferralCode,
+		VehicleType:  req.VehicleType,
+		VehiclePlate: req.VehiclePlate,
+	})
 	if err != nil {
-		if err == service.ErrPhoneExists {
+		switch err {
+		case service.ErrPhoneExists:
 			c.JSON(http.StatusConflict, errResp("VALIDATION_ERROR", "Phone already registered", "phone"))
-			return
+		case service.ErrVehicleRequired, service.ErrVehicleTypeInvalid:
+			c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", err.Error(), "vehicleType"))
+		default:
+			internalError(c, err)
 		}
-		internalError(c, err)
 		return
 	}
 
@@ -201,7 +216,9 @@ func errResp(code, message, field string) gin.H {
 }
 
 func validationError(c *gin.Context, err error) {
-	c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", err.Error(), ""))
+	// Do not forward raw Gin/validator error strings — they expose internal
+	// struct field names and Go type tags. Return a generic message instead.
+	c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Invalid request body", ""))
 }
 
 func internalError(c *gin.Context, err error) {
@@ -214,12 +231,13 @@ func internalError(c *gin.Context, err error) {
 
 func userView(u *model.User) gin.H {
 	return gin.H{
-		"id":         u.ID,
-		"role":       u.Role,
-		"firstName":  u.FirstName,
-		"lastName":   u.LastName,
-		"phone":      u.Phone,
-		"isVerified": u.IsVerified,
-		"createdAt":  u.CreatedAt,
+		"id":           u.ID,
+		"role":         u.Role,
+		"firstName":    u.FirstName,
+		"lastName":     u.LastName,
+		"phone":        u.Phone,
+		"referralCode": u.ReferralCode,
+		"isVerified":   u.IsVerified,
+		"createdAt":    u.CreatedAt,
 	}
 }

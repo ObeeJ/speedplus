@@ -9,6 +9,8 @@ if command -v gitleaks >/dev/null 2>&1; then
         exit 1
     fi
 else
-    echo "⚠️  gitleaks not installed. Skipping secret scan."
+    echo "❌ gitleaks is not installed. Commit blocked."
     echo "   Install: https://github.com/gitleaks/gitleaks#installing"
+    echo "   Or run: brew install gitleaks"
+    exit 1
 fi

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,6 +24,7 @@ type WalletService struct {
 	provider payment.Provider
 	email    walletEmailSender
 	users    repo.UserRepo
+	enqueue  func(cashoutID string) error // injected after construction
 }
 
 type walletEmailSender interface {
@@ -32,6 +34,12 @@ type walletEmailSender interface {
 
 func NewWalletService(db *gorm.DB, ledger *LedgerService, pins ports.PINVerifier, provider payment.Provider, email walletEmailSender, users repo.UserRepo) *WalletService {
 	return &WalletService{db: db, ledger: ledger, pins: pins, provider: provider, email: email, users: users}
+}
+
+// InjectQueue wires the asynq enqueue function after construction to avoid a
+// circular dependency. Must be called before any cashout is initiated.
+func (s *WalletService) InjectQueue(fn func(cashoutID string) error) {
+	s.enqueue = fn
 }
 
 // ── Fund wallet (pay-in) ──────────────────────────────────────────────────────
@@ -85,7 +93,8 @@ type WebhookPayload struct {
 var ErrWebhookRetryable = errors.New("transient webhook error — retry")
 
 func (s *WalletService) ProcessWebhook(ctx context.Context, p WebhookPayload) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var notify *fundedNotice
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Dedupe: skip if already processed — non-retryable, return nil → 200
 		var existing model.WebhookEvent
 		if err := tx.Where("provider = ? AND event_id = ?", p.Provider, p.EventID).First(&existing).Error; err == nil {
@@ -149,15 +158,56 @@ func (s *WalletService) ProcessWebhook(ctx context.Context, p WebhookPayload) er
 		}
 
 		newBal, _ := s.ledger.GetBalance(ctx, intent.UserID)
-		go func(userID uuid.UUID, amount, balance int64) {
-			u, err := s.users.FindByID(context.Background(), userID)
-			if err == nil && u.Email != nil {
-				s.email.SendWalletFunded(context.Background(), *u.Email, u.FirstName, amount, balance)
+		// Resolve the recipient here, on the transaction's own connection, and
+		// hand the notifier plain values. The email goroutine must never touch
+		// the database: it would share the connection this transaction is
+		// using, and concurrent use of a single connection panics inside pgx —
+		// a panic in a detached goroutine takes down the whole process.
+		if u, uErr := s.users.FindByID(ctx, intent.UserID); uErr == nil && u.Email != nil {
+			notify = &fundedNotice{
+				email:     *u.Email,
+				firstName: u.FirstName,
+				userID:    intent.UserID,
+				amount:    verified.AmountKobo,
+				balance:   newBal,
 			}
-		}(intent.UserID, verified.AmountKobo, newBal)
+		}
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if notify != nil {
+		s.sendFundedEmail(*notify)
+	}
+	return nil
+}
+
+// fundedNotice carries everything the wallet-funded email needs, resolved
+// inside the crediting transaction. It holds plain values rather than IDs
+// precisely so the sender never has to query.
+type fundedNotice struct {
+	email     string
+	firstName string
+	userID    uuid.UUID // for log correlation only
+	amount    int64
+	balance   int64
+}
+
+// sendFundedEmail delivers the wallet-funded notification best-effort. It
+// performs no database access — see fundedNotice — and recovers from panics so
+// a notification failure can never take down the API process or affect the
+// already-committed credit.
+func (s *WalletService) sendFundedEmail(n fundedNotice) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("wallet funded email panicked", "user_id", n.userID.String(), "panic", r)
+			}
+		}()
+		s.email.SendWalletFunded(context.Background(), n.email, n.firstName, n.amount, n.balance)
+	}()
 }
 
 // ── Wallet-to-wallet transfer ─────────────────────────────────────────────────
@@ -244,7 +294,7 @@ func (s *WalletService) Transfer(ctx context.Context, senderID, recipientID uuid
 const EWACashoutFeeKobo = 10000 // ₦100 instant cashout fee
 
 func (s *WalletService) EWACashout(ctx context.Context, driverID uuid.UUID, amountKobo int64, idempotencyKey string) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Idempotency
 		var existing model.CashoutRequest
 		if err := tx.Where("idempotency_key = ?", idempotencyKey).First(&existing).Error; err == nil {
@@ -280,7 +330,9 @@ func (s *WalletService) EWACashout(ctx context.Context, driverID uuid.UUID, amou
 		if err := s.ledger.journal(ctx, tx, entries); err != nil {
 			return err
 		}
-		s.ledger.adjustBalance(ctx, tx, driverWallet.ID, -(amountKobo + EWACashoutFeeKobo))
+		if err := s.ledger.adjustBalance(ctx, tx, driverWallet.ID, -(amountKobo + EWACashoutFeeKobo)); err != nil {
+			return fmt.Errorf("EWACashout: adjust driver balance: %w", err)
+		}
 
 		cashout := model.CashoutRequest{
 			ID:             uuid.New(),
@@ -291,8 +343,19 @@ func (s *WalletService) EWACashout(ctx context.Context, driverID uuid.UUID, amou
 			IdempotencyKey: idempotencyKey,
 		}
 		return tx.Create(&cashout).Error
-		// Actual provider transfer dispatched by asynq worker
 	})
+	if err != nil {
+		return err
+	}
+	// Enqueue outside the transaction — only fires after DB commit is durable.
+	if s.enqueue != nil {
+		var created model.CashoutRequest
+		s.db.WithContext(ctx).Where("idempotency_key = ?", idempotencyKey).First(&created)
+		if enqErr := s.enqueue(created.ID.String()); enqErr != nil {
+			observability.CaptureError(ctx, enqErr, "EWACashout: enqueue failed", "idempotency_key", idempotencyKey)
+		}
+	}
+	return nil
 }
 
 // ── Weekly auto-payout (called by asynq cron) ─────────────────────────────────
@@ -323,4 +386,214 @@ func (s *WalletService) WeeklyAutoPayout(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// ── Merchant withdrawal ───────────────────────────────────────────────────────
+
+const (
+	// MerchantWithdrawMinKobo is the minimum withdrawal amount (₦1,000).
+	MerchantWithdrawMinKobo = 100_000
+	// MerchantInstantFeePct is the fee rate for instant withdrawals (1%).
+	MerchantInstantFeePct = 0.01
+	// MerchantInstantFeeMinKobo is the minimum instant fee (₦10 — covers provider cost).
+	MerchantInstantFeeMinKobo = 1_000
+	// MerchantInstantFeeMaxKobo caps the instant fee at ₦500.
+	MerchantInstantFeeMaxKobo = 50_000
+)
+
+// merchantInstantFee computes the 1% instant withdrawal fee, clamped to [min, max].
+func merchantInstantFee(amountKobo int64) int64 {
+	fee := int64(float64(amountKobo) * MerchantInstantFeePct)
+	if fee < MerchantInstantFeeMinKobo {
+		return MerchantInstantFeeMinKobo
+	}
+	if fee > MerchantInstantFeeMaxKobo {
+		return MerchantInstantFeeMaxKobo
+	}
+	return fee
+}
+
+// MerchantWithdraw debits the merchant's wallet and enqueues a bank transfer.
+// withdrawalType must be "instant" or "standard".
+// - standard: free, batched daily at 18:00 WAT.
+// - instant: 1% fee (min ₦10, max ₦500), processed within minutes.
+// PIN is verified before any money moves. The actual provider transfer is
+// dispatched by the asynq worker (TaskCashoutProcess).
+func (s *WalletService) MerchantWithdraw(ctx context.Context, merchantID uuid.UUID, userID uuid.UUID, amountKobo int64, pin, idempotencyKey, withdrawalType string) error {
+	if amountKobo < MerchantWithdrawMinKobo {
+		return fmt.Errorf("minimum withdrawal is %s", formatKobo(MerchantWithdrawMinKobo))
+	}
+	if withdrawalType != "instant" && withdrawalType != "standard" {
+		withdrawalType = "standard"
+	}
+
+	// PIN verification — uses the merchant's login User.ID (PIN is on the user row)
+	if err := s.pins.VerifyPIN(ctx, userID, pin); err != nil {
+		return fmt.Errorf("pin verification failed")
+	}
+
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Idempotency
+		var existing model.CashoutRequest
+		if err := tx.Where("idempotency_key = ?", idempotencyKey).First(&existing).Error; err == nil {
+			return nil
+		}
+
+		// Verify bank account is saved
+		var bankAcct model.MerchantBankAccount
+		if err := tx.Where("merchant_id = ? AND is_verified = true", merchantID).First(&bankAcct).Error; err != nil {
+			return fmt.Errorf("no verified bank account on file — add one before withdrawing")
+		}
+
+		var feeKobo int64
+		if withdrawalType == "instant" {
+			feeKobo = merchantInstantFee(amountKobo)
+		}
+		totalDebit := amountKobo + feeKobo
+
+		// Check balance
+		merchantWallet, err := s.ledger.EnsureWallet(ctx, tx, merchantID)
+		if err != nil {
+			return err
+		}
+		var bal model.WalletBalance
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("account_id = ?", merchantWallet.ID).First(&bal).Error; err != nil {
+			return err
+		}
+		if bal.BalanceKobo < totalDebit {
+			return fmt.Errorf("insufficient balance: have %s, need %s",
+				formatKobo(bal.BalanceKobo), formatKobo(totalDebit))
+		}
+
+		// Debit merchant wallet; fee (if any) goes to platform revenue.
+		// Net payout amount is held in revenue as a pass-through until the
+		// worker confirms the provider transfer.
+		revenueAcct, err := s.ledger.platformAccount(ctx, tx, model.AccountRevenue)
+		if err != nil {
+			return fmt.Errorf("revenue account: %w", err)
+		}
+		journalID := uuid.New()
+		entries := []model.LedgerEntry{
+			{ID: uuid.New(), JournalID: journalID, AccountID: merchantWallet.ID,
+				AmountKobo: -totalDebit,
+				Description: fmt.Sprintf("merchant %s withdrawal debit", withdrawalType), RefType: "cashout"},
+			{ID: uuid.New(), JournalID: journalID, AccountID: revenueAcct.ID,
+				AmountKobo: feeKobo,
+				Description: fmt.Sprintf("merchant %s withdrawal fee", withdrawalType), RefType: "cashout"},
+			// Net payout: revenue is pass-through, balanced when provider confirms transfer.
+			{ID: uuid.New(), JournalID: journalID, AccountID: revenueAcct.ID,
+				AmountKobo: -amountKobo,
+				Description: "merchant payout to bank", RefType: "cashout"},
+		}
+		if err := s.ledger.journal(ctx, tx, entries); err != nil {
+			return err
+		}
+		if err := s.ledger.adjustBalance(ctx, tx, merchantWallet.ID, -totalDebit); err != nil {
+			return fmt.Errorf("adjust merchant balance: %w", err)
+		}
+
+		cashout := model.CashoutRequest{
+			ID:             uuid.New(),
+			DriverID:       uuid.Nil,
+			MerchantID:     &merchantID,
+			ActorType:      "merchant",
+			AmountKobo:     amountKobo,
+			FeeKobo:        feeKobo,
+			Status:         "pending",
+			IdempotencyKey: idempotencyKey,
+		}
+		return tx.Create(&cashout).Error
+	})
+	if err != nil {
+		return err
+	}
+	// Enqueue outside the transaction — only fires after DB commit is durable.
+	// instant → immediate processing; standard → picked up by 18:00 WAT batch.
+	if s.enqueue != nil {
+		var created model.CashoutRequest
+		s.db.WithContext(ctx).Where("idempotency_key = ?", idempotencyKey).First(&created)
+		if withdrawalType == "instant" {
+			if enqErr := s.enqueue(created.ID.String()); enqErr != nil {
+				observability.CaptureError(ctx, enqErr, "MerchantWithdraw: enqueue failed", "idempotency_key", idempotencyKey)
+			}
+		}
+		// standard withdrawals are picked up by the daily batch cron — no immediate enqueue
+	}
+	return nil
+}
+
+// ReverseCashout credits the wallet back when a provider transfer fails permanently.
+// Called by the worker after all retries are exhausted.
+func (s *WalletService) ReverseCashout(ctx context.Context, cashout *model.CashoutRequest) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Determine which wallet to credit back
+		var ownerID uuid.UUID
+		if cashout.ActorType == "merchant" && cashout.MerchantID != nil {
+			ownerID = *cashout.MerchantID
+		} else {
+			ownerID = cashout.DriverID
+		}
+
+		wallet, err := s.ledger.EnsureWallet(ctx, tx, ownerID)
+		if err != nil {
+			return fmt.Errorf("reverse cashout: wallet: %w", err)
+		}
+		revenueAcct, err := s.ledger.platformAccount(ctx, tx, model.AccountRevenue)
+		if err != nil {
+			return fmt.Errorf("reverse cashout: revenue account: %w", err)
+		}
+
+		// Reverse the original debit: credit wallet back (amount + fee),
+		// debit revenue to unwind both the fee credit and the payout pass-through.
+		totalCredit := cashout.AmountKobo + cashout.FeeKobo
+		journalID := uuid.New()
+		entries := []model.LedgerEntry{
+			{ID: uuid.New(), JournalID: journalID, AccountID: wallet.ID,
+				AmountKobo: totalCredit,
+				Description: "cashout reversal — transfer failed", RefType: "cashout", RefID: &cashout.ID},
+			{ID: uuid.New(), JournalID: journalID, AccountID: revenueAcct.ID,
+				AmountKobo: -totalCredit,
+				Description: "cashout reversal — unwind revenue", RefType: "cashout", RefID: &cashout.ID},
+		}
+		if err := s.ledger.journal(ctx, tx, entries); err != nil {
+			return err
+		}
+		if err := s.ledger.adjustBalance(ctx, tx, wallet.ID, totalCredit); err != nil {
+			return fmt.Errorf("reverse cashout: adjust balance: %w", err)
+		}
+
+		cashout.Status = "failed"
+		return tx.Save(cashout).Error
+	})
+}
+
+func (s *WalletService) DB() *gorm.DB { return s.db }
+func (s *WalletService) Provider() payment.Provider { return s.provider }
+
+// ResolveCashoutRecipient returns the provider recipient code and narration for a cashout.
+func (s *WalletService) ResolveCashoutRecipient(ctx context.Context, cashout *model.CashoutRequest) (recipientCode, reason string, err error) {
+	if cashout.ActorType == "merchant" && cashout.MerchantID != nil {
+		var bankAcct model.MerchantBankAccount
+		if err := s.db.WithContext(ctx).Where("merchant_id = ?", cashout.MerchantID).First(&bankAcct).Error; err != nil {
+			return "", "", fmt.Errorf("merchant bank account: %w", err)
+		}
+		if s.provider.Name() == "monnify" {
+			return bankAcct.BankCode + ":" + bankAcct.AccountNumber, "SpeedPlus merchant payout", nil
+		}
+		return bankAcct.AccountNumber, "SpeedPlus merchant payout", nil
+	}
+	return "", "", fmt.Errorf("driver bank account resolution not yet implemented")
+}
+
+func formatKobo(k int64) string {
+	s := fmt.Sprintf("%d", k/100)
+	out := ""
+	for i, ch := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out += ","
+		}
+		out += string(ch)
+	}
+	return "₦" + out
 }

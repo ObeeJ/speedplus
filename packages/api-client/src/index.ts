@@ -1,4 +1,5 @@
-export { apiClient, setAuthToken } from './client';
+export { apiClient, setAuthToken, getAuthToken, setRefreshToken, getRefreshToken } from './client';
+export { buildWsUrl } from './ws';
 export { SpeedPlusError } from './errors';
 
 // Auth & users
@@ -14,6 +15,8 @@ export type { MerchantSummary, ProductSummary, PrescriptionRecord } from './endp
 export { ordersApi } from './endpoints/orders';
 export { dispatchApi } from './endpoints/dispatch';
 export { paycodesApi } from './endpoints/paycodes';
+export { proofApi, sha256Hex } from './endpoints/proof';
+export type { ProofKind, ProofMediaView } from './endpoints/proof';
 export type { Paycode } from './endpoints/paycodes';
 
 // Wallet & payments
@@ -39,6 +42,10 @@ export type { Subscription } from './endpoints/subscriptions';
 // Driver
 export { earningsApi } from './endpoints/earnings';
 
+// Merchant self-service
+export { merchantApi } from './endpoints/merchant';
+export type { MerchantProfile, MerchantProduct, MerchantOrder, ProductInput, BankAccount, MerchantPrescription } from './endpoints/merchant';
+
 // Admin
 export { adminApi } from './endpoints/admin';
 export type {
@@ -50,4 +57,6 @@ export type {
   OrderEvent,
   CancellationRule,
   LedgerEntry,
+  FeeConfig,
+  FuelSuggestion,
 } from './endpoints/admin';

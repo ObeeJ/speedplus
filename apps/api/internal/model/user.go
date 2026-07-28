@@ -23,6 +23,7 @@ type User struct {
 	Phone        string     `gorm:"uniqueIndex;not null"`
 	Email        *string    `gorm:"uniqueIndex"`
 	Username     *string    `gorm:"uniqueIndex"` // optional, for P2P transfers
+	ReferralCode string     `gorm:"uniqueIndex;not null"` // e.g. MUSA500 — generated on registration
 	AvatarURL    *string
 	PasswordHash string     `gorm:"not null"` // argon2id
 	IsVerified   bool       `gorm:"default:false"`

@@ -97,8 +97,10 @@ func (h *PaycodeHandler) Resolve(c *gin.Context) {
 // POST /paycodes/confirm-code
 func (h *PaycodeHandler) ConfirmByCode(c *gin.Context) {
 	var req struct {
-		OrderID string `json:"orderId" binding:"required"`
-		Code    string `json:"code"    binding:"required,len=6"`
+		OrderID string   `json:"orderId" binding:"required"`
+		Code    string   `json:"code"    binding:"required,len=6"`
+		Lat     *float64 `json:"lat"` // optional rider GPS — evidence only, never blocks
+		Lng     *float64 `json:"lng"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		validationError(c, err)
@@ -112,7 +114,7 @@ func (h *PaycodeHandler) ConfirmByCode(c *gin.Context) {
 	}
 
 	driverID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
-	if err := h.paycodes.ConfirmByCode(c.Request.Context(), orderID, driverID, req.Code); err != nil {
+	if err := h.paycodes.ConfirmByCode(c.Request.Context(), orderID, driverID, req.Code, req.Lat, req.Lng); err != nil {
 		switch err {
 		case service.ErrNotAssigned:
 			c.JSON(http.StatusForbidden, errResp("FORBIDDEN", "You are not the assigned driver", ""))
@@ -121,8 +123,8 @@ func (h *PaycodeHandler) ConfirmByCode(c *gin.Context) {
 		case service.ErrDeliveryCodeInvalid:
 			c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", "Code expired or not found", "code"))
 		default:
-			// Wrong code — err.Error() contains remaining attempts count
-			c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", err.Error(), "code"))
+			// Wrong code — return remaining attempts without leaking internal state
+			c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", "Incorrect delivery code", "code"))
 		}
 		return
 	}

@@ -14,7 +14,7 @@ export const ordersApi = {
     return data.data;
   },
 
-  async list(params?: { page?: number; status?: string }): Promise<{ orders: Order[]; meta: PaginationMeta }> {
+  async list(params?: { page?: number; status?: string; vertical?: string; cursor?: string }): Promise<{ orders: Order[]; meta: PaginationMeta }> {
     const { data } = await apiClient.get<ApiResponse<{ orders: Order[]; meta: PaginationMeta }>>('/orders', { params });
     if (!data.success) throw new Error(data.error.message);
     return data.data;

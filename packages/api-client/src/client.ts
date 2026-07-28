@@ -2,9 +2,22 @@ import axios, { type AxiosInstance } from 'axios';
 import { SpeedPlusError } from './errors';
 
 let authToken: string | null = null;
+let refreshToken: string | null = null;
 
 export function setAuthToken(token: string | null): void {
   authToken = token;
+}
+
+export function getAuthToken(): string | null {
+  return authToken;
+}
+
+export function setRefreshToken(token: string | null): void {
+  refreshToken = token;
+}
+
+export function getRefreshToken(): string | null {
+  return refreshToken;
 }
 
 export function createApiClient(baseURL: string): AxiosInstance {
@@ -26,13 +39,21 @@ export function createApiClient(baseURL: string): AxiosInstance {
       if (error.response?.status === 401 && !original._retry) {
         original._retry = true;
         try {
-          const { data } = await axios.post(`${baseURL}/auth/refresh`, {}, { headers: original.headers });
-          const newToken = (data as { data: { accessToken: string } }).data.accessToken;
-          setAuthToken(newToken);
-          original.headers.Authorization = `Bearer ${newToken}`;
+          const storedRefresh = refreshToken;
+          if (!storedRefresh) throw new Error('no refresh token');
+          const { data } = await axios.post(
+            `${baseURL}/auth/refresh`,
+            { refreshToken: storedRefresh },
+            { headers: { 'Content-Type': 'application/json' } },
+          );
+          const tokens = (data as { data: { accessToken: string; refreshToken: string } }).data;
+          setAuthToken(tokens.accessToken);
+          setRefreshToken(tokens.refreshToken);
+          original.headers.Authorization = `Bearer ${tokens.accessToken}`;
           return client(original);
         } catch {
           setAuthToken(null);
+          setRefreshToken(null);
         }
       }
       throw SpeedPlusError.fromAxios(error);

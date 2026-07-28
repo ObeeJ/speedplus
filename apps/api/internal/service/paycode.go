@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -39,14 +40,33 @@ type PaycodeService struct {
 	users        repo.UserRepo
 	orderRepo    repo.OrderRepo
 	deliveryCodes *DeliveryCodeService
+	referrals    *ReferralService // nil-safe: referral payout skipped if unset
 }
 
 type paycodeEmailSender interface {
 	SendOrderDelivered(ctx context.Context, toEmail, firstName, orderID, merchantName string, totalKobo int64)
 }
 
-func NewPaycodeService(db *gorm.DB, cfg *config.Config, ledger *LedgerService, orders *OrderService, tier ports.TierRecorder, email paycodeEmailSender, users repo.UserRepo, orderRepo repo.OrderRepo, deliveryCodes *DeliveryCodeService) *PaycodeService {
-	return &PaycodeService{db: db, cfg: cfg, ledger: ledger, orders: orders, tier: tier, email: email, users: users, orderRepo: orderRepo, deliveryCodes: deliveryCodes}
+func NewPaycodeService(db *gorm.DB, cfg *config.Config, ledger *LedgerService, orders *OrderService, tier ports.TierRecorder, email paycodeEmailSender, users repo.UserRepo, orderRepo repo.OrderRepo, deliveryCodes *DeliveryCodeService, referrals *ReferralService) *PaycodeService {
+	return &PaycodeService{db: db, cfg: cfg, ledger: ledger, orders: orders, tier: tier, email: email, users: users, orderRepo: orderRepo, deliveryCodes: deliveryCodes, referrals: referrals}
+}
+
+// settleReferral fires the referral payout check after a completed order.
+// Non-blocking, nil-safe — order settlement must never depend on it.
+func (s *PaycodeService) settleReferral(customerID uuid.UUID, subtotalKobo int64) {
+	if s.referrals == nil {
+		return
+	}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("settleReferral goroutine panic", "panic", r)
+			}
+		}()
+		if err := s.referrals.SettleCompletedOrder(context.Background(), customerID, subtotalKobo); err != nil {
+			slog.Error("referral settlement failed", "customer_id", customerID.String(), "error", err)
+		}
+	}()
 }
 
 // Generate creates a signed paycode for the order.
@@ -141,7 +161,8 @@ func (s *PaycodeService) Resolve(ctx context.Context, payload string, scannerID 
 // Confirm atomically: wallet debit (if unpaid) + escrow release + settlement + order → delivered.
 // This is the ONLY path that releases escrow — satisfies the no-bypass rule.
 func (s *PaycodeService) Confirm(ctx context.Context, paycodeID, driverID uuid.UUID, pin *string) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var badgeDriverID *uuid.UUID
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var pc model.Paycode
 		if err := tx.First(&pc, paycodeID).Error; err != nil {
 			return ErrPaycodeInvalid
@@ -199,9 +220,21 @@ func (s *PaycodeService) Confirm(ctx context.Context, paycodeID, driverID uuid.U
 
 		// Record completed order for trust tier evaluation (non-blocking).
 		go s.tier.RecordCompletion(context.Background(), order.CustomerID)
+		s.settleReferral(order.CustomerID, order.SubtotalKobo)
+		// Enqueued post-commit — the worker counts delivered orders and would
+		// not yet see this one from inside the open transaction.
+		if order.DriverID != nil {
+			did := *order.DriverID
+			badgeDriverID = &did
+		}
 
 		// Order delivered email — best-effort, non-blocking.
 		go func(o model.Order) {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("order delivered email goroutine panic", "panic", r)
+				}
+			}()
 			customer, err := s.users.FindByID(context.Background(), o.CustomerID)
 			if err != nil || customer.Email == nil {
 				return
@@ -217,10 +250,17 @@ func (s *PaycodeService) Confirm(ctx context.Context, paycodeID, driverID uuid.U
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if badgeDriverID != nil {
+		s.orders.EnqueueBadgeCheck(ctx, *badgeDriverID)
+	}
+	return nil
 }
 
 func (s *PaycodeService) sign(payload string) string {
-	mac := hmac.New(sha256.New, []byte(s.cfg.JWTSecret))
+	mac := hmac.New(sha256.New, []byte(s.cfg.PaycodeSecret))
 	mac.Write([]byte(payload))
 	return hex.EncodeToString(mac.Sum(nil))
 }
@@ -237,8 +277,12 @@ func (s *PaycodeService) GenerateDeliveryCode(ctx context.Context, orderID uuid.
 // On success: escrow releases, order marked delivered.
 //
 // Fallback: ConfirmByCard — used when customer has no phone signal.
-func (s *PaycodeService) ConfirmByCode(ctx context.Context, orderID, driverID uuid.UUID, code string) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+//
+// lat/lng are the rider's GPS at code entry — optional evidence, flag-only:
+// a far or missing location never blocks settlement.
+func (s *PaycodeService) ConfirmByCode(ctx context.Context, orderID, driverID uuid.UUID, code string, lat, lng *float64) error {
+	var badgeDriverID *uuid.UUID
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 1. Load and validate the order
 		var order model.Order
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, orderID).Error; err != nil {
@@ -254,6 +298,18 @@ func (s *PaycodeService) ConfirmByCode(ctx context.Context, orderID, driverID uu
 		// 2. Verify the delivery code — increments attempt counter on failure
 		if err := s.deliveryCodes.Verify(ctx, tx, orderID, code); err != nil {
 			return err
+		}
+
+		// 2b. GPS evidence — flag-only, never blocks settlement.
+		var dropoff model.Address
+		if err := tx.First(&dropoff, order.DeliveryAddressID).Error; err == nil {
+			flagged, locErr := s.deliveryCodes.RecordConfirmLocation(ctx, tx, orderID, lat, lng, dropoff.Lat, dropoff.Lng)
+			if locErr != nil {
+				slog.Warn("delivery code: record confirm location failed", "order_id", orderID.String(), "error", locErr)
+			} else if flagged {
+				slog.Warn("delivery code confirmed far from dropoff — flagged for review",
+					"order_id", orderID.String(), "driver_id", driverID.String())
+			}
 		}
 
 		// 3. Settlement — same path as QR paycode confirm
@@ -281,7 +337,18 @@ func (s *PaycodeService) ConfirmByCode(ctx context.Context, orderID, driverID uu
 		}
 
 		go s.tier.RecordCompletion(context.Background(), order.CustomerID)
+		s.settleReferral(order.CustomerID, order.SubtotalKobo)
+		// Enqueued post-commit — see Confirm for why.
+		if order.DriverID != nil {
+			did := *order.DriverID
+			badgeDriverID = &did
+		}
 		go func(o model.Order) {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("order delivered email goroutine panic", "panic", r)
+				}
+			}()
 			customer, err := s.users.FindByID(context.Background(), o.CustomerID)
 			if err != nil || customer.Email == nil {
 				return
@@ -297,6 +364,13 @@ func (s *PaycodeService) ConfirmByCode(ctx context.Context, orderID, driverID uu
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if badgeDriverID != nil {
+		s.orders.EnqueueBadgeCheck(ctx, *badgeDriverID)
+	}
+	return nil
 }
 
 // ConfirmByCard is the offline delivery path.
@@ -305,7 +379,7 @@ func (s *PaycodeService) ConfirmByCode(ctx context.Context, orderID, driverID uu
 // This is the customer's explicit consent at the door.
 func (s *PaycodeService) ConfirmByCard(ctx context.Context, cardPayload string, driverID uuid.UUID, pin string) error {
 	// 1. Verify card signature → extract customerID
-	customerID, err := card.VerifyPayload(cardPayload, s.cfg.JWTSecret)
+	customerID, err := card.VerifyPayload(cardPayload, s.cfg.PaycodeSecret)
 	if err != nil {
 		return ErrPaycodeInvalid
 	}
@@ -357,6 +431,7 @@ func (s *PaycodeService) ConfirmByCard(ctx context.Context, cardPayload string, 
 		}
 
 		go s.tier.RecordCompletion(context.Background(), customerID)
+		s.settleReferral(customerID, order.SubtotalKobo)
 		return nil
 	})
 }

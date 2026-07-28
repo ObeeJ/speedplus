@@ -16,6 +16,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 	"github.com/speedplus/api/internal/config"
+	"github.com/speedplus/api/internal/crypto"
 	"github.com/speedplus/api/internal/db"
 	"github.com/speedplus/api/internal/email"
 	"github.com/speedplus/api/internal/handler"
@@ -24,6 +25,7 @@ import (
 	"github.com/speedplus/api/internal/payment"
 	"github.com/speedplus/api/internal/repo"
 	"github.com/speedplus/api/internal/service"
+	"github.com/speedplus/api/internal/storage"
 	"github.com/speedplus/api/internal/worker"
 	"github.com/speedplus/api/internal/ws"
 )
@@ -88,22 +90,49 @@ func main() {
 	authSvc := service.NewAuthService(userRepo, cfg, onboardingSvc, emailClient)
 	kycProvider := kyc.NewPrembly(cfg.PremblyAPIKey, cfg.PremblyBaseURL, cfg.PremblyAppID)
 	kycSvc := service.NewKYCService(gormDB, kycProvider)
-	pricingSvc := service.NewPricingService(gormDB, cfg, os.Getenv("OSRM_URL"))
+	feeConfigSvc := service.NewFeeConfigService(gormDB)
+	pricingSvc := service.NewPricingService(gormDB, cfg, cfg.OSRMURL, feeConfigSvc)
 	ledgerSvc := service.NewLedgerService(gormDB, ledgerRepo, pricingSvc)
-	orderSvc := service.NewOrderService(gormDB, pricingSvc, ledgerSvc)
-	walletSvc := service.NewWalletService(gormDB, ledgerSvc, authSvc, paystackProvider, emailClient, userRepo)
+	ledgerSvc.InjectFeeConfigs(feeConfigSvc)
 	tierSvc := service.NewTierService(gormDB, tierRepo)
+	orderSvc := service.NewOrderService(gormDB, pricingSvc, ledgerSvc, tierSvc)
+	walletSvc := service.NewWalletService(gormDB, ledgerSvc, authSvc, paystackProvider, emailClient, userRepo)
 	deliveryCodeSvc := service.NewDeliveryCodeService(gormDB, deliveryCodeRepo)
-	paycodeSvc := service.NewPaycodeService(gormDB, cfg, ledgerSvc, orderSvc, tierSvc, emailClient, userRepo, orderRepo, deliveryCodeSvc)
+	// R2 is optional at boot — proof-media endpoints fail closed (clear error,
+	// not silent no-op) rather than block the whole API from starting when
+	// media storage isn't configured yet (e.g. early dev).
+	var r2Client *storage.R2Client
+	if r2c, err := storage.NewR2Client(context.Background(), storage.R2Config{
+		AccountID: cfg.R2AccountID, AccessKeyID: cfg.R2AccessKeyID,
+		SecretAccessKey: cfg.R2SecretAccessKey, BucketName: cfg.R2BucketName,
+	}); err == nil {
+		r2Client = r2c
+	} else {
+		slog.Warn("R2 storage not configured — proof-of-delivery media endpoints will error", "error", err)
+	}
+	proofMediaSvc := service.NewProofMediaService(gormDB, r2Client)
+	orderSvc.InjectDeliveryCodes(deliveryCodeSvc)
+	orderSvc.InjectEmail(emailClient, userRepo)
+	if len(cfg.EncryptionKey) == 32 {
+		if recipientCipher, err := crypto.NewCipher([]byte(cfg.EncryptionKey)); err == nil {
+			orderSvc.InjectRecipientCipher(recipientCipher)
+		} else {
+			slog.Error("recipient cipher init failed — package orders with recipient PII will error", "error", err)
+		}
+	} else if cfg.Environment != "production" {
+		slog.Warn("ENCRYPTION_KEY not set (or not 32 bytes) — recipient PII encryption disabled; package orders with recipient data will fail")
+	}
+	loyaltySvc := service.NewLoyaltyService(gormDB)
+	referralSvc := service.NewReferralService(gormDB, ledgerSvc, loyaltySvc)
+	authSvc.InjectReferrals(referralSvc)
+	paycodeSvc := service.NewPaycodeService(gormDB, cfg, ledgerSvc, orderSvc, tierSvc, emailClient, userRepo, orderRepo, deliveryCodeSvc, referralSvc)
 	dispatchSvc := service.NewDispatchService(gormDB)
 	paymentLinkSvc := service.NewPaymentLinkService(gormDB, ledgerSvc, paystackProvider, emailClient, userRepo)
 	ussdSvc := service.NewUSSDService(gormDB, monnifyProvider)
-	loyaltySvc := service.NewLoyaltyService(gormDB)
-	referralSvc := service.NewReferralService(gormDB, ledgerSvc, loyaltySvc)
 	giftCardSvc := service.NewGiftCardService(gormDB, ledgerSvc)
 	subscriptionSvc := service.NewSubscriptionService(gormDB, orderSvc, ledgerSvc)
-	_ = referralSvc
-	catalogSvc := service.NewCatalogService(catalogRepo)
+	catalogSvc := service.NewCatalogService(catalogRepo, r2Client)
+	merchantSvc := service.NewMerchantService(gormDB)
 	adminSvc := service.NewAdminService(gormDB, ledgerSvc)
 	affordabilitySvc := service.NewAffordabilityService(ledgerSvc, affordabilityRepo)
 
@@ -113,8 +142,15 @@ func main() {
 	authSvc.InjectQueue(asynqClient, func(userID string) error {
 		return worker.EnqueueOnboarding(asynqClient, userID)
 	})
+	walletSvc.InjectQueue(func(cashoutID string) error {
+		return worker.EnqueueCashout(asynqClient, cashoutID)
+	})
+	orderSvc.InjectReviewQueue(func(revieweeID, revieweeType string) error {
+		return worker.EnqueueReviewAggregate(asynqClient, revieweeID, revieweeType)
+	})
 
-	workerHandlers := worker.NewHandlers(walletSvc, dispatchSvc, ledgerSvc, subscriptionSvc, onboardingSvc)
+	workerHandlers := worker.NewHandlers(walletSvc, dispatchSvc, ledgerSvc, subscriptionSvc, onboardingSvc, asynqClient)
+	workerHandlers.InjectOrders(orderSvc)
 	asynqServer := worker.NewServer(cfg.RedisURL)
 	asynqMux := asynq.NewServeMux()
 	workerHandlers.Register(asynqMux)
@@ -135,12 +171,16 @@ func main() {
 	hub := ws.NewHub(rdb)
 	hub.Start(context.Background())
 
+	// Wire dispatch + hub into order service now that both are constructed.
+	orderSvc.InjectDispatch(dispatchSvc, hub)
+
 	// ── Handlers ───────────────────────────────────────────────────────────────
 	healthH := handler.NewHealthHandler(gormDB, rdb)
 	authH := handler.NewAuthHandler(authSvc)
 	usersH := handler.NewUsersHandler(userRepo)
 	kycH := handler.NewKYCHandler(kycSvc)
 	orderH := handler.NewOrderHandler(orderSvc)
+	proofMediaH := handler.NewProofMediaHandler(proofMediaSvc)
 	walletH := handler.NewWalletHandler(walletSvc, ledgerSvc, userRepo)
 	paycodeH := handler.NewPaycodeHandler(paycodeSvc)
 	dispatchH := handler.NewDispatchHandler(dispatchSvc)
@@ -151,7 +191,8 @@ func main() {
 	giftCardH := handler.NewGiftCardHandler(giftCardSvc)
 	subscriptionH := handler.NewSubscriptionHandler(subscriptionSvc)
 	catalogH := handler.NewCatalogHandler(catalogSvc)
-	adminH := handler.NewAdminHandler(adminSvc, ledgerSvc)
+	merchantH := handler.NewMerchantHandler(merchantSvc, orderSvc, catalogSvc, walletSvc)
+	adminH := handler.NewAdminHandler(adminSvc, ledgerSvc, feeConfigSvc)
 	affordabilityH := handler.NewAffordabilityHandler(affordabilitySvc)
 	pricingH := handler.NewPricingHandler(pricingSvc)
 
@@ -246,14 +287,27 @@ func main() {
 
 	// Quotes
 	authed.POST("/quotes", pricingH.Quote)
+	authed.POST("/quotes/multistop", pricingH.QuoteMultiStop)
 
 	// Orders
 	orders := authed.Group("/orders")
 	{
-		orders.POST("", middleware.Idempotency(rdb, 24*time.Hour), orderH.Create)
+		orders.GET("", orderH.List)
+		orders.POST("", middleware.RateLimit(rdb, "order-create", 10, time.Minute), middleware.Idempotency(rdb, 24*time.Hour), orderH.Create)
 		orders.GET("/:id", orderH.GetByID)
-		orders.POST("/:id/cancel", orderH.Cancel)
+		orders.GET("/:id/track", orderH.GetByID)
+		orders.GET("/:id/receipt", orderH.Receipt)
+		orders.POST("/:id/review", middleware.Idempotency(rdb, 24*time.Hour), orderH.Review)
+		orders.GET("/:id/stops", orderH.GetStops)
+		orders.POST("/:id/stops/confirm", middleware.RequireRole("driver"), orderH.ConfirmStop)
+		orders.POST("/:id/cancel", middleware.RateLimit(rdb, "order-cancel", 5, time.Minute), orderH.Cancel)
+		orders.POST("/:id/proof/presign", middleware.RequireRole("driver"), proofMediaH.PresignUpload)
+		orders.POST("/:id/proof/confirm", middleware.RequireRole("driver"), proofMediaH.ConfirmUpload)
+		orders.GET("/:id/proof", proofMediaH.GetMedia)
 	}
+
+	// Driver badges — public, no auth required
+	v1.GET("/drivers/:id/badges", orderH.DriverBadges)
 
 	// Wallet
 	wallet := authed.Group("/wallet")
@@ -334,6 +388,29 @@ func main() {
 		subs.POST("/:id/cancel", subscriptionH.Cancel)
 	}
 
+	// ── Merchant self-service ─────────────────────────────────────────────────
+	// All routes require role=merchant. Merchant.ID is resolved server-side
+	// from the JWT User.ID — the request body never carries a merchant ID.
+	merchantGroup := authed.Group("/merchant")
+	merchantGroup.Use(middleware.RequireRole("merchant"))
+	{
+		merchantGroup.GET("/profile", merchantH.GetProfile)
+		merchantGroup.POST("/status", merchantH.SetOpen)
+		merchantGroup.GET("/orders", merchantH.ListOrders)
+		merchantGroup.POST("/orders/:id/transition", merchantH.TransitionOrder)
+		merchantGroup.GET("/products", merchantH.ListProducts)
+		merchantGroup.POST("/products", merchantH.CreateProduct)
+		merchantGroup.PUT("/products/:id", merchantH.UpdateProduct)
+		merchantGroup.POST("/products/:id/availability", merchantH.SetProductAvailability)
+		merchantGroup.GET("/wallet", walletH.GetBalance)
+		merchantGroup.GET("/wallet/transactions", walletH.GetTransactions)
+		merchantGroup.GET("/bank-account", merchantH.GetBankAccount)
+		merchantGroup.POST("/bank-account", merchantH.SaveBankAccount)
+		merchantGroup.POST("/withdraw", middleware.Idempotency(rdb, 24*time.Hour), merchantH.Withdraw)
+		merchantGroup.GET("/prescriptions", merchantH.ListPrescriptions)
+		merchantGroup.POST("/prescriptions/:id/review", merchantH.ReviewPrescription)
+	}
+
 	// Driver dispatch
 	drivers := authed.Group("/drivers")
 	drivers.Use(middleware.RequireRole("driver"))
@@ -383,6 +460,10 @@ func main() {
 		admin.GET("/settings/cancellation-rules", adminH.ListCancellationRules)
 		admin.PUT("/settings/cancellation-rules", adminH.UpsertCancellationRule)
 		admin.DELETE("/settings/cancellation-rules/:id", adminH.DeleteCancellationRule)
+
+		// Fee configs (pricing engine) — append-only, no DELETE
+		admin.GET("/settings/fees", adminH.ListFeeConfigs)
+		admin.PUT("/settings/fees", adminH.UpsertFeeConfig)
 
 		// Ledger viewer
 		admin.GET("/ledger", adminH.GetLedger)

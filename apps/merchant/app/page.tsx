@@ -1,44 +1,162 @@
 'use client';
 
-import { useMerchantStore, type MerchantTab, type OrderPipelineState } from '../lib/store/merchant.store';
+import { useState } from 'react';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { merchantApi, type MerchantOrder, type MerchantProduct, type ProductInput, type MerchantPrescription } from '@speedplus/api-client';
+import { DashboardIcon, ReceiptIcon, PillIcon, BoxIcon, WalletIcon, ShieldCheckIcon, PowerIcon, type DuotoneIconProps } from '@speedplus/ui';
+import { useMerchantStore, type MerchantTab } from '../lib/store/merchant.store';
+import { useMerchantAuthStore } from '../lib/store/auth.store';
 
-const ORDER_DEFS = [
-  { id: 'o1', title: 'Ken A. — Amoxicillin 500mg ×14 (Rx approved)', sub: '#2841 · rider assigns after you confirm', total: '3,200' },
-  { id: 'o2', title: 'Bisi O. — Malaria kit + Paracetamol', sub: '#2842 · OTC · pay on delivery', total: '5,300' },
-  { id: 'o3', title: 'Chuka E. — First aid pack ×2', sub: '#2839 · rider Musa arrives ~6 min', total: '6,000' },
-  { id: 'o4', title: 'Tola F. — Vitamin C 1000mg', sub: '#2833 · delivered 16:02 ✓', total: '2,100' },
-];
+function naira(kobo: number) {
+  return (kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 0 });
+}
 
 const ORDER_STAGE_META: Record<
-  OrderPipelineState,
-  { status: string; chipC: string; chipB: string; dot: string; actLabel: string | null; next: OrderPipelineState | null; doneLabel: string | null }
+  string,
+  { status: string; chipC: string; chipB: string; dot: string; actLabel: string | null; next: string | null; doneLabel: string | null }
 > = {
-  new: { status: 'NEW', chipC: '#0A3D2C', chipB: '#C6F24E', dot: '#C6F24E', actLabel: 'Confirm & prepare', next: 'preparing', doneLabel: null },
-  preparing: { status: 'PREPARING', chipC: '#8A6A1B', chipB: '#FFF3D6', dot: '#E8B14E', actLabel: 'Mark ready for rider', next: 'ready', doneLabel: null },
-  ready: { status: 'AWAITING RIDER', chipC: '#0A3D2C', chipB: '#E9F3D8', dot: '#0A3D2C', actLabel: null, next: null, doneLabel: 'Rider on the way' },
-  done: { status: 'DELIVERED', chipC: '#63636E', chipB: '#EFECE3', dot: '#BDBAB2', actLabel: null, next: null, doneLabel: 'Completed' },
+  pending: { status: 'NEW', chipC: '#0A3D2C', chipB: '#C6F24E', dot: '#C6F24E', actLabel: 'Confirm & prepare', next: 'confirmed', doneLabel: null },
+  confirmed: { status: 'CONFIRMED', chipC: '#0A3D2C', chipB: '#C6F24E', dot: '#C6F24E', actLabel: 'Start preparing', next: 'preparing', doneLabel: null },
+  preparing: { status: 'PREPARING', chipC: '#8A6A1B', chipB: '#FFF3D6', dot: '#E8B14E', actLabel: 'Mark ready for rider', next: 'ready_for_pickup', doneLabel: null },
+  ready_for_pickup: { status: 'AWAITING RIDER', chipC: '#0A3D2C', chipB: '#E9F3D8', dot: '#0A3D2C', actLabel: null, next: null, doneLabel: 'Rider on the way' },
+  driver_assigned: { status: 'RIDER ASSIGNED', chipC: '#0A3D2C', chipB: '#E9F3D8', dot: '#0A3D2C', actLabel: null, next: null, doneLabel: 'Rider on the way' },
+  in_transit: { status: 'IN TRANSIT', chipC: '#0A3D2C', chipB: '#E9F3D8', dot: '#0A3D2C', actLabel: null, next: null, doneLabel: 'Out for delivery' },
+  delivered: { status: 'DELIVERED', chipC: '#63636E', chipB: '#EFECE3', dot: '#BDBAB2', actLabel: null, next: null, doneLabel: 'Completed' },
+  cancelled: { status: 'CANCELLED', chipC: '#B4231F', chipB: '#FEF2F2', dot: '#DC2626', actLabel: null, next: null, doneLabel: 'Cancelled' },
 };
 
-const PROD_DEFS = [
-  { id: 'p1', emoji: '💊', name: 'Paracetamol 500mg ×24', cat: 'Pain & fever · OTC', stockN: 4, price: '800' },
-  { id: 'p2', emoji: '🦟', name: 'Malaria kit (test + ACT)', cat: 'Anti-malarial · OTC', stockN: 9, price: '4,500' },
-  { id: 'p3', emoji: '🩹', name: 'First aid pack', cat: 'First aid · OTC', stockN: 26, price: '3,000' },
-  { id: 'p4', emoji: '💉', name: 'Amoxicillin 500mg ×14', cat: 'Antibiotic · Rx only', stockN: 41, price: '3,200' },
+const NAV_ITEMS: { id: MerchantTab; label: string; Icon: (props: DuotoneIconProps) => React.JSX.Element }[] = [
+  { id: 'dash', label: 'Dashboard', Icon: DashboardIcon },
+  { id: 'orders', label: 'Orders', Icon: ReceiptIcon },
+  { id: 'rx', label: 'Prescriptions', Icon: PillIcon },
+  { id: 'prod', label: 'Products', Icon: BoxIcon },
+  { id: 'earn', label: 'Earnings', Icon: WalletIcon },
+  { id: 'set', label: 'Verification', Icon: ShieldCheckIcon },
 ];
 
-const NAV_ITEMS: { id: MerchantTab; label: string; icon: string }[] = [
-  { id: 'dash', label: 'Dashboard', icon: '▦' },
-  { id: 'orders', label: 'Orders', icon: '🛒' },
-  { id: 'rx', label: 'Prescriptions', icon: '💊' },
-  { id: 'prod', label: 'Products', icon: '📋' },
-  { id: 'earn', label: 'Earnings', icon: '₦' },
-  { id: 'set', label: 'Verification', icon: '⚙' },
-];
+const EMPTY_PRODUCT: ProductInput = { name: '', description: undefined, priceKobo: 0, category: '', isAvailable: true };
 
 export default function MerchantPortalPage() {
-  const { tab, orderStates, rxState, prodOff, setTab, advanceOrder, approveRx, rejectRx, resetRx, toggleProduct } = useMerchantStore();
-  const newCount = Object.values(orderStates).filter((v) => v === 'new').length;
-  const rxCount = rxState === 'pending' ? 3 : 2;
+  const { tab, setTab } = useMerchantStore();
+  const { user, merchant, setMerchant, clearAuth } = useMerchantAuthStore();
+  const qc = useQueryClient();
+
+  const profileQuery = useQuery({
+    queryKey: ['merchant-profile'],
+    queryFn: async () => {
+      const p = await merchantApi.getProfile();
+      setMerchant(p);
+      return p;
+    },
+    initialData: merchant ?? undefined,
+  });
+
+  const ordersQuery = useQuery({
+    queryKey: ['merchant-orders'],
+    queryFn: () => merchantApi.listOrders(),
+    refetchInterval: 15_000,
+  });
+
+  const productsQuery = useQuery({
+    queryKey: ['merchant-products'],
+    queryFn: () => merchantApi.listProducts(),
+  });
+
+  const walletQuery = useQuery({
+    queryKey: ['merchant-wallet'],
+    queryFn: () => merchantApi.getWallet(),
+  });
+
+  const transactionsQuery = useQuery({
+    queryKey: ['merchant-transactions'],
+    queryFn: () => merchantApi.getTransactions(),
+    enabled: tab === 'earn',
+  });
+
+  const toggleOpenMutation = useMutation({
+    mutationFn: (isOpen: boolean) => merchantApi.setOpen(isOpen),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['merchant-profile'] }),
+  });
+
+  const transitionMutation = useMutation({
+    mutationFn: ({ id, to }: { id: string; to: string }) => merchantApi.transitionOrder(id, to),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['merchant-orders'] }),
+  });
+
+  const toggleProductMutation = useMutation({
+    mutationFn: ({ id, available }: { id: string; available: boolean }) => merchantApi.setProductAvailability(id, available),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['merchant-products'] }),
+  });
+
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [newProduct, setNewProduct] = useState<ProductInput>(EMPTY_PRODUCT);
+
+  // Earnings — bank account + withdrawal
+  const bankAccountQuery = useQuery({
+    queryKey: ['merchant-bank-account'],
+    queryFn: () => merchantApi.getBankAccount(),
+    enabled: tab === 'earn',
+  });
+  const [showBankForm, setShowBankForm] = useState(false);
+  const [bankDraft, setBankDraft] = useState({ bankCode: '', bankName: '', accountNumber: '', accountName: '' });
+  const saveBankMutation = useMutation({
+    mutationFn: () => merchantApi.saveBankAccount(bankDraft),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['merchant-bank-account'] }); setShowBankForm(false); },
+  });
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawPin, setWithdrawPin] = useState('');
+  const [withdrawType, setWithdrawType] = useState<'standard' | 'instant'>('standard');
+  const withdrawMutation = useMutation({
+    mutationFn: () => merchantApi.withdraw(
+      Math.round(Number(withdrawAmount) * 100),
+      withdrawPin,
+      crypto.randomUUID(),
+      withdrawType,
+    ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['merchant-wallet'] });
+      qc.invalidateQueries({ queryKey: ['merchant-transactions'] });
+      setShowWithdraw(false);
+      setWithdrawAmount('');
+      setWithdrawPin('');
+    },
+  });
+  const createProductMutation = useMutation({
+    mutationFn: (input: ProductInput) => merchantApi.createProduct(input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['merchant-products'] });
+      setShowAddProduct(false);
+      setNewProduct(EMPTY_PRODUCT);
+    },
+  });
+
+  // Prescriptions — always polled (not gated on tab) so the sidebar badge
+  // shows the pending count regardless of which tab is currently open.
+  const prescriptionsQuery = useQuery({
+    queryKey: ['merchant-prescriptions'],
+    queryFn: () => merchantApi.listPrescriptions('pending'),
+    refetchInterval: 20_000,
+  });
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectNote, setRejectNote] = useState('');
+  const reviewMutation = useMutation({
+    mutationFn: ({ id, approve, note }: { id: string; approve: boolean; note?: string }) =>
+      merchantApi.reviewPrescription(id, approve, note),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['merchant-prescriptions'] });
+      setRejectingId(null);
+      setRejectNote('');
+    },
+  });
+  const pendingRxCount = prescriptionsQuery.data?.prescriptions.length ?? 0;
+
+  const orders: MerchantOrder[] = ordersQuery.data?.orders ?? [];
+  const products: MerchantProduct[] = productsQuery.data?.products ?? [];
+  const newCount = orders.filter((o) => o.status === 'pending' || o.status === 'confirmed').length;
+  const todaySalesKobo = orders
+    .filter((o) => o.status === 'delivered')
+    .reduce((sum, o) => sum + o.total.amount, 0);
 
   return (
     <main className="min-h-screen flex bg-sand">
@@ -47,13 +165,29 @@ export default function MerchantPortalPage() {
           <span className="font-display font-bold text-xl text-sand tracking-tight">
             speed<span className="text-lime">+</span> <span className="font-medium text-[11px] text-sand/55">PARTNER</span>
           </span>
-          <span className="text-[11px] text-sand/55">HealthPlus Pharmacy · Lekki</span>
+          <span className="text-[11px] text-sand/55">
+            {profileQuery.data?.businessName ?? 'Loading…'}
+          </span>
         </div>
+
+        {profileQuery.data && (
+          <button
+            onClick={() => toggleOpenMutation.mutate(!profileQuery.data!.isOpen)}
+            disabled={toggleOpenMutation.isPending}
+            className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 transition-colors"
+            style={{ background: profileQuery.data.isOpen ? 'rgba(198,242,78,.14)' : 'rgba(245,245,240,.08)' }}
+          >
+            <span className={`w-2 h-2 rounded-full ${profileQuery.data.isOpen ? 'bg-lime animate-pulse' : 'bg-sand/40'}`} />
+            <span className={`text-xs font-bold ${profileQuery.data.isOpen ? 'text-lime' : 'text-sand/70'}`}>
+              {profileQuery.data.isOpen ? 'Open for orders' : 'Closed — tap to open'}
+            </span>
+          </button>
+        )}
 
         <nav className="flex flex-col gap-1">
           {NAV_ITEMS.map((item) => {
             const active = tab === item.id;
-            const count = item.id === 'orders' ? newCount : item.id === 'rx' ? rxCount : null;
+            const count = item.id === 'orders' ? newCount : item.id === 'rx' ? pendingRxCount : null;
             return (
               <button
                 key={item.id}
@@ -62,12 +196,10 @@ export default function MerchantPortalPage() {
                   active ? 'bg-lime/[.14] text-lime font-semibold' : 'text-sand/70 hover:bg-sand/[.08] hover:text-sand'
                 }`}
               >
-                {item.icon} {item.label}
+                <item.Icon active={active} color="#C4C0B4" accent="#7BA05B" />
+                {item.label}
                 {count !== null && count > 0 && (
-                  <span
-                    className="ml-auto text-[10.5px] font-bold rounded-full px-2 py-0.5"
-                    style={item.id === 'rx' ? { color: '#3B2E10', background: '#E8B14E' } : { color: '#0A3D2C', background: '#C6F24E' }}
-                  >
+                  <span className="ml-auto text-[10.5px] font-bold rounded-full px-2 py-0.5" style={{ color: '#0A3D2C', background: '#C6F24E' }}>
                     {count}
                   </span>
                 )}
@@ -77,54 +209,54 @@ export default function MerchantPortalPage() {
         </nav>
 
         <div className="mt-auto flex items-center gap-2.5 bg-sand/[.06] rounded-[13px] p-2.75">
-          <span className="w-9 h-9 rounded-full bg-lime flex items-center justify-center text-emerald font-display font-bold text-[13px]">A</span>
-          <span className="flex flex-col">
-            <span className="text-[12.5px] font-semibold text-sand">Adaeze O.</span>
-            <span className="text-[10px] text-sand/55">Pharmacist · PCN verified ✓</span>
+          <span className="w-9 h-9 rounded-full bg-lime flex items-center justify-center text-emerald font-display font-bold text-[13px]">
+            {user?.firstName?.charAt(0) ?? 'M'}
           </span>
+          <span className="flex flex-col flex-1 min-w-0">
+            <span className="text-[12.5px] font-semibold text-sand truncate">{user?.firstName ?? 'Merchant'}</span>
+            <span className="text-[10px] text-sand/55 capitalize">
+              {profileQuery.data?.kycStatus === 'approved' ? 'Verified ✓' : profileQuery.data?.kycStatus.replace('_', ' ') ?? '—'}
+            </span>
+          </span>
+          <button onClick={clearAuth} className="text-sand/40 hover:text-sand/70" aria-label="Sign out">
+            <PowerIcon color="currentColor" />
+          </button>
         </div>
       </aside>
 
       <div className="flex-1 min-w-0 px-8.5 py-7.5 flex flex-col gap-4.5">
         {tab === 'dash' && (
           <>
-            <h1 className="font-display font-semibold text-[26px] tracking-tight">Good evening, HealthPlus</h1>
+            <h1 className="font-display font-semibold text-[26px] tracking-tight">
+              Good day, {profileQuery.data?.businessName ?? '…'}
+            </h1>
             <div className="grid grid-cols-4 gap-3.5">
               <div className="bg-white border border-line rounded-2xl p-4 flex flex-col gap-1">
-                <span className="text-[10.5px] font-semibold text-mid tracking-[.5px]">TODAY&apos;S SALES</span>
-                <span className="font-display text-2xl font-bold text-emerald">₦86,400</span>
-                <span className="text-[11px] text-emerald">▲ 12% vs yesterday</span>
+                <span className="text-[10.5px] font-semibold text-mid tracking-[.5px]">DELIVERED TODAY</span>
+                <span className="font-display text-2xl font-bold text-emerald">₦{naira(todaySalesKobo)}</span>
               </div>
               <div className="bg-white border border-line rounded-2xl p-4 flex flex-col gap-1">
                 <span className="text-[10.5px] font-semibold text-mid tracking-[.5px]">ORDERS</span>
-                <span className="font-display text-2xl font-bold text-ink">31</span>
+                <span className="font-display text-2xl font-bold text-ink">{orders.length}</span>
                 <span className="text-[11px] text-mid">{newCount} need action</span>
               </div>
               <div className="bg-white border border-line rounded-2xl p-4 flex flex-col gap-1">
-                <span className="text-[10.5px] font-semibold text-mid tracking-[.5px]">RX QUEUE</span>
-                <span className="font-display text-2xl font-bold" style={{ color: '#8A6A1B' }}>{rxCount}</span>
-                <span className="text-[11px] text-mid">avg review 3 min</span>
+                <span className="text-[10.5px] font-semibold text-mid tracking-[.5px]">PRODUCTS</span>
+                <span className="font-display text-2xl font-bold text-ink">{products.length}</span>
+                <span className="text-[11px] text-mid">{products.filter((p) => p.isAvailable).length} listed</span>
               </div>
               <div className="bg-white border border-line rounded-2xl p-4 flex flex-col gap-1">
                 <span className="text-[10.5px] font-semibold text-mid tracking-[.5px]">RATING</span>
-                <span className="font-display text-2xl font-bold text-ink">★ 4.8</span>
-                <span className="text-[11px] text-mid">last 30 days</span>
+                <span className="font-display text-2xl font-bold text-ink">★ {profileQuery.data?.rating.toFixed(1) ?? '—'}</span>
               </div>
             </div>
 
-            <div className="grid gap-3.5" style={{ gridTemplateColumns: '1.4fr 1fr' }}>
+            {newCount > 0 && (
               <div className="bg-white border border-line rounded-2xl p-4.5 flex flex-col gap-3">
                 <span className="text-[11px] font-semibold text-mid tracking-[.6px]">NEEDS YOUR ACTION NOW</span>
-                <div className="flex items-center gap-2.5 px-3.25 py-2.75 rounded-xl" style={{ background: '#FFF7E6', border: '1px solid #F0DFB4' }}>
-                  <span className="w-[7px] h-[7px] rounded-full bg-amber animate-pulse" />
-                  <span className="flex-1 text-[12.5px] font-semibold">Prescription from Ken A. — waiting 2 min</span>
-                  <button onClick={() => setTab('rx')} className="font-display text-xs font-semibold text-emerald bg-lime rounded-[10px] px-3.5 py-1.75 hover:bg-lime-600 transition-colors">
-                    Review
-                  </button>
-                </div>
                 <div className="flex items-center gap-2.5 px-3.25 py-2.75 rounded-xl bg-tile">
                   <span className="w-[7px] h-[7px] rounded-full bg-emerald" />
-                  <span className="flex-1 text-[12.5px] font-semibold">2 new orders to confirm</span>
+                  <span className="flex-1 text-[12.5px] font-semibold">{newCount} order{newCount > 1 ? 's' : ''} to confirm</span>
                   <button
                     onClick={() => setTab('orders')}
                     className="font-display text-xs font-semibold text-emerald border-[1.5px] border-emerald rounded-[10px] px-3.5 py-1.75 hover:bg-emerald/[.07] transition-colors"
@@ -133,51 +265,39 @@ export default function MerchantPortalPage() {
                   </button>
                 </div>
               </div>
-              <div className="bg-white border border-line rounded-2xl p-4.5 flex flex-col gap-2.5">
-                <span className="text-[11px] font-semibold text-mid tracking-[.6px]">LOW STOCK</span>
-                <span className="flex justify-between text-[12.5px]">
-                  <span>Paracetamol 500mg</span>
-                  <b style={{ color: '#B4231F' }}>4 left</b>
-                </span>
-                <span className="flex justify-between text-[12.5px]">
-                  <span>Malaria kits (ACT)</span>
-                  <b style={{ color: '#8A6A1B' }}>9 left</b>
-                </span>
-                <span className="flex justify-between text-[12.5px]">
-                  <span>Vitamin C 1000mg</span>
-                  <b style={{ color: '#8A6A1B' }}>11 left</b>
-                </span>
-              </div>
-            </div>
+            )}
           </>
         )}
 
         {tab === 'orders' && (
           <>
             <h1 className="font-display font-semibold text-[26px] tracking-tight">Orders</h1>
-            {ORDER_DEFS.map((o) => {
-              const state = orderStates[o.id] ?? 'new';
-              const meta = ORDER_STAGE_META[state];
+            {ordersQuery.isLoading && <p className="text-sm text-mid">Loading orders…</p>}
+            {!ordersQuery.isLoading && orders.length === 0 && <p className="text-sm text-mid">No orders yet.</p>}
+            {orders.map((o) => {
+              const meta = ORDER_STAGE_META[o.status] ?? ORDER_STAGE_META['pending']!;
+              const itemSummary = o.items.map((i) => `${i.name} ×${i.quantity}`).join(', ');
               return (
                 <div key={o.id} className="bg-white border border-line rounded-2xl px-4.5 py-3.75 flex items-center gap-3.5">
                   <span className="w-2 h-2 flex-none rounded-full" style={{ background: meta.dot }} />
                   <span className="flex-1 flex flex-col min-w-0">
-                    <span className="text-[13.5px] font-semibold">{o.title}</span>
-                    <span className="text-[11px] text-mid">{o.sub}</span>
+                    <span className="text-[13.5px] font-semibold truncate">{itemSummary || 'Order'}</span>
+                    <span className="text-[11px] text-mid">#{o.id.slice(0, 8)} · {o.paymentMethod}</span>
                   </span>
                   <span className="text-[11px] font-bold rounded-full px-2.75 py-1" style={{ color: meta.chipC, background: meta.chipB }}>
                     {meta.status}
                   </span>
-                  <b className="font-display text-[15px] text-emerald w-[78px] text-right">₦{o.total}</b>
+                  <b className="font-display text-[15px] text-emerald w-[90px] text-right">₦{naira(o.total.amount)}</b>
                   {meta.actLabel && meta.next ? (
                     <button
-                      onClick={() => advanceOrder(o.id, meta.next as OrderPipelineState)}
-                      className="w-[150px] font-display text-xs font-semibold text-emerald bg-lime rounded-[10px] py-2 hover:bg-lime-600 transition-colors"
+                      onClick={() => transitionMutation.mutate({ id: o.id, to: meta.next! })}
+                      disabled={transitionMutation.isPending}
+                      className="w-[160px] font-display text-xs font-semibold text-emerald bg-lime rounded-[10px] py-2 hover:bg-lime-600 transition-colors disabled:opacity-50"
                     >
                       {meta.actLabel}
                     </button>
                   ) : (
-                    <span className="w-[150px] text-center text-[11.5px]" style={{ color: '#9A968D' }}>
+                    <span className="w-[160px] text-center text-[11.5px]" style={{ color: '#9A968D' }}>
                       {meta.doneLabel}
                     </span>
                   )}
@@ -190,86 +310,71 @@ export default function MerchantPortalPage() {
         {tab === 'rx' && (
           <>
             <h1 className="font-display font-semibold text-[26px] tracking-tight">Prescription review</h1>
-            <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1.1fr' }}>
-              <div className="bg-white border border-line rounded-2xl overflow-hidden">
-                <div
-                  className="h-[280px] flex items-center justify-center relative"
-                  style={{ background: 'repeating-linear-gradient(0deg,#EFEDE6,#EFEDE6 26px,#E7E4DB 27px)' }}
-                >
-                  <span className="text-xs bg-white border border-line rounded-[9px] px-3.5 py-2" style={{ color: '#9A968D' }}>
-                    📄 Rx photo — Dr. T. Balogun, Reddington Hospital
-                  </span>
-                </div>
-                <div className="px-4 py-3.25 flex justify-between items-center border-t border-line">
-                  <span className="text-xs text-mid">
-                    Uploaded by <b className="text-ink">Ken A.</b> · 2 min ago
-                  </span>
-                  <span className="text-[11.5px] font-semibold text-emerald cursor-pointer">Zoom ⤢</span>
-                </div>
-              </div>
+            {prescriptionsQuery.isLoading && <p className="text-sm text-mid">Loading…</p>}
+            {!prescriptionsQuery.isLoading && (prescriptionsQuery.data?.prescriptions.length ?? 0) === 0 && (
+              <p className="text-sm text-mid">No prescriptions awaiting review.</p>
+            )}
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
+              {(prescriptionsQuery.data?.prescriptions ?? []).map((rx: MerchantPrescription) => (
+                <div key={rx.id} className="bg-white border border-line rounded-2xl overflow-hidden flex flex-col">
+                  <div className="h-[220px] bg-tile flex items-center justify-center overflow-hidden">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={rx.viewUrl} alt="Prescription" className="w-full h-full object-contain" />
+                  </div>
+                  <div className="p-4 flex flex-col gap-3">
+                    <span className="text-[11px] text-mid">Customer #{rx.customerId.slice(0, 8)} · {new Date(rx.createdAt).toLocaleString()}</span>
 
-              <div className="flex flex-col gap-3">
-                {rxState === 'pending' ? (
-                  <>
-                    <div className="bg-white border border-line rounded-2xl p-4 flex flex-col gap-2.5">
-                      <span className="text-[11px] font-semibold text-mid tracking-[.6px]">WHAT THE DOCTOR PRESCRIBED</span>
-                      <div className="flex justify-between items-center px-3 py-2.5 bg-sand rounded-[10px]">
-                        <span className="text-[13px] font-semibold">Amoxicillin 500mg</span>
-                        <span className="text-xs text-mid">14 capsules · 2× daily</span>
-                        <b className="text-[13px] text-emerald">₦3,200</b>
+                    {rejectingId === rx.id ? (
+                      <div className="flex flex-col gap-2">
+                        <input
+                          placeholder="Reason for rejection (shown to customer)"
+                          value={rejectNote}
+                          onChange={(e) => setRejectNote(e.target.value)}
+                          className="border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => reviewMutation.mutate({ id: rx.id, approve: false, note: rejectNote || undefined })}
+                            disabled={reviewMutation.isPending}
+                            className="flex-1 font-display text-xs font-semibold rounded-[10px] py-2.5 disabled:opacity-50"
+                            style={{ color: '#B4231F', border: '1.5px solid #E5B5B3' }}
+                          >
+                            Confirm reject
+                          </button>
+                          <button
+                            onClick={() => { setRejectingId(null); setRejectNote(''); }}
+                            className="flex-1 font-display text-xs font-semibold text-mid border border-line rounded-[10px] py-2.5"
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </div>
-                      <span className="text-[11.5px] text-mid">In stock ✓ · No interaction flags · Dosage within adult range</span>
-                    </div>
-                    <div className="bg-white border border-line rounded-2xl p-4 flex flex-col gap-2.5">
-                      <span className="text-[11px] font-semibold text-mid tracking-[.6px]">YOUR DECISION — LOGGED UNDER YOUR PCN LICENCE</span>
+                    ) : (
                       <div className="flex gap-2.5">
-                        <button onClick={approveRx} className="flex-[2] font-display text-xs font-semibold text-emerald bg-lime rounded-[10px] py-3.25 hover:bg-lime-600 transition-colors">
-                          ✓ Approve &amp; prepare — ₦3,200
+                        <button
+                          onClick={() => reviewMutation.mutate({ id: rx.id, approve: true })}
+                          disabled={reviewMutation.isPending}
+                          className="flex-[2] font-display text-xs font-semibold text-emerald bg-lime rounded-[10px] py-2.5 hover:bg-lime-600 transition-colors disabled:opacity-50"
+                        >
+                          ✓ Approve
                         </button>
                         <button
-                          onClick={rejectRx}
-                          className="flex-1 font-display text-xs font-semibold rounded-[10px] py-3.25 border-[1.5px] transition-colors"
+                          onClick={() => setRejectingId(rx.id)}
+                          disabled={reviewMutation.isPending}
+                          className="flex-1 font-display text-xs font-semibold rounded-[10px] py-2.5 border-[1.5px] transition-colors disabled:opacity-50"
                           style={{ color: '#B4231F', borderColor: '#E5B5B3' }}
                         >
-                          Reject…
+                          Reject
                         </button>
                       </div>
-                      <span className="text-[11px]" style={{ color: '#9A968D' }}>
-                        Need to talk to the patient first? <a href="#" className="font-semibold text-emerald">Start a live consult</a>
-                      </span>
-                    </div>
-                  </>
-                ) : (
-                  <div className="rounded-2xl p-4.5 flex flex-col gap-2 bg-tile" style={{ border: '1px solid #C9E0A8' }}>
-                    <span className="text-[15px] font-bold text-emerald">
-                      {rxState === 'approved' ? '✓ Approved — order created for Ken A.' : 'Rejected — customer notified kindly'}
-                    </span>
-                    <span className="text-xs text-mid">
-                      {rxState === 'approved'
-                        ? 'Logged under PCN #A-48812. Prepare and seal it — a rider is being matched.'
-                        : '“We couldn’t verify this prescription. Please ask your doctor to re-issue it.”'}
-                    </span>
-                    <button
-                      onClick={resetRx}
-                      className="self-start mt-1 font-display text-xs font-semibold text-emerald border-[1.5px] border-emerald rounded-[10px] px-3.5 py-1.75 hover:bg-emerald/[.07] transition-colors"
-                    >
-                      Next in queue ({rxCount})
-                    </button>
-                  </div>
-                )}
+                    )}
 
-                <div className="bg-white border border-line rounded-2xl px-4 py-3.5 flex flex-col gap-2">
-                  <span className="text-[11px] font-semibold text-mid tracking-[.6px]">UP NEXT</span>
-                  <span className="flex justify-between text-[12.5px]">
-                    <span>Metformin 850mg — Bisi O.</span>
-                    <span style={{ color: '#9A968D' }}>2 min</span>
-                  </span>
-                  <span className="flex justify-between text-[12.5px]">
-                    <span>Ventolin inhaler — Chuka E.</span>
-                    <span style={{ color: '#9A968D' }}>6 min</span>
-                  </span>
+                    {reviewMutation.isError && (
+                      <span className="text-[11px] text-red-600">{(reviewMutation.error as Error).message}</span>
+                    )}
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
           </>
         )}
@@ -278,76 +383,240 @@ export default function MerchantPortalPage() {
           <>
             <div className="flex items-center justify-between">
               <h1 className="font-display font-semibold text-[26px] tracking-tight">Products</h1>
-              <button className="font-display text-xs font-semibold text-emerald bg-lime rounded-[10px] px-4 py-2.25 hover:bg-lime-600 transition-colors">
+              <button
+                onClick={() => setShowAddProduct((v) => !v)}
+                className="font-display text-xs font-semibold text-emerald bg-lime rounded-[10px] px-4 py-2.25 hover:bg-lime-600 transition-colors"
+              >
                 + Add product
               </button>
             </div>
-            {PROD_DEFS.map((p) => {
-              const off = Boolean(prodOff[p.id]);
-              const stockColor = p.stockN < 5 ? '#B4231F' : p.stockN < 12 ? '#8A6A1B' : '#63636E';
-              return (
-                <div key={p.id} className="bg-white border border-line rounded-2xl px-4.5 py-3.25 flex items-center gap-3.5">
-                  <span className="text-lg">{p.emoji}</span>
-                  <span className="flex-1 flex flex-col">
-                    <span className="text-[13px] font-semibold">{p.name}</span>
-                    <span className="text-[11px] text-mid">{p.cat}</span>
-                  </span>
-                  <span className="text-xs w-[70px]" style={{ color: stockColor }}>
-                    {p.stockN} in stock
-                  </span>
-                  <b className="font-display text-sm w-20 text-right">₦{p.price}</b>
+
+            {showAddProduct && (
+              <div className="bg-white border border-line rounded-2xl p-4.5 flex flex-col gap-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <input
+                    placeholder="Product name"
+                    value={newProduct.name}
+                    onChange={(e) => setNewProduct((p) => ({ ...p, name: e.target.value }))}
+                    className="border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
+                  />
+                  <input
+                    placeholder="Category"
+                    value={newProduct.category}
+                    onChange={(e) => setNewProduct((p) => ({ ...p, category: e.target.value }))}
+                    className="border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
+                  />
+                  <input
+                    type="number"
+                    placeholder="Price (₦)"
+                    value={newProduct.priceKobo ? newProduct.priceKobo / 100 : ''}
+                    onChange={(e) => setNewProduct((p) => ({ ...p, priceKobo: Math.round(Number(e.target.value) * 100) }))}
+                    className="border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
+                  />
+                </div>
+                <div className="flex gap-2.5">
                   <button
-                    onClick={() => toggleProduct(p.id)}
-                    className="w-11 h-6 flex-none rounded-full relative transition-colors"
-                    style={{ background: off ? '#D5D2C8' : '#0A3D2C' }}
-                    aria-label={off ? 'Enable product' : 'Disable product'}
+                    onClick={() => createProductMutation.mutate(newProduct)}
+                    disabled={!newProduct.name || !newProduct.priceKobo || createProductMutation.isPending}
+                    className="font-display text-xs font-semibold text-emerald bg-lime rounded-[10px] px-4 py-2.25 hover:bg-lime-600 transition-colors disabled:opacity-50"
                   >
-                    <span
-                      className="absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white shadow-sm transition-all"
-                      style={{ left: off ? 3 : 23 }}
-                    />
+                    {createProductMutation.isPending ? 'Saving…' : 'Save product'}
+                  </button>
+                  <button
+                    onClick={() => setShowAddProduct(false)}
+                    className="font-display text-xs font-semibold text-mid px-4 py-2.25"
+                  >
+                    Cancel
                   </button>
                 </div>
-              );
-            })}
+              </div>
+            )}
+
+            {productsQuery.isLoading && <p className="text-sm text-mid">Loading products…</p>}
+            {!productsQuery.isLoading && products.length === 0 && <p className="text-sm text-mid">No products yet — add your first one.</p>}
+            {products.map((p) => (
+              <div key={p.id} className="bg-white border border-line rounded-2xl px-4.5 py-3.25 flex items-center gap-3.5">
+                <span className="flex-1 flex flex-col">
+                  <span className="text-[13px] font-semibold">{p.name}</span>
+                  <span className="text-[11px] text-mid">{p.category || 'Uncategorized'}</span>
+                </span>
+                <b className="font-display text-sm w-20 text-right">₦{naira(p.priceKobo)}</b>
+                <button
+                  onClick={() => toggleProductMutation.mutate({ id: p.id, available: !p.isAvailable })}
+                  disabled={toggleProductMutation.isPending}
+                  className="w-11 h-6 flex-none rounded-full relative transition-colors"
+                  style={{ background: p.isAvailable ? '#0A3D2C' : '#D5D2C8' }}
+                  aria-label={p.isAvailable ? 'Disable product' : 'Enable product'}
+                >
+                  <span
+                    className="absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white shadow-sm transition-all"
+                    style={{ left: p.isAvailable ? 23 : 3 }}
+                  />
+                </button>
+              </div>
+            ))}
           </>
         )}
 
         {tab === 'earn' && (
           <>
             <h1 className="font-display font-semibold text-[26px] tracking-tight">Earnings</h1>
-            <div className="grid grid-cols-3 gap-3.5">
-              <div className="bg-emerald rounded-2xl p-4.5 flex flex-col gap-1">
-                <span className="text-[10.5px] font-semibold text-sand/60 tracking-[.5px]">THIS WEEK</span>
-                <span className="font-display text-[28px] font-bold text-lime">₦512,300</span>
-                <span className="text-[11px] text-sand/60">168 orders</span>
+            <div className="grid grid-cols-2 gap-3.5">
+              <div className="bg-emerald rounded-2xl p-4.5 flex flex-col gap-2">
+                <span className="text-[10.5px] font-semibold text-sand/60 tracking-[.5px]">WALLET BALANCE</span>
+                <span className="font-display text-[28px] font-bold text-lime">
+                  {walletQuery.isLoading ? '…' : `₦${naira(walletQuery.data?.balanceKobo ?? 0)}`}
+                </span>
+                <button
+                  onClick={() => setShowWithdraw(true)}
+                  className="mt-1 self-start font-display text-xs font-semibold text-emerald bg-lime rounded-[10px] px-3.5 py-1.75 hover:bg-lime-600 transition-colors"
+                >
+                  Withdraw
+                </button>
               </div>
               <div className="bg-white border border-line rounded-2xl p-4.5 flex flex-col gap-1">
-                <span className="text-[10.5px] font-semibold text-mid tracking-[.5px]">PENDING PAYOUT</span>
-                <span className="font-display text-[28px] font-bold text-ink">₦86,400</span>
-                <span className="text-[11px] text-mid">pays out tonight, 11pm</span>
-              </div>
-              <div className="bg-white border border-line rounded-2xl p-4.5 flex flex-col gap-1">
-                <span className="text-[10.5px] font-semibold text-mid tracking-[.5px]">SPEEDPLUS FEE</span>
+                <span className="text-[10.5px] font-semibold text-mid tracking-[.5px]">PLATFORM COMMISSION</span>
                 <span className="font-display text-[28px] font-bold text-ink">8%</span>
                 <span className="text-[11px] text-mid">flat, no hidden charges</span>
               </div>
             </div>
+
+            {/* Bank account */}
+            <div className="bg-white border border-line rounded-2xl px-4.5 py-3.75 flex items-center gap-3.5">
+              {bankAccountQuery.data ? (
+                <>
+                  <span className="flex-1 flex flex-col">
+                    <span className="text-[13px] font-semibold">{bankAccountQuery.data.accountName}</span>
+                    <span className="text-[11px] text-mid">{bankAccountQuery.data.bankName} · {bankAccountQuery.data.accountNumber}</span>
+                  </span>
+                  <button onClick={() => { setBankDraft(bankAccountQuery.data!); setShowBankForm(true); }} className="text-[11.5px] font-semibold text-emerald">Edit</button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 text-[13px] text-mid">No bank account linked — add one to withdraw</span>
+                  <button onClick={() => setShowBankForm(true)} className="font-display text-xs font-semibold text-emerald border-[1.5px] border-emerald rounded-[10px] px-3.5 py-1.75 hover:bg-emerald/[.07] transition-colors">Add account</button>
+                </>
+              )}
+            </div>
+
+            {showBankForm && (
+              <div className="bg-white border border-line rounded-2xl p-4.5 flex flex-col gap-3">
+                <span className="text-[11px] font-semibold text-mid tracking-[.5px]">BANK ACCOUNT DETAILS</span>
+                <div className="grid grid-cols-2 gap-3">
+                  {(['bankCode', 'bankName', 'accountNumber', 'accountName'] as const).map((f) => (
+                    <input
+                      key={f}
+                      placeholder={{ bankCode: 'Bank code', bankName: 'Bank name', accountNumber: 'Account number', accountName: 'Account name' }[f]}
+                      value={bankDraft[f]}
+                      onChange={(e) => setBankDraft((d) => ({ ...d, [f]: e.target.value }))}
+                      className="border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
+                    />
+                  ))}
+                </div>
+                <div className="flex gap-2.5">
+                  <button
+                    onClick={() => saveBankMutation.mutate()}
+                    disabled={!bankDraft.bankCode || !bankDraft.accountNumber || saveBankMutation.isPending}
+                    className="font-display text-xs font-semibold text-emerald bg-lime rounded-[10px] px-4 py-2.25 hover:bg-lime-600 transition-colors disabled:opacity-50"
+                  >
+                    {saveBankMutation.isPending ? 'Saving…' : 'Save'}
+                  </button>
+                  <button onClick={() => setShowBankForm(false)} className="font-display text-xs font-semibold text-mid px-4 py-2.25">Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {/* Withdraw modal */}
+            {showWithdraw && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+                <div className="bg-white rounded-2xl p-6 w-[360px] flex flex-col gap-4 shadow-xl">
+                  <span className="font-display font-semibold text-[18px]">Withdraw funds</span>
+                  {!bankAccountQuery.data ? (
+                    <p className="text-[13px] text-mid">Add a bank account first before withdrawing.</p>
+                  ) : (
+                    <>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[11px] font-semibold text-mid tracking-[.5px]">TO</span>
+                        <span className="text-[13px] font-semibold">{bankAccountQuery.data.accountName}</span>
+                        <span className="text-[11px] text-mid">{bankAccountQuery.data.bankName} · {bankAccountQuery.data.accountNumber}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(['standard', 'instant'] as const).map((type) => (
+                          <button
+                            key={type}
+                            onClick={() => setWithdrawType(type)}
+                            className={`rounded-xl border-[1.5px] px-3 py-2.5 text-left transition-colors ${
+                              withdrawType === type ? 'border-emerald bg-emerald/[.06]' : 'border-line'
+                            }`}
+                          >
+                            <span className="block text-[12.5px] font-semibold capitalize">{type}</span>
+                            <span className="block text-[11px] text-mid">
+                              {type === 'standard' ? 'Free · next business day' : '1% fee · within minutes'}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      <input
+                        type="number"
+                        placeholder="Amount (₦)"
+                        value={withdrawAmount}
+                        onChange={(e) => setWithdrawAmount(e.target.value)}
+                        className="border border-line rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
+                      />
+                      {withdrawType === 'instant' && Number(withdrawAmount) > 0 && (() => {
+                        const amtKobo = Math.round(Number(withdrawAmount) * 100);
+                        const fee = Math.min(Math.max(Math.round(amtKobo * 0.01), 1000), 50000);
+                        return (
+                          <span className="text-[11px] text-mid">
+                            Fee: ₦{(fee / 100).toLocaleString('en-NG')} · You receive: ₦{((amtKobo - fee) / 100).toLocaleString('en-NG')}
+                          </span>
+                        );
+                      })()}
+                      <input
+                        type="password"
+                        placeholder="Wallet PIN"
+                        maxLength={6}
+                        value={withdrawPin}
+                        onChange={(e) => setWithdrawPin(e.target.value)}
+                        className="border border-line rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
+                      />
+                      {withdrawMutation.isError && (
+                        <span className="text-[12px] text-red-600">{(withdrawMutation.error as Error).message}</span>
+                      )}
+                    </>
+                  )}
+                  <div className="flex gap-2.5">
+                    {bankAccountQuery.data && (
+                      <button
+                        onClick={() => withdrawMutation.mutate()}
+                        disabled={!withdrawAmount || !withdrawPin || withdrawMutation.isPending}
+                        className="flex-1 font-display text-sm font-semibold text-emerald bg-lime rounded-[10px] py-2.5 hover:bg-lime-600 transition-colors disabled:opacity-50"
+                      >
+                        {withdrawMutation.isPending ? 'Processing…' : 'Confirm'}
+                      </button>
+                    )}
+                    <button onClick={() => setShowWithdraw(false)} className="flex-1 font-display text-sm font-semibold text-mid border border-line rounded-[10px] py-2.5">Cancel</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="bg-white border border-line rounded-2xl overflow-hidden">
               <div className="flex justify-between px-4.5 py-3.25 border-b border-[#EFECE3] text-[11px] font-semibold text-mid tracking-[.5px]">
-                <span>PAYOUT</span>
+                <span>DESCRIPTION</span>
                 <span>AMOUNT</span>
               </div>
-              {[
-                { date: 'Thu 9 Jul · GTBank ••4821', amount: '₦94,150 ✓' },
-                { date: 'Wed 8 Jul · GTBank ••4821', amount: '₦71,900 ✓' },
-                { date: 'Tue 7 Jul · GTBank ••4821', amount: '₦88,220 ✓' },
-              ].map((row, i, arr) => (
-                <div key={row.date} className={`flex justify-between px-4.5 py-3.25 text-[13px] ${i < arr.length - 1 ? 'border-b border-[#EFECE3]' : ''}`}>
-                  <span>{row.date}</span>
-                  <b className="text-emerald">{row.amount}</b>
+              {(transactionsQuery.data?.transactions as { id: string; description: string; amountKobo: number; createdAt: string }[] | undefined ?? []).map((tx, i, arr) => (
+                <div key={tx.id} className={`flex justify-between px-4.5 py-3.25 text-[13px] ${i < arr.length - 1 ? 'border-b border-[#EFECE3]' : ''}`}>
+                  <span>{tx.description}</span>
+                  <b className={tx.amountKobo >= 0 ? 'text-emerald' : 'text-red-600'}>
+                    {tx.amountKobo >= 0 ? '+' : ''}₦{naira(tx.amountKobo)}
+                  </b>
                 </div>
               ))}
+              {transactionsQuery.data && (transactionsQuery.data.transactions as unknown[]).length === 0 && (
+                <p className="px-4.5 py-4 text-sm text-mid">No transactions yet.</p>
+              )}
             </div>
           </>
         )}
@@ -356,39 +625,24 @@ export default function MerchantPortalPage() {
           <>
             <h1 className="font-display font-semibold text-[26px] tracking-tight">Verification &amp; onboarding</h1>
             <span className="text-[13px] text-mid" style={{ maxWidth: '56ch' }}>
-              Pharmacies must pass all checks before selling on SpeedPlus. Your customers see the badges — trust is the product.
+              Your customers see this status — trust is the product.
             </span>
-            <div className="bg-white border border-line rounded-2xl overflow-hidden" style={{ maxWidth: 760 }}>
-              {[
-                { icon: '🏥', label: 'Premises licence (PCN)', sub: 'HealthPlus Lekki · exp. Mar 2027', chip: '✓ Verified', ok: true },
-                { icon: '👩🏾‍⚕️', label: 'Superintendent pharmacist licence', sub: 'Adaeze O. · PCN #A-48812 · annual renewal', chip: '✓ Verified', ok: true },
-                { icon: '🔎', label: 'Background check', sub: 'Directors + superintendent · renewed yearly', chip: '✓ Passed', ok: true },
-                { icon: '🧊', label: 'Cold-chain capability', sub: 'Needed to sell insulin & vaccines', chip: 'Inspection booked — 18 Jul', ok: false },
-              ].map((row) => (
-                <div key={row.label} className="flex items-center gap-3.25 px-4.5 py-3.75 border-b border-[#EFECE3]">
-                  <span className="text-[17px]">{row.icon}</span>
-                  <span className="flex-1 flex flex-col">
-                    <span className="text-[13.5px] font-semibold">{row.label}</span>
-                    <span className="text-[11px] text-mid">{row.sub}</span>
-                  </span>
-                  <span
-                    className="text-[11px] font-bold rounded-full px-2.75 py-1"
-                    style={row.ok ? { color: '#0A3D2C', background: '#E9F3D8' } : { color: '#8A6A1B', background: '#FFF3D6' }}
-                  >
-                    {row.chip}
-                  </span>
-                </div>
-              ))}
-              <div className="flex items-center gap-3.25 px-4.5 py-3.75">
-                <span className="text-[17px]">🎥</span>
-                <span className="flex-1 flex flex-col">
-                  <span className="text-[13.5px] font-semibold">Live consult setup</span>
-                  <span className="text-[11px] text-mid">Video consults — pharmacist can prescribe after live diagnosis</span>
-                </span>
-                <button className="font-display text-xs font-semibold text-emerald border-[1.5px] border-emerald rounded-[10px] px-3.5 py-1.75 hover:bg-emerald/[.07] transition-colors">
-                  Set up
-                </button>
-              </div>
+            <div className="bg-white border border-line rounded-2xl px-4.5 py-3.75 flex items-center gap-3.25" style={{ maxWidth: 760 }}>
+              <ShieldCheckIcon size={22} />
+              <span className="flex-1 flex flex-col">
+                <span className="text-[13.5px] font-semibold">{profileQuery.data?.businessName}</span>
+                <span className="text-[11px] text-mid capitalize">Vertical: {profileQuery.data?.vertical}</span>
+              </span>
+              <span
+                className="text-[11px] font-bold rounded-full px-2.75 py-1 capitalize"
+                style={
+                  profileQuery.data?.kycStatus === 'approved'
+                    ? { color: '#0A3D2C', background: '#E9F3D8' }
+                    : { color: '#8A6A1B', background: '#FFF3D6' }
+                }
+              >
+                {profileQuery.data?.kycStatus === 'approved' ? '✓ Verified' : profileQuery.data?.kycStatus.replace('_', ' ')}
+              </span>
             </div>
           </>
         )}

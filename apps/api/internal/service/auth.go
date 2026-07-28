@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"time"
 
@@ -28,6 +29,8 @@ var (
 	ErrTokenExpired       = errors.New("token expired")
 	ErrTokenInvalid       = errors.New("token invalid")
 	ErrOTPInvalid         = errors.New("otp invalid or expired")
+	ErrVehicleRequired    = errors.New("vehicleType and vehiclePlate are required to register as a driver")
+	ErrVehicleTypeInvalid = errors.New("invalid vehicleType")
 )
 
 type Claims struct {
@@ -42,7 +45,13 @@ type AuthService struct {
 	onboarding ports.OnboardingRunner
 	email      emailSender
 	queue      *asynq.Client
+	referrals  referralRecorder
 	enqueueJob func(userID string) error // injected by main.go to avoid import cycle
+}
+
+// referralRecorder is the subset of ReferralService used by AuthService.
+type referralRecorder interface {
+	Record(ctx context.Context, refereeID, referrerID uuid.UUID) error
 }
 
 // emailSender is the subset of email.Client used by AuthService.
@@ -55,6 +64,11 @@ func NewAuthService(r repo.UserRepo, cfg *config.Config, onboarding ports.Onboar
 	return &AuthService{repo: r, cfg: cfg, onboarding: onboarding, email: email}
 }
 
+// InjectReferrals wires the ReferralService after construction to avoid import cycles.
+func (s *AuthService) InjectReferrals(r referralRecorder) {
+	s.referrals = r
+}
+
 // InjectQueue wires the asynq client and the enqueue function.
 // The enqueue function is passed from main.go to avoid a service→worker import cycle.
 func (s *AuthService) InjectQueue(q *asynq.Client, enqueue func(userID string) error) {
@@ -64,14 +78,47 @@ func (s *AuthService) InjectQueue(q *asynq.Client, enqueue func(userID string) e
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
-func (s *AuthService) Register(ctx context.Context, firstName, lastName, phone, password string, role model.UserRole) (*model.User, string, string, error) {
+// RegisterInput carries role-specific fields alongside the base registration
+// details. VehicleType/VehiclePlate are required and validated only for
+// role == model.RoleDriver.
+type RegisterInput struct {
+	FirstName    string
+	LastName     string
+	Phone        string
+	Password     string
+	Role         model.UserRole
+	ReferralCode string
+	VehicleType  string
+	VehiclePlate string
+}
+
+func (s *AuthService) Register(ctx context.Context, in RegisterInput) (*model.User, string, string, error) {
+	firstName, lastName, phone, password, role, referralCode := in.FirstName, in.LastName, in.Phone, in.Password, in.Role, in.ReferralCode
 	if _, err := s.repo.FindByPhone(ctx, phone); err == nil {
 		return nil, "", "", ErrPhoneExists
+	}
+
+	var vehicleType model.VehicleType
+	if role == model.RoleDriver {
+		if in.VehicleType == "" || in.VehiclePlate == "" {
+			return nil, "", "", ErrVehicleRequired
+		}
+		vehicleType = model.VehicleType(in.VehicleType)
+		switch vehicleType {
+		case model.VehicleBicycle, model.VehicleMotorcycle, model.VehicleCar, model.VehicleVan:
+		default:
+			return nil, "", "", ErrVehicleTypeInvalid
+		}
 	}
 
 	hash, err := hashPassword(password)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("hash password: %w", err)
+	}
+
+	ownerCode, err := generateReferralCode()
+	if err != nil {
+		return nil, "", "", fmt.Errorf("referral code: %w", err)
 	}
 
 	user := &model.User{
@@ -81,10 +128,40 @@ func (s *AuthService) Register(ctx context.Context, firstName, lastName, phone, 
 		LastName:     lastName,
 		Phone:        phone,
 		PasswordHash: hash,
+		ReferralCode: ownerCode,
 	}
 
 	if err := s.repo.Create(ctx, user); err != nil {
 		return nil, "", "", fmt.Errorf("create user: %w", err)
+	}
+
+	// Driver profile is created synchronously (local DB write, no external
+	// calls) so dispatch/KYC can see the row immediately — unlike DVA/card
+	// onboarding below, this must not be lost to a best-effort async job.
+	if role == model.RoleDriver {
+		if err := s.repo.CreateDriverProfile(ctx, &model.DriverProfile{
+			ID:           uuid.New(),
+			UserID:       user.ID,
+			Status:       model.DriverPending,
+			VehicleType:  vehicleType,
+			VehiclePlate: in.VehiclePlate,
+		}); err != nil {
+			return nil, "", "", fmt.Errorf("create driver profile: %w", err)
+		}
+	}
+
+	// Wire referral link if a valid code was supplied.
+	if referralCode != "" && s.referrals != nil {
+		if referrer, err := s.repo.FindByReferralCode(ctx, referralCode); err == nil {
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("referral record goroutine panic", "panic", r)
+					}
+				}()
+				_ = s.referrals.Record(context.Background(), user.ID, referrer.ID)
+			}()
+		}
 	}
 
 	// Onboarding: DVA + card + trust tier.
@@ -98,7 +175,14 @@ func (s *AuthService) Register(ctx context.Context, firstName, lastName, phone, 
 
 	// Welcome email — best-effort, non-blocking.
 	if user.Email != nil {
-		go s.email.SendWelcome(context.Background(), *user.Email, user.FirstName)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("welcome email goroutine panic", "panic", r)
+				}
+			}()
+			s.email.SendWelcome(context.Background(), *user.Email, user.FirstName)
+		}()
 	}
 
 	access, refresh, err := s.issueTokenPair(ctx, user)
@@ -206,7 +290,14 @@ func (s *AuthService) RequestOTP(ctx context.Context, phone, purpose string) (st
 	// OTP email — only when user has an email address on file.
 	// Phone-only users receive the code via SMS (SMS transport is a separate concern).
 	if u, err := s.repo.FindByPhone(ctx, phone); err == nil && u.Email != nil {
-		go s.email.SendOTP(context.Background(), *u.Email, u.FirstName, code, purpose)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("OTP email goroutine panic", "panic", r)
+				}
+			}()
+			s.email.SendOTP(context.Background(), *u.Email, u.FirstName, code, purpose)
+		}()
 	}
 	return code, nil
 }
@@ -329,4 +420,19 @@ func generateOTP() (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%06d", n.Int64()), nil
+}
+
+// generateReferralCode produces a 7-char alphanumeric code (e.g. MUSA500).
+// Collision probability at 1M users: ~0.01% — acceptable; DB unique index is the hard guard.
+func generateReferralCode() (string, error) {
+	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	b := make([]byte, 7)
+	for i := range b {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		if err != nil {
+			return "", err
+		}
+		b[i] = chars[n.Int64()]
+	}
+	return string(b), nil
 }

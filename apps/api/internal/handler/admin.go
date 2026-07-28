@@ -12,12 +12,13 @@ import (
 )
 
 type AdminHandler struct {
-	admin  *service.AdminService
-	ledger *service.LedgerService
+	admin      *service.AdminService
+	ledger     *service.LedgerService
+	feeConfigs *service.FeeConfigService
 }
 
-func NewAdminHandler(admin *service.AdminService, ledger *service.LedgerService) *AdminHandler {
-	return &AdminHandler{admin: admin, ledger: ledger}
+func NewAdminHandler(admin *service.AdminService, ledger *service.LedgerService, feeConfigs *service.FeeConfigService) *AdminHandler {
+	return &AdminHandler{admin: admin, ledger: ledger, feeConfigs: feeConfigs}
 }
 
 // ── Merchants ─────────────────────────────────────────────────────────────────
@@ -219,6 +220,57 @@ func (h *AdminHandler) DeleteCancellationRule(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(dto.MessageResponse{Message: "rule deleted"}))
+}
+
+// ── Fee configs (pricing engine) ──────────────────────────────────────────────
+
+func (h *AdminHandler) ListFeeConfigs(c *gin.Context) {
+	configs, err := h.feeConfigs.List(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"configs": configs}))
+}
+
+func (h *AdminHandler) UpsertFeeConfig(c *gin.Context) {
+	var req struct {
+		Vertical         string  `json:"vertical"         binding:"required,oneof=food grocery pharmacy gas package"`
+		BaseFeeKobo      int64   `json:"baseFeeKobo"      binding:"min=0"`
+		PerKmKobo        int64   `json:"perKmKobo"        binding:"min=0"`
+		PerKgKobo        int64   `json:"perKgKobo"        binding:"min=0"`
+		PerStopKobo      int64   `json:"perStopKobo"      binding:"min=0"`
+		ServicePct       float64 `json:"servicePct"       binding:"min=0,max=0.5"`
+		MerchantTakeRate float64 `json:"merchantTakeRate" binding:"required,gt=0.5,lte=1"`
+		DriverTakeRate   float64 `json:"driverTakeRate"   binding:"required,gte=0.5,lte=1"`
+		PlatformTakeRate float64 `json:"platformTakeRate" binding:"min=0"`
+		FuelPriceRefKobo int64   `json:"fuelPriceRefKobo" binding:"min=0"`
+		Reason           string  `json:"reason"           binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		return
+	}
+	adminID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	row, suggestion, err := h.feeConfigs.Upsert(c.Request.Context(), adminID, service.FeeConfigInput{
+		Vertical:         req.Vertical,
+		BaseFeeKobo:      req.BaseFeeKobo,
+		PerKmKobo:        req.PerKmKobo,
+		PerKgKobo:        req.PerKgKobo,
+		PerStopKobo:      req.PerStopKobo,
+		ServicePct:       req.ServicePct,
+		MerchantTakeRate: req.MerchantTakeRate,
+		DriverTakeRate:   req.DriverTakeRate,
+		PlatformTakeRate: req.PlatformTakeRate,
+		FuelPriceRefKobo: req.FuelPriceRefKobo,
+		Reason:           req.Reason,
+	})
+	if err != nil {
+		// Service-level validation (take-rate sum, unknown vertical) is a client error.
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"config": row, "fuelSuggestion": suggestion}))
 }
 
 // ── Ledger viewer ─────────────────────────────────────────────────────────────

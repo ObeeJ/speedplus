@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
@@ -306,9 +307,16 @@ func (f *FlutterwaveProvider) InitiateTransfer(ctx context.Context, req Transfer
 	return &TransferResponse{Status: resp.Data.Status}, nil
 }
 
-// VerifyWebhookSignature validates Flutterwave verif-hash header.
+// VerifyWebhookSignature validates Flutterwave webhook authenticity.
+// Flutterwave signs the raw request body with HMAC-SHA256 keyed by the
+// secret key and sends the hex digest in the "verif-hash" header.
+// The static verifyHash field is kept for legacy config compatibility but
+// is NOT used for verification — only the cryptographic body signature is.
 func (f *FlutterwaveProvider) VerifyWebhookSignature(payload []byte, signature string) bool {
-	return hmac.Equal([]byte(f.verifyHash), []byte(signature))
+	mac := hmac.New(sha256.New, []byte(f.secretKey))
+	mac.Write(payload)
+	expected := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(expected), []byte(signature))
 }
 
 func (f *FlutterwaveProvider) post(ctx context.Context, path string, body interface{}, out interface{}) error {

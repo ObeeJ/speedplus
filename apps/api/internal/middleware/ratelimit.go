@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -21,7 +20,7 @@ import (
 func RateLimit(rdb *redis.Client, routeKey string, limit int, window time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := fmt.Sprintf("rl:%s:%s", routeKey, c.ClientIP())
-		ctx := context.Background()
+		ctx := c.Request.Context()
 
 		count, err := rdb.Incr(ctx, key).Result()
 		if err != nil {
@@ -32,6 +31,13 @@ func RateLimit(rdb *redis.Client, routeKey string, limit int, window time.Durati
 		if count == 1 {
 			rdb.Expire(ctx, key, window)
 		}
+
+		c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
+		remaining := int64(limit) - count
+		if remaining < 0 {
+			remaining = 0
+		}
+		c.Header("X-RateLimit-Remaining", fmt.Sprintf("%d", remaining))
 
 		if count > int64(limit) {
 			ttl, _ := rdb.TTL(ctx, key).Result()

@@ -2,7 +2,7 @@
 
 import { useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button } from '@speedplus/ui';
+import { Button, CameraIcon } from '@speedplus/ui';
 import { FlowHeader } from '../../components/flow-header';
 import { usePharmacyFlowStore, OTC_ITEMS } from '../../../lib/store/pharmacy-flow.store';
 import { useUploadPrescription } from '../../../lib/hooks/use-order-mutations';
@@ -105,7 +105,10 @@ export default function PharmacyItemsPage() {
                   onClick={() => fileInputRef.current?.click()}
                   className="w-full flex flex-col items-center gap-2 rounded-[13px] border-2 border-dashed border-line bg-white px-4 py-8 text-center hover:border-emerald/40 transition-colors"
                 >
-                  <span className="font-display font-semibold text-[15px] text-ink">📷 Upload your prescription</span>
+                  <span className="font-display font-semibold text-[15px] text-ink flex items-center gap-2">
+                    <CameraIcon size={18} />
+                    Upload your prescription
+                  </span>
                   <span className="text-[12.5px] text-mid">A photo of your prescription is all we need</span>
                 </button>
               </>
