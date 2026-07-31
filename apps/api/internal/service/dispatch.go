@@ -1,4 +1,4 @@
-package service
+x`package service
 
 import (
 	"container/heap"
@@ -43,18 +43,11 @@ func vehicleClassFor(vertical string, totalKg float64) model.VehicleType {
 }
 
 type DispatchService struct {
-	repo   repo.DispatchRepo
-	orders *OrderService
+	repo repo.DispatchRepo
 }
 
 func NewDispatchService(r repo.DispatchRepo) *DispatchService {
 	return &DispatchService{repo: r}
-}
-
-// InjectOrders wires the OrderService after both services are constructed
-// (breaks the circular dependency at construction time).
-func (s *DispatchService) InjectOrders(orders *OrderService) {
-	s.orders = orders
 }
 
 type driverCandidate struct {
@@ -140,13 +133,6 @@ func (s *DispatchService) AcceptOffer(ctx context.Context, offerID, driverID uui
 		if err != nil {
 			return err
 		}
-		// Set driver_id first so the ownership check in transitionTx passes.
-		if err := s.repo.SetDriverID(ctx, tx, offer.OrderID, driverID); err != nil {
-			return err
-		}
-		if s.orders != nil {
-			return s.orders.transitionTx(ctx, tx, offer.OrderID, driverID, "driver", model.OrderDriverAssigned, nil)
-		}
 		return s.repo.AssignDriverToOrder(ctx, tx, offer.OrderID, driverID)
 	})
 }
@@ -184,13 +170,6 @@ func (s *DispatchService) ManualAssign(ctx context.Context, orderID, driverID uu
 			return fmt.Errorf("driver already assigned")
 		}
 		order.DriverID = &driverID
-		if err := s.repo.SaveOrderTx(ctx, tx, order); err != nil {
-			return err
-		}
-		if s.orders != nil {
-			return s.orders.transitionTx(ctx, tx, orderID, driverID, "admin", model.OrderDriverAssigned, nil)
-		}
-		// Fallback if orders not injected (should not happen in production).
 		order.Status = model.OrderDriverAssigned
 		return s.repo.SaveOrderTx(ctx, tx, order)
 	})
