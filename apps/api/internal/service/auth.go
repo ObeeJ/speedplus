@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -34,8 +35,9 @@ var (
 )
 
 type Claims struct {
-	UserID string `json:"uid"`
-	Role   string `json:"role"`
+	UserID     string `json:"uid"`
+	Role       string `json:"role"`
+	IsVerified bool   `json:"verified"`
 	jwt.RegisteredClaims
 }
 
@@ -345,8 +347,9 @@ func (s *AuthService) issueTokenPairWithFamily(ctx context.Context, user *model.
 	now := time.Now()
 
 	accessClaims := Claims{
-		UserID: user.ID.String(),
-		Role:   string(user.Role),
+		UserID:     user.ID.String(),
+		Role:       string(user.Role),
+		IsVerified: user.IsVerified,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(s.cfg.JWTAccessTTLMin) * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -393,8 +396,16 @@ func hashPassword(password string) (string, error) {
 }
 
 func verifyPassword(password, encoded string) bool {
-	var saltHex, hashHex string
-	fmt.Sscanf(encoded, "$argon2id$v=19$m=65536,t=1,p=4$%s$%s", &saltHex, &hashHex)
+	// fmt.Sscanf with %s reads until whitespace, not until '$', so it swallows
+	// both salt and hash into saltHex. Split on '$' directly instead.
+	// Format: $argon2id$v=19$m=65536,t=1,p=4$<saltHex>$<hashHex>
+	parts := strings.Split(encoded, "$")
+	// parts: ["", "argon2id", "v=19", "m=65536,t=1,p=4", saltHex, hashHex]
+	if len(parts) != 6 {
+		return false
+	}
+	saltHex := parts[4]
+	hashHex := parts[5]
 	salt, _ := hex.DecodeString(saltHex)
 	expected, _ := hex.DecodeString(hashHex)
 	actual := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)

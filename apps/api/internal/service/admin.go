@@ -7,19 +7,19 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
+	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // AdminService handles all admin-only business logic.
 // Every money-moving operation routes through LedgerService — never direct DB writes.
 type AdminService struct {
-	db     *gorm.DB
+	repo   repo.AdminRepo
 	ledger *LedgerService
 }
 
-func NewAdminService(db *gorm.DB, ledger *LedgerService) *AdminService {
-	return &AdminService{db: db, ledger: ledger}
+func NewAdminService(r repo.AdminRepo, ledger *LedgerService) *AdminService {
+	return &AdminService{repo: r, ledger: ledger}
 }
 
 // ── Merchants ─────────────────────────────────────────────────────────────────
@@ -34,32 +34,37 @@ type MerchantRow struct {
 	CreatedAt    time.Time            `json:"createdAt"`
 }
 
-func (s *AdminService) ListMerchants(ctx context.Context, status string, page, limit int) ([]MerchantRow, error) {
-	q := s.db.WithContext(ctx).Model(&model.MerchantProfile{})
-	if status != "" {
-		q = q.Where("status = ?", status)
+func (s *AdminService) ListMerchants(ctx context.Context, status string, cursor *uuid.UUID, limit int) ([]MerchantRow, error) {
+	profiles, err := s.repo.ListMerchantProfiles(ctx, status, cursor, limit)
+	if err != nil {
+		return nil, err
 	}
-	var rows []MerchantRow
-	err := q.
-		Select("id, user_id, business_name, vertical, status, rating, created_at").
-		Order("created_at DESC").
-		Offset(page * limit).
-		Limit(limit).
-		Scan(&rows).Error
-	return rows, err
+	rows := make([]MerchantRow, len(profiles))
+	for i, p := range profiles {
+		rows[i] = MerchantRow{
+			ID:           p.ID,
+			UserID:       p.UserID,
+			BusinessName: p.BusinessName,
+			Vertical:     p.Vertical,
+			Status:       p.Status,
+			Rating:       p.Rating,
+			CreatedAt:    p.CreatedAt,
+		}
+	}
+	return rows, nil
 }
 
 func (s *AdminService) SetMerchantStatus(ctx context.Context, merchantID, adminID uuid.UUID, status, reason string) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var mp model.MerchantProfile
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&mp, merchantID).Error; err != nil {
+	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		mp, err := s.repo.LockMerchantProfileTx(ctx, tx, merchantID)
+		if err != nil {
 			return fmt.Errorf("merchant not found")
 		}
 		mp.Status = model.MerchantStatus(status)
-		if err := tx.Save(&mp).Error; err != nil {
+		if err := s.repo.SaveMerchantProfileTx(ctx, tx, mp); err != nil {
 			return err
 		}
-		return tx.Create(&model.AdminAuditLog{
+		return s.repo.CreateAuditLogTx(ctx, tx, &model.AdminAuditLog{
 			ID:         uuid.New(),
 			AdminID:    adminID,
 			Action:     "merchant_status_change",
@@ -67,7 +72,7 @@ func (s *AdminService) SetMerchantStatus(ctx context.Context, merchantID, adminI
 			TargetID:   merchantID,
 			Reason:     reason,
 			CreatedAt:  time.Now(),
-		}).Error
+		})
 	})
 }
 
@@ -84,32 +89,38 @@ type DriverRow struct {
 	CreatedAt       time.Time          `json:"createdAt"`
 }
 
-func (s *AdminService) ListDrivers(ctx context.Context, status string, page, limit int) ([]DriverRow, error) {
-	q := s.db.WithContext(ctx).Model(&model.DriverProfile{})
-	if status != "" {
-		q = q.Where("status = ?", status)
+func (s *AdminService) ListDrivers(ctx context.Context, status string, cursor *uuid.UUID, limit int) ([]DriverRow, error) {
+	profiles, err := s.repo.ListDriverProfiles(ctx, status, cursor, limit)
+	if err != nil {
+		return nil, err
 	}
-	var rows []DriverRow
-	err := q.
-		Select("id, user_id, status, vehicle_type, vehicle_plate, rating, total_deliveries, created_at").
-		Order("created_at DESC").
-		Offset(page * limit).
-		Limit(limit).
-		Scan(&rows).Error
-	return rows, err
+	rows := make([]DriverRow, len(profiles))
+	for i, p := range profiles {
+		rows[i] = DriverRow{
+			ID:              p.ID,
+			UserID:          p.UserID,
+			Status:          p.Status,
+			VehicleType:     p.VehicleType,
+			VehiclePlate:    p.VehiclePlate,
+			Rating:          p.Rating,
+			TotalDeliveries: p.TotalDeliveries,
+			CreatedAt:       p.CreatedAt,
+		}
+	}
+	return rows, nil
 }
 
 func (s *AdminService) SetDriverStatus(ctx context.Context, driverID, adminID uuid.UUID, status, reason string) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var dp model.DriverProfile
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&dp, driverID).Error; err != nil {
+	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		dp, err := s.repo.LockDriverProfileTx(ctx, tx, driverID)
+		if err != nil {
 			return fmt.Errorf("driver not found")
 		}
 		dp.Status = model.DriverStatus(status)
-		if err := tx.Save(&dp).Error; err != nil {
+		if err := s.repo.SaveDriverProfileTx(ctx, tx, dp); err != nil {
 			return err
 		}
-		return tx.Create(&model.AdminAuditLog{
+		return s.repo.CreateAuditLogTx(ctx, tx, &model.AdminAuditLog{
 			ID:         uuid.New(),
 			AdminID:    adminID,
 			Action:     "driver_status_change",
@@ -117,7 +128,7 @@ func (s *AdminService) SetDriverStatus(ctx context.Context, driverID, adminID uu
 			TargetID:   driverID,
 			Reason:     reason,
 			CreatedAt:  time.Now(),
-		}).Error
+		})
 	})
 }
 
@@ -140,33 +151,30 @@ type OrderDetail struct {
 	Events []model.OrderEvent `json:"events"`
 }
 
-func (s *AdminService) SearchOrders(ctx context.Context, q, status string, page, limit int) ([]OrderSummary, error) {
-	db := s.db.WithContext(ctx).Model(&model.Order{})
-	if status != "" {
-		db = db.Where("status = ?", status)
+func (s *AdminService) SearchOrders(ctx context.Context, q, status string, cursor *uuid.UUID, limit int) ([]OrderSummary, error) {
+	orders, err := s.repo.SearchOrders(ctx, q, status, cursor, limit)
+	if err != nil {
+		return nil, err
 	}
-	if q != "" {
-		// Support order ID prefix or customer ID exact match
-		db = db.Where("CAST(id AS TEXT) ILIKE ? OR CAST(customer_id AS TEXT) = ?", q+"%", q)
+	rows := make([]OrderSummary, len(orders))
+	for i, o := range orders {
+		rows[i] = OrderSummary{
+			ID:         o.ID,
+			CustomerID: o.CustomerID,
+			MerchantID: o.MerchantID,
+			DriverID:   o.DriverID,
+			Vertical:   o.Vertical,
+			Status:     o.Status,
+			TotalKobo:  o.TotalKobo,
+			CreatedAt:  o.CreatedAt,
+		}
 	}
-	var rows []OrderSummary
-	err := db.
-		Select("id, customer_id, merchant_id, driver_id, vertical, status, total_kobo, created_at").
-		Order("created_at DESC").
-		Offset(page * limit).
-		Limit(limit).
-		Scan(&rows).Error
-	return rows, err
+	return rows, nil
 }
 
 func (s *AdminService) GetOrderDetail(ctx context.Context, orderID uuid.UUID) (*OrderDetail, error) {
-	var order model.Order
-	if err := s.db.WithContext(ctx).
-		Preload("Items").
-		Preload("Events", func(db *gorm.DB) *gorm.DB {
-			return db.Order("created_at ASC")
-		}).
-		First(&order, orderID).Error; err != nil {
+	order, err := s.repo.FindOrderWithEvents(ctx, orderID)
+	if err != nil {
 		return nil, err
 	}
 	return &OrderDetail{
@@ -190,7 +198,7 @@ func (s *AdminService) GetOrderDetail(ctx context.Context, orderID uuid.UUID) (*
 // FreezeEscrow transitions EscrowHeld → EscrowFrozen.
 // No money moves. Records the admin actor and reason.
 func (s *AdminService) FreezeEscrow(ctx context.Context, orderID, adminID uuid.UUID, reason string) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {
 		hold, err := s.ledger.repo.LockEscrowHold(ctx, tx, orderID, model.EscrowHeld)
 		if err != nil {
 			return fmt.Errorf("no held escrow found for order")
@@ -203,7 +211,7 @@ func (s *AdminService) FreezeEscrow(ctx context.Context, orderID, adminID uuid.U
 		if err := s.ledger.repo.SaveEscrowHold(ctx, tx, hold); err != nil {
 			return err
 		}
-		return tx.Create(&model.AdminAuditLog{
+		return s.repo.CreateAuditLogTx(ctx, tx, &model.AdminAuditLog{
 			ID:         uuid.New(),
 			AdminID:    adminID,
 			Action:     "escrow_freeze",
@@ -211,7 +219,7 @@ func (s *AdminService) FreezeEscrow(ctx context.Context, orderID, adminID uuid.U
 			TargetID:   hold.ID,
 			Reason:     reason,
 			CreatedAt:  time.Now(),
-		}).Error
+		})
 	})
 }
 
@@ -221,13 +229,12 @@ func (s *AdminService) FreezeEscrow(ctx context.Context, orderID, adminID uuid.U
 // recipient: "customer" = full refund to customer wallet; "merchant" = settle to merchant wallet.
 func (s *AdminService) ReleaseEscrow(ctx context.Context, orderID, adminID uuid.UUID, recipient, reason string) (string, error) {
 	var result string
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.repo.Transaction(ctx, func(tx *gorm.DB) error {
 		hold, err := s.ledger.repo.LockEscrowHold(ctx, tx, orderID, model.EscrowFrozen)
 		if err != nil {
 			return fmt.Errorf("no frozen escrow found for order")
 		}
 
-		// Record first approval
 		if hold.ApprovalOne == nil {
 			hold.ApprovalOne = &adminID
 			if err := s.ledger.repo.SaveEscrowHold(ctx, tx, hold); err != nil {
@@ -237,16 +244,14 @@ func (s *AdminService) ReleaseEscrow(ctx context.Context, orderID, adminID uuid.
 			return nil
 		}
 
-		// Prevent same admin approving twice
 		if *hold.ApprovalOne == adminID {
 			return fmt.Errorf("same admin cannot provide both approvals")
 		}
 
-		// Second approval — execute the release
 		hold.ApprovalTwo = &adminID
 
-		var order model.Order
-		if err := tx.First(&order, orderID).Error; err != nil {
+		order, err := s.repo.FindOrderTx(ctx, tx, orderID)
+		if err != nil {
 			return fmt.Errorf("order not found")
 		}
 
@@ -308,7 +313,7 @@ func (s *AdminService) ReleaseEscrow(ctx context.Context, orderID, adminID uuid.
 			return err
 		}
 
-		if err := tx.Create(&model.AdminAuditLog{
+		if err := s.repo.CreateAuditLogTx(ctx, tx, &model.AdminAuditLog{
 			ID:         uuid.New(),
 			AdminID:    adminID,
 			Action:     "escrow_release",
@@ -316,7 +321,7 @@ func (s *AdminService) ReleaseEscrow(ctx context.Context, orderID, adminID uuid.
 			TargetID:   hold.ID,
 			Reason:     reason,
 			CreatedAt:  now,
-		}).Error; err != nil {
+		}); err != nil {
 			return err
 		}
 
@@ -338,11 +343,7 @@ type CancellationRuleInput struct {
 }
 
 func (s *AdminService) ListCancellationRules(ctx context.Context) ([]model.CancellationRule, error) {
-	var rules []model.CancellationRule
-	err := s.db.WithContext(ctx).
-		Order("vertical ASC, order_status_at_cancel ASC").
-		Find(&rules).Error
-	return rules, err
+	return s.repo.ListCancellationRules(ctx)
 }
 
 func (s *AdminService) UpsertCancellationRule(ctx context.Context, in CancellationRuleInput) (*model.CancellationRule, error) {
@@ -354,14 +355,111 @@ func (s *AdminService) UpsertCancellationRule(ctx context.Context, in Cancellati
 		RiderCompPctOfDelivery: in.RiderCompPctOfDelivery,
 		FullRefund:             in.FullRefund,
 	}
-	// Upsert on (vertical, order_status_at_cancel) uniqueness
-	err := s.db.WithContext(ctx).
-		Where("vertical = ? AND order_status_at_cancel = ?", in.Vertical, in.OrderStatusAtCancel).
-		Assign(rule).
-		FirstOrCreate(&rule).Error
-	return &rule, err
+	return s.repo.UpsertCancellationRule(ctx, rule)
 }
 
 func (s *AdminService) DeleteCancellationRule(ctx context.Context, ruleID uuid.UUID) error {
-	return s.db.WithContext(ctx).Delete(&model.CancellationRule{}, ruleID).Error
+	return s.repo.DeleteCancellationRule(ctx, ruleID)
+}
+
+// ── Gas: fill_status ──────────────────────────────────────────────────────────
+
+type GasMerchantRow struct {
+	ID              uuid.UUID `json:"id"`
+	BusinessName    string    `json:"businessName"`
+	FillAccuracyPct *float64  `json:"fillAccuracyPct"`
+	FillSampleCount int       `json:"fillSampleCount"`
+	FillStatus      string    `json:"fillStatus"`
+}
+
+func (s *AdminService) ListGasMerchants(ctx context.Context, fillStatus string, cursor *uuid.UUID, limit int) ([]GasMerchantRow, error) {
+	merchants, err := s.repo.ListGasMerchants(ctx, fillStatus, cursor, limit)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]GasMerchantRow, len(merchants))
+	for i, m := range merchants {
+		rows[i] = GasMerchantRow{
+			ID:              m.ID,
+			BusinessName:    m.BusinessName,
+			FillAccuracyPct: m.FillAccuracyPct,
+			FillSampleCount: m.FillSampleCount,
+			FillStatus:      m.FillStatus,
+		}
+	}
+	return rows, nil
+}
+
+func (s *AdminService) SetMerchantFillStatus(ctx context.Context, merchantID, adminID uuid.UUID, status, reason string) error {
+	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		m, err := s.repo.LockMerchantTx(ctx, tx, merchantID)
+		if err != nil {
+			return fmt.Errorf("merchant not found")
+		}
+		m.FillStatus = status
+		if err := s.repo.SaveMerchantTx(ctx, tx, m); err != nil {
+			return err
+		}
+		return s.repo.CreateAuditLogTx(ctx, tx, &model.AdminAuditLog{
+			ID:         uuid.New(),
+			AdminID:    adminID,
+			Action:     "merchant_fill_status_override",
+			TargetType: "merchant",
+			TargetID:   merchantID,
+			Reason:     reason,
+			CreatedAt:  time.Now(),
+		})
+	})
+}
+
+// ── Gas: zones / launch_status ────────────────────────────────────────────────
+
+type ZoneRow struct {
+	ID           uuid.UUID `json:"id"`
+	Name         string    `json:"name"`
+	LaunchStatus string    `json:"launchStatus"`
+	IsActive     bool      `json:"isActive"`
+	WindowStart  int16     `json:"windowStart"`
+	WindowEnd    int16     `json:"windowEnd"`
+}
+
+func (s *AdminService) ListZones(ctx context.Context, launchStatus string, cursor *uuid.UUID, limit int) ([]ZoneRow, error) {
+	zones, err := s.repo.ListZones(ctx, launchStatus, cursor, limit)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]ZoneRow, len(zones))
+	for i, z := range zones {
+		rows[i] = ZoneRow{
+			ID:           z.ID,
+			Name:         z.Name,
+			LaunchStatus: z.LaunchStatus,
+			IsActive:     z.IsActive,
+			WindowStart:  z.WindowStart,
+			WindowEnd:    z.WindowEnd,
+		}
+	}
+	return rows, nil
+}
+
+func (s *AdminService) SetZoneLaunchStatus(ctx context.Context, zoneID, adminID uuid.UUID, status, reason string) error {
+	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		z, err := s.repo.LockZoneTx(ctx, tx, zoneID)
+		if err != nil {
+			return fmt.Errorf("zone not found")
+		}
+		z.LaunchStatus = status
+		if err := s.repo.SaveZoneTx(ctx, tx, z); err != nil {
+			return err
+		}
+		return s.repo.CreateAuditLogTx(ctx, tx, &model.AdminAuditLog{
+			ID:         uuid.New(),
+			AdminID:    adminID,
+			Action:     "zone_launch_status_change",
+			TargetType: "service_zone",
+			TargetID:   zoneID,
+			Reason:     reason,
+			CreatedAt:  time.Now(),
+		})
+	})
 }

@@ -1,9 +1,7 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
-import { adminApi, type OrderDetail } from '@speedplus/api-client';
-import { apiClient } from '@speedplus/api-client';
-import type { ApiResponse } from '@speedplus/types';
+import { adminApi, ordersApi, type OrderDetail } from '@speedplus/api-client';
 import { Badge, BoxIcon } from '@speedplus/ui';
 
 function naira(k: number) {
@@ -63,9 +61,7 @@ export default function PackageOrdersPage() {
     try {
       const [det, stopsRes] = await Promise.all([
         adminApi.getOrderDetail(id),
-        apiClient.get<ApiResponse<{ stops: OrderStop[] }>>(`/orders/${id}/stops`)
-          .then((r) => r.data.success ? r.data.data.stops : [])
-          .catch(() => []),
+        ordersApi.getStops(id).then((s) => s as unknown as OrderStop[]).catch(() => [] as OrderStop[]),
       ]);
       setDetail(det);
       setStops(stopsRes);

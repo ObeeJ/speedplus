@@ -1,11 +1,12 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, CameraIcon } from '@speedplus/ui';
+import { isValidPrescriptionFile } from '@speedplus/utils';
 import { FlowHeader } from '../../components/flow-header';
 import { usePharmacyFlowStore, OTC_ITEMS } from '../../../lib/store/pharmacy-flow.store';
-import { useUploadPrescription } from '../../../lib/hooks/use-order-mutations';
+import { useUploadPrescription, usePrescriptionStatus } from '../../../lib/hooks/use-order-mutations';
 
 function naira(n: number) {
   return `₦${n.toLocaleString('en-NG')}`;
@@ -13,28 +14,50 @@ function naira(n: number) {
 
 export default function PharmacyItemsPage() {
   const router = useRouter();
-  const { tab, setTab, otcItemId, setOtcItemId, rxStatus, uploadRx, setRxStatus, setPrescriptionId, canContinueItems } = usePharmacyFlowStore();
+  const { tab, setTab, otcItemId, setOtcItemId, merchantId, rxStatus, setRxStatus, prescriptionId, setPrescriptionId, canContinueItems } =
+    usePharmacyFlowStore();
   const canContinue = canContinueItems();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadPrescription = useUploadPrescription();
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // A pharmacy must be chosen before a prescription can be reviewed — the
+  // backend rejects a prescription with no merchant. Send the customer back
+  // to the picker rather than letting them upload into a dead end.
+  if (tab === 'rx' && !merchantId) {
+    router.replace('/pharmacy');
+  }
+
+  // Poll the real server-side review status once we have a prescription id —
+  // this replaces the client-side setTimeout that previously faked approval.
+  const statusQuery = usePrescriptionStatus(prescriptionId);
+  const serverStatus = statusQuery.data?.status;
+  if (serverStatus && serverStatus !== rxStatus) {
+    setRxStatus(serverStatus === 'consumed' ? 'approved' : serverStatus);
+  }
 
   function handleFileSelected(file: File) {
-    setRxStatus('uploaded');
-    // Convert File to R2 key via direct upload — for now use the filename as a
-    // placeholder key. The real flow: frontend gets a presigned R2 URL, uploads
-    // directly, then passes the returned object key here.
-    const r2Key = `prescriptions/${Date.now()}-${file.name}`;
+    if (!merchantId) {
+      router.replace('/pharmacy');
+      return;
+    }
+    const validation = isValidPrescriptionFile(file);
+    if (!validation.valid) {
+      setUploadError(validation.error ?? 'That file cannot be used as a prescription.');
+      return;
+    }
+    setUploadError(null);
+    setRxStatus('uploading');
     uploadPrescription.mutate(
-      { r2Key, merchantId: undefined },
+      { file, merchantId },
       {
         onSuccess: (prescription) => {
           setPrescriptionId(prescription.id);
-          setRxStatus('under_review');
-          setTimeout(() => setRxStatus('approved'), 2700);
+          setRxStatus(prescription.status as typeof rxStatus);
         },
-        onError: () => {
-          // No backend reachable yet — fall back to the local demo simulation so the flow still works.
-          uploadRx();
+        onError: (err) => {
+          setRxStatus(null);
+          setUploadError(err instanceof Error ? err.message : 'Upload failed. Please try again.');
         },
       },
     );
@@ -113,17 +136,53 @@ export default function PharmacyItemsPage() {
                 </button>
               </>
             )}
-            {rxStatus === 'uploaded' && (
+            {rxStatus === 'uploading' && (
               <div className="rounded-[13px] border-2 border-line bg-white px-4 py-4 text-[13px] text-mid">Uploading…</div>
             )}
-            {rxStatus === 'under_review' && (
+            {rxStatus === 'pending' && (
               <div className="rounded-[13px] border-2 border-amber bg-amber/10 px-4 py-4 text-[13px] text-ink">
-                Pharmacist is checking it now… Adaeze at HealthPlus Lekki
+                Waiting for the pharmacist to review your prescription…
               </div>
             )}
             {rxStatus === 'approved' && (
               <div className="rounded-[13px] border-2 border-lime bg-emerald px-4 py-4 text-[13px] text-lime">
-                ✅ Approved — your items are ready. Checked by Adaeze O. (PCN licensed)
+                ✅ Approved by the pharmacy — your items are ready.
+              </div>
+            )}
+            {rxStatus === 'rejected' && (
+              <div className="rounded-[13px] border-2 border-line bg-white px-4 py-4 text-[13px] text-ink">
+                <p className="font-semibold mb-1">This prescription wasn't approved.</p>
+                {statusQuery.data?.reviewNote && (
+                  <p className="text-mid">{statusQuery.data.reviewNote}</p>
+                )}
+                <button
+                  onClick={() => {
+                    setPrescriptionId(null);
+                    setRxStatus(null);
+                  }}
+                  className="mt-2 text-emerald underline text-[12.5px]"
+                >
+                  Upload a different prescription
+                </button>
+              </div>
+            )}
+            {rxStatus === 'expired' && (
+              <div className="rounded-[13px] border-2 border-line bg-white px-4 py-4 text-[13px] text-ink">
+                <p className="mb-2">This approval has expired.</p>
+                <button
+                  onClick={() => {
+                    setPrescriptionId(null);
+                    setRxStatus(null);
+                  }}
+                  className="text-emerald underline text-[12.5px]"
+                >
+                  Upload again
+                </button>
+              </div>
+            )}
+            {uploadError && (
+              <div className="rounded-[13px] border-2 border-red-300 bg-red-50 px-4 py-3 text-[12.5px] text-red-700">
+                {uploadError}
               </div>
             )}
           </div>

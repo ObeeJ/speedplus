@@ -32,6 +32,11 @@ export interface Order {
   deliveredAt?: string;
   cancellationReason?: string;
   proofOfDeliveryUrl?: string;
+  // Driver enrichment — populated when a driver is assigned
+  driverName?: string;
+  driverPhone?: string;
+  driverVehicle?: string;
+  driverRating?: number;
 }
 
 export interface OrderItem {
@@ -64,4 +69,6 @@ export interface CreateOrderPayload {
   tipKobo?: number;
   scheduledFor?: string;
   prescriptionId?: string;
+  gasMode?: 'swap' | 'refill' | 'new_cylinder';
+  cylinderId?: string;
 }

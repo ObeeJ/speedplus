@@ -25,9 +25,9 @@ export interface ProductSummary {
 export interface PrescriptionRecord {
   id: string;
   customerId: string;
-  merchantId?: string;
+  merchantId: string;
   r2Key: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'consumed' | 'expired';
   reviewNote?: string;
   createdAt: string;
 }
@@ -72,10 +72,24 @@ export const catalogApi = {
   },
 
   // Prescriptions
-  async createPrescription(r2Key: string, merchantId?: string) {
+  // presignPrescription must be called first — it returns a short-lived R2
+  // upload URL and the server-derived object key. The caller PUTs the file
+  // bytes to uploadUrl, then passes the returned key into createPrescription.
+  // There is no other way for r2Key to become valid: the backend never
+  // accepts a client-invented key.
+  async presignPrescription(contentType: string) {
+    const { data } = await apiClient.post<ApiResponse<{ uploadUrl: string; key: string }>>(
+      '/prescriptions/presign',
+      { contentType },
+    );
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
+  async createPrescription(r2Key: string, merchantId: string) {
     const { data } = await apiClient.post<ApiResponse<PrescriptionRecord>>('/prescriptions', {
       r2Key,
-      ...(merchantId ? { merchantId } : {}),
+      merchantId,
     });
     if (!data.success) throw new Error(data.error.message);
     return data.data;

@@ -19,11 +19,13 @@ func NewSubscriptionHandler(svc *service.SubscriptionService) *SubscriptionHandl
 
 func (h *SubscriptionHandler) Create(c *gin.Context) {
 	var req struct {
-		MerchantID    string `json:"merchantId" binding:"required"`
-		AddressID     string `json:"addressId" binding:"required"`
-		Vertical      string `json:"vertical" binding:"required"`
-		Cadence       string `json:"cadence" binding:"required,oneof=weekly biweekly monthly"`
-		PaymentMethod string `json:"paymentMethod" binding:"required,oneof=wallet"`
+		MerchantID     string  `json:"merchantId"     binding:"required"`
+		AddressID      string  `json:"addressId"      binding:"required"`
+		Vertical       string  `json:"vertical"       binding:"required"`
+		Cadence        string  `json:"cadence"        binding:"required,oneof=weekly biweekly monthly"`
+		PaymentMethod  string  `json:"paymentMethod"  binding:"required,oneof=wallet"`
+		GasMode        *string `json:"gasMode"`        // swap|refill|new_cylinder
+		CylinderSpecID *string `json:"cylinderSpecId"` // UUID of the cylinder spec
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		validationError(c, err)
@@ -33,7 +35,18 @@ func (h *SubscriptionHandler) Create(c *gin.Context) {
 	merchantID, _ := uuid.Parse(req.MerchantID)
 	addressID, _ := uuid.Parse(req.AddressID)
 
-	sub, err := h.svc.Create(c.Request.Context(), customerID, merchantID, addressID, req.Vertical, req.Cadence, req.PaymentMethod)
+	var cylinderSpecID *uuid.UUID
+	if req.CylinderSpecID != nil {
+		id, err := uuid.Parse(*req.CylinderSpecID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Invalid cylinderSpecId", "cylinderSpecId"))
+			return
+		}
+		cylinderSpecID = &id
+	}
+
+	sub, err := h.svc.Create(c.Request.Context(), customerID, merchantID, addressID,
+		req.Vertical, req.Cadence, req.PaymentMethod, req.GasMode, cylinderSpecID)
 	if err != nil {
 		internalError(c, err)
 		return
@@ -59,4 +72,35 @@ func (h *SubscriptionHandler) Cancel(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, successResp(gin.H{"message": "subscription cancelled"}))
+}
+
+// GetLPGPrice — GET /gas/price-index?region=Lagos
+func (h *SubscriptionHandler) GetLPGPrice(c *gin.Context) {
+	region := c.DefaultQuery("region", "Lagos")
+	entry, err := h.svc.GetLiveLPGPrice(c.Request.Context(), region)
+	if err != nil {
+		c.JSON(http.StatusNotFound, errResp("NOT_FOUND", "No LPG price found for region", "region"))
+		return
+	}
+	c.JSON(http.StatusOK, successResp(entry))
+}
+
+// RecordLPGPrice — POST /admin/gas/price-index (admin only)
+func (h *SubscriptionHandler) RecordLPGPrice(c *gin.Context) {
+	var req struct {
+		Region         string `json:"region"         binding:"required"`
+		PricePerKgKobo int64  `json:"pricePerKgKobo" binding:"required,min=1"`
+		Source         string `json:"source"         binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		validationError(c, err)
+		return
+	}
+	adminID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	row, suggestion, err := h.svc.RecordLPGPrice(c.Request.Context(), adminID, req.Region, req.PricePerKgKobo, req.Source)
+	if err != nil {
+		internalError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, successResp(gin.H{"entry": row, "suggestion": suggestion}))
 }

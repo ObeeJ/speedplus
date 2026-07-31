@@ -19,7 +19,6 @@ import (
 	"github.com/speedplus/api/internal/repo"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 var (
@@ -31,24 +30,24 @@ var (
 )
 
 type PaycodeService struct {
-	db           *gorm.DB
-	cfg          *config.Config
-	ledger       *LedgerService
-	orders       *OrderService
-	tier         ports.TierRecorder
-	email        paycodeEmailSender
-	users        repo.UserRepo
-	orderRepo    repo.OrderRepo
+	repo          repo.PaycodeRepo
+	cfg           *config.Config
+	ledger        *LedgerService
+	orders        *OrderService
+	tier          ports.TierRecorder
+	email         paycodeEmailSender
+	users         repo.UserRepo
+	orderRepo     repo.OrderRepo
 	deliveryCodes *DeliveryCodeService
-	referrals    *ReferralService // nil-safe: referral payout skipped if unset
+	referrals     *ReferralService
 }
 
 type paycodeEmailSender interface {
 	SendOrderDelivered(ctx context.Context, toEmail, firstName, orderID, merchantName string, totalKobo int64)
 }
 
-func NewPaycodeService(db *gorm.DB, cfg *config.Config, ledger *LedgerService, orders *OrderService, tier ports.TierRecorder, email paycodeEmailSender, users repo.UserRepo, orderRepo repo.OrderRepo, deliveryCodes *DeliveryCodeService, referrals *ReferralService) *PaycodeService {
-	return &PaycodeService{db: db, cfg: cfg, ledger: ledger, orders: orders, tier: tier, email: email, users: users, orderRepo: orderRepo, deliveryCodes: deliveryCodes, referrals: referrals}
+func NewPaycodeService(r repo.PaycodeRepo, cfg *config.Config, ledger *LedgerService, orders *OrderService, tier ports.TierRecorder, email paycodeEmailSender, users repo.UserRepo, orderRepo repo.OrderRepo, deliveryCodes *DeliveryCodeService, referrals *ReferralService) *PaycodeService {
+	return &PaycodeService{repo: r, cfg: cfg, ledger: ledger, orders: orders, tier: tier, email: email, users: users, orderRepo: orderRepo, deliveryCodes: deliveryCodes, referrals: referrals}
 }
 
 // settleReferral fires the referral payout check after a completed order.
@@ -74,8 +73,8 @@ func (s *PaycodeService) settleReferral(customerID uuid.UUID, subtotalKobo int64
 // Only the order's customer (the receiver) may generate the QR — possession of
 // the rendered code is the receiver-identity proof the settlement flow relies on.
 func (s *PaycodeService) Generate(ctx context.Context, orderID, callerID uuid.UUID) (*model.Paycode, error) {
-	var order model.Order
-	if err := s.db.WithContext(ctx).First(&order, orderID).Error; err != nil {
+	order, err := s.orderRepo.FindByID(ctx, orderID)
+	if err != nil {
 		return nil, ErrPaycodeInvalid
 	}
 	if order.CustomerID != callerID {
@@ -101,7 +100,7 @@ func (s *PaycodeService) Generate(ctx context.Context, orderID, callerID uuid.UU
 		Payload:   fullPayload,
 		ExpiresAt: exp,
 	}
-	if err := s.db.WithContext(ctx).Create(&pc).Error; err != nil {
+	if err := s.repo.Create(ctx, &pc); err != nil {
 		return nil, err
 	}
 	return &pc, nil
@@ -133,15 +132,13 @@ func (s *PaycodeService) Resolve(ctx context.Context, payload string, scannerID 
 		return nil, nil, ErrPaycodeInvalid
 	}
 
-	var pc model.Paycode
-	if err := s.db.WithContext(ctx).
-		Where("order_id = ? AND nonce = ? AND confirmed_at IS NULL", orderID, nonce).
-		First(&pc).Error; err != nil {
+	pc, err := s.repo.FindByNonce(ctx, orderID, nonce)
+	if err != nil {
 		return nil, nil, ErrPaycodeInvalid
 	}
 
-	var order model.Order
-	if err := s.db.WithContext(ctx).First(&order, orderID).Error; err != nil {
+	order, err := s.orderRepo.FindByID(ctx, orderID)
+	if err != nil {
 		return nil, nil, fmt.Errorf("order not found")
 	}
 
@@ -155,16 +152,16 @@ func (s *PaycodeService) Resolve(ctx context.Context, payload string, scannerID 
 		return nil, nil, fmt.Errorf("order not in transit (status: %s)", order.Status)
 	}
 
-	return &order, &pc, nil
+	return order, pc, nil
 }
 
 // Confirm atomically: wallet debit (if unpaid) + escrow release + settlement + order → delivered.
 // This is the ONLY path that releases escrow — satisfies the no-bypass rule.
 func (s *PaycodeService) Confirm(ctx context.Context, paycodeID, driverID uuid.UUID, pin *string) error {
 	var badgeDriverID *uuid.UUID
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var pc model.Paycode
-		if err := tx.First(&pc, paycodeID).Error; err != nil {
+	err := s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		pc, err := s.repo.FindByIDTx(ctx, tx, paycodeID)
+		if err != nil {
 			return ErrPaycodeInvalid
 		}
 		if pc.ConfirmedAt != nil {
@@ -174,48 +171,30 @@ func (s *PaycodeService) Confirm(ctx context.Context, paycodeID, driverID uuid.U
 			return ErrPaycodeExpired
 		}
 
-		var order model.Order
-		if err := tx.First(&order, pc.OrderID).Error; err != nil {
+		order, err := s.repo.LockOrderTx(ctx, tx, pc.OrderID)
+		if err != nil {
 			return fmt.Errorf("order not found")
 		}
 		if order.DriverID == nil || *order.DriverID != driverID {
 			return ErrNotAssigned
 		}
-		// FIX #2: Confirm must enforce the same state guard as Resolve.
-		// Without this, a driver can confirm (and release escrow) before pickup.
 		if order.Status != model.OrderInTransit {
 			return fmt.Errorf("order not in transit (status: %s)", order.Status)
 		}
 
-		// Mark paycode confirmed
 		now := time.Now()
 		pc.ConfirmedAt = &now
 		pc.ScannedBy = &driverID
-		if err := tx.Save(&pc).Error; err != nil {
+		if err := s.repo.SaveTx(ctx, tx, pc); err != nil {
 			return err
 		}
 
-		// Settlement journal (escrow release + splits)
-		if err := s.ledger.Settle(ctx, tx, &order, pc.ID); err != nil {
+		if err := s.ledger.Settle(ctx, tx, order, pc.ID); err != nil {
 			return fmt.Errorf("settlement: %w", err)
 		}
 
-		// Transition order → delivered
-		order.Status = model.OrderDelivered
-		order.DeliveredAt = &now
-		if err := tx.Save(&order).Error; err != nil {
-			return err
-		}
-
-		if err := tx.Create(&model.OrderEvent{
-			ID:         uuid.New(),
-			OrderID:    order.ID,
-			FromStatus: model.OrderInTransit,
-			ToStatus:   model.OrderDelivered,
-			ActorID:    driverID,
-			ActorRole:  "driver",
-		}).Error; err != nil {
-			return err
+		if err := s.orders.transitionTx(ctx, tx, order.ID, driverID, "driver", model.OrderDelivered, nil); err != nil {
+			return fmt.Errorf("transition delivered: %w", err)
 		}
 
 		// Record completed order for trust tier evaluation (non-blocking).
@@ -229,7 +208,7 @@ func (s *PaycodeService) Confirm(ctx context.Context, paycodeID, driverID uuid.U
 		}
 
 		// Order delivered email — best-effort, non-blocking.
-		go func(o model.Order) {
+		go func(o *model.Order) {
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Error("order delivered email goroutine panic", "panic", r)
@@ -282,10 +261,9 @@ func (s *PaycodeService) GenerateDeliveryCode(ctx context.Context, orderID uuid.
 // a far or missing location never blocks settlement.
 func (s *PaycodeService) ConfirmByCode(ctx context.Context, orderID, driverID uuid.UUID, code string, lat, lng *float64) error {
 	var badgeDriverID *uuid.UUID
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 1. Load and validate the order
-		var order model.Order
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, orderID).Error; err != nil {
+	err := s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		order, err := s.repo.LockOrderTx(ctx, tx, orderID)
+		if err != nil {
 			return fmt.Errorf("order not found")
 		}
 		if order.DriverID == nil || *order.DriverID != driverID {
@@ -295,15 +273,22 @@ func (s *PaycodeService) ConfirmByCode(ctx context.Context, orderID, driverID uu
 			return fmt.Errorf("order not in transit (status: %s)", order.Status)
 		}
 
-		// 2. Verify the delivery code — increments attempt counter on failure
 		if err := s.deliveryCodes.Verify(ctx, tx, orderID, code); err != nil {
 			return err
 		}
 
-		// 2b. GPS evidence — flag-only, never blocks settlement.
-		var dropoff model.Address
-		if err := tx.First(&dropoff, order.DeliveryAddressID).Error; err == nil {
-			flagged, locErr := s.deliveryCodes.RecordConfirmLocation(ctx, tx, orderID, lat, lng, dropoff.Lat, dropoff.Lng)
+		if order.Vertical == "gas" {
+			count, err := s.repo.CountWeightProof(ctx, tx, orderID)
+			if err != nil {
+				return fmt.Errorf("weight proof check: %w", err)
+			}
+			if count == 0 {
+				return fmt.Errorf("gas order requires a weight photo before confirmation")
+			}
+		}
+
+		if addr, err := s.repo.FindAddress(ctx, tx, order.DeliveryAddressID); err == nil {
+			flagged, locErr := s.deliveryCodes.RecordConfirmLocation(ctx, tx, orderID, lat, lng, addr.Lat, addr.Lng)
 			if locErr != nil {
 				slog.Warn("delivery code: record confirm location failed", "order_id", orderID.String(), "error", locErr)
 			} else if flagged {
@@ -312,28 +297,12 @@ func (s *PaycodeService) ConfirmByCode(ctx context.Context, orderID, driverID uu
 			}
 		}
 
-		// 3. Settlement — same path as QR paycode confirm
-		if err := s.ledger.Settle(ctx, tx, &order, uuid.New()); err != nil {
+		if err := s.ledger.Settle(ctx, tx, order, uuid.New()); err != nil {
 			return fmt.Errorf("settlement: %w", err)
 		}
 
-		// 4. Transition order → delivered
-		now := time.Now()
-		order.Status = model.OrderDelivered
-		order.DeliveredAt = &now
-		if err := tx.Save(&order).Error; err != nil {
-			return err
-		}
-
-		if err := tx.Create(&model.OrderEvent{
-			ID:         uuid.New(),
-			OrderID:    order.ID,
-			FromStatus: model.OrderInTransit,
-			ToStatus:   model.OrderDelivered,
-			ActorID:    driverID,
-			ActorRole:  "driver",
-		}).Error; err != nil {
-			return err
+		if err := s.orders.transitionTx(ctx, tx, order.ID, driverID, "driver", model.OrderDelivered, nil); err != nil {
+			return fmt.Errorf("transition delivered: %w", err)
 		}
 
 		go s.tier.RecordCompletion(context.Background(), order.CustomerID)
@@ -343,7 +312,7 @@ func (s *PaycodeService) ConfirmByCode(ctx context.Context, orderID, driverID uu
 			did := *order.DriverID
 			badgeDriverID = &did
 		}
-		go func(o model.Order) {
+		go func(o *model.Order) {
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Error("order delivered email goroutine panic", "panic", r)
@@ -385,8 +354,8 @@ func (s *PaycodeService) ConfirmByCard(ctx context.Context, cardPayload string, 
 	}
 
 	// 2. Verify customer PIN
-	var pinModel model.PIN
-	if err := s.db.WithContext(ctx).Where("user_id = ?", customerID).First(&pinModel).Error; err != nil {
+	pinModel, err := s.users.FindPIN(ctx, customerID)
+	if err != nil {
 		return fmt.Errorf("pin not set")
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(pinModel.PINHash), []byte(pin)); err != nil {
@@ -394,40 +363,22 @@ func (s *PaycodeService) ConfirmByCard(ctx context.Context, cardPayload string, 
 	}
 
 	// 3. Find the active in_transit order for this customer
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var order model.Order
-		if err := tx.Where("customer_id = ? AND status = ?", customerID, model.OrderInTransit).
-			Order("created_at DESC").
-			First(&order).Error; err != nil {
+	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		order, err := s.repo.FindActiveInTransitOrder(ctx, tx, customerID)
+		if err != nil {
 			return fmt.Errorf("no active in-transit order found for this customer")
 		}
 
-		// 4. Confirm the assigned driver matches
 		if order.DriverID == nil || *order.DriverID != driverID {
 			return ErrNotAssigned
 		}
 
-		// 5. Settlement — same path as QR paycode confirm
-		if err := s.ledger.Settle(ctx, tx, &order, uuid.New()); err != nil {
+		if err := s.ledger.Settle(ctx, tx, order, uuid.New()); err != nil {
 			return fmt.Errorf("card settlement: %w", err)
 		}
 
-		now := time.Now()
-		order.Status = model.OrderDelivered
-		order.DeliveredAt = &now
-		if err := tx.Save(&order).Error; err != nil {
-			return err
-		}
-
-		if err := tx.Create(&model.OrderEvent{
-			ID:         uuid.New(),
-			OrderID:    order.ID,
-			FromStatus: model.OrderInTransit,
-			ToStatus:   model.OrderDelivered,
-			ActorID:    driverID,
-			ActorRole:  "driver",
-		}).Error; err != nil {
-			return err
+		if err := s.orders.transitionTx(ctx, tx, order.ID, driverID, "driver", model.OrderDelivered, nil); err != nil {
+			return fmt.Errorf("transition delivered: %w", err)
 		}
 
 		go s.tier.RecordCompletion(context.Background(), customerID)

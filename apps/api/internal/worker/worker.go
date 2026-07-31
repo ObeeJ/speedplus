@@ -13,6 +13,8 @@ import (
 	"github.com/speedplus/api/internal/observability"
 	"github.com/speedplus/api/internal/payment"
 	"github.com/speedplus/api/internal/service"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -20,12 +22,16 @@ const (
 	TaskExpireOffers        = "dispatch:expire_offers"
 	TaskSubscriptionRun     = "subscription:run"
 	TaskCashoutProcess      = "cashout:process"
-	TaskMerchantBatchPayout = "cashout:merchant_batch" // daily 18:00 WAT standard withdrawals
+	TaskMerchantBatchPayout = "cashout:merchant_batch"
 	TaskEscrowReconcile     = "ledger:escrow_reconcile"
 	TaskPlatformSnapshot    = "ledger:platform_snapshot"
 	TaskOnboardUser         = "user:onboard"
 	TaskPurgeRecipientPII   = "order:purge_recipient_pii"
-	TaskReviewAggregate     = "review:aggregate" // recompute rating + award badges
+	TaskReviewAggregate     = "review:aggregate"
+	TaskAssembleRuns        = "run:assemble"
+	TaskFillAccuracy        = "gas:fill_accuracy"
+	TaskBurnRateUpdate      = "gas:burn_rate_update"
+	TaskRecertReminders     = "gas:recert_reminders"
 )
 
 // ── Scheduler (cron) ──────────────────────────────────────────────────────────
@@ -34,20 +40,17 @@ func NewScheduler(redisURL string) *asynq.Scheduler {
 	opt, _ := asynq.ParseRedisURI(redisURL)
 	s := asynq.NewScheduler(opt, nil)
 
-	// Weekly payout — every Monday 02:00 WAT (UTC+1)
 	s.Register("0 1 * * 1", asynq.NewTask(TaskWeeklyPayout, nil))
-	// Expire stale offers — every minute
 	s.Register("*/1 * * * *", asynq.NewTask(TaskExpireOffers, nil))
-	// Subscription charge check — daily 06:00 UTC
 	s.Register("0 6 * * *", asynq.NewTask(TaskSubscriptionRun, nil))
-	// Merchant standard withdrawal batch — daily 17:00 UTC (18:00 WAT)
 	s.Register("0 17 * * *", asynq.NewTask(TaskMerchantBatchPayout, nil))
-	// Escrow reconciliation — daily 02:30 WAT (01:30 UTC)
 	s.Register("30 1 * * *", asynq.NewTask(TaskEscrowReconcile, nil))
-	// Platform balance snapshot — daily 03:00 WAT (02:00 UTC)
 	s.Register("0 2 * * *", asynq.NewTask(TaskPlatformSnapshot, nil))
-	// NDPR recipient PII purge — daily 04:00 WAT (03:00 UTC)
 	s.Register("0 3 * * *", asynq.NewTask(TaskPurgeRecipientPII, nil))
+	s.Register("*/30 6-17 * * *", asynq.NewTask(TaskAssembleRuns, nil))
+	s.Register("30 2 * * *", asynq.NewTask(TaskFillAccuracy, nil))
+	s.Register("0 3 * * *", asynq.NewTask(TaskBurnRateUpdate, nil))
+	s.Register("0 4 * * *", asynq.NewTask(TaskRecertReminders, nil))
 
 	return s
 }
@@ -79,7 +82,11 @@ type Handlers struct {
 	ledger        *service.LedgerService
 	onboarding    onboardingRunner
 	orders        *service.OrderService
+	runs          *service.RunService
 	asynqClient   *asynq.Client
+	// FIX #3: explicit *gorm.DB so the worker never calls wallet.DB() which
+	// returns nil and causes a guaranteed nil-pointer panic on every cashout task.
+	db *gorm.DB
 }
 
 // onboardingRunner is the subset of ports.OnboardingRunner used by the worker.
@@ -91,11 +98,15 @@ func NewHandlers(wallet *service.WalletService, dispatch *service.DispatchServic
 	return &Handlers{wallet: wallet, dispatch: dispatch, ledger: ledger, subscriptions: subscriptions, onboarding: onboarding, asynqClient: asynqClient}
 }
 
-// InjectOrders wires OrderService after construction (avoids widening the
-// NewHandlers constructor for a single cron dependency).
-func (h *Handlers) InjectOrders(o *service.OrderService) {
-	h.orders = o
-}
+// InjectDB wires the GORM DB handle needed by the cashout worker.
+// Must be called before the worker server starts.
+func (h *Handlers) InjectDB(db *gorm.DB) { h.db = db }
+
+// InjectRuns wires RunService after construction.
+func (h *Handlers) InjectRuns(r *service.RunService) { h.runs = r }
+
+// InjectOrders wires OrderService after construction.
+func (h *Handlers) InjectOrders(o *service.OrderService) { h.orders = o }
 
 func (h *Handlers) Register(mux *asynq.ServeMux) {
 	mux.HandleFunc(TaskWeeklyPayout, h.handleWeeklyPayout)
@@ -108,6 +119,10 @@ func (h *Handlers) Register(mux *asynq.ServeMux) {
 	mux.HandleFunc(TaskOnboardUser, h.handleOnboardUser)
 	mux.HandleFunc(TaskPurgeRecipientPII, h.handlePurgeRecipientPII)
 	mux.HandleFunc(TaskReviewAggregate, h.handleReviewAggregate)
+	mux.HandleFunc(TaskAssembleRuns, h.handleAssembleRuns)
+	mux.HandleFunc(TaskFillAccuracy, h.handleFillAccuracy)
+	mux.HandleFunc(TaskBurnRateUpdate, h.handleBurnRateUpdate)
+	mux.HandleFunc(TaskRecertReminders, h.handleRecertReminders)
 }
 
 func (h *Handlers) handleWeeklyPayout(ctx context.Context, _ *asynq.Task) error {
@@ -150,7 +165,7 @@ func (h *Handlers) handlePlatformSnapshot(ctx context.Context, _ *asynq.Task) er
 
 func (h *Handlers) handlePurgeRecipientPII(ctx context.Context, _ *asynq.Task) error {
 	if h.orders == nil {
-		return nil // not wired (e.g. tests) — skip rather than fail the whole worker
+		return nil
 	}
 	n, err := h.orders.PurgeStaleRecipientPII(ctx)
 	if err != nil {
@@ -166,68 +181,73 @@ type CashoutPayload struct {
 }
 
 func (h *Handlers) handleCashoutProcess(ctx context.Context, t *asynq.Task) error {
+	if h.db == nil {
+		return fmt.Errorf("cashout worker: DB not injected — call InjectDB before starting the server")
+	}
+
 	var p CashoutPayload
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
 		return fmt.Errorf("cashout payload: %w", err)
 	}
-
 	cashoutID, err := uuid.Parse(p.CashoutID)
 	if err != nil {
 		return fmt.Errorf("cashout: invalid id: %w", err)
 	}
 
-	// Load cashout
+	// FIX #10: use SELECT FOR UPDATE inside a transaction to prevent two
+	// concurrent retries from both reading status="pending" and double-paying.
 	var cashout model.CashoutRequest
-	if err := h.wallet.DB().WithContext(ctx).First(&cashout, "id = ?", cashoutID).Error; err != nil {
-		return fmt.Errorf("cashout not found: %w", err)
+	err = h.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			First(&cashout, "id = ?", cashoutID).Error; err != nil {
+			return fmt.Errorf("cashout not found: %w", err)
+		}
+		if cashout.Status != "pending" {
+			return nil // already processed — idempotent exit
+		}
+		cashout.Status = "processing"
+		return tx.Save(&cashout).Error
+	})
+	if err != nil {
+		return fmt.Errorf("cashout: claim processing: %w", err)
 	}
-	if cashout.Status != "pending" {
+	if cashout.Status != "processing" {
 		slog.Info("worker: cashout already processed", "id", cashoutID, "status", cashout.Status)
-		return nil // idempotent
+		return nil
 	}
 
-	// Resolve bank account
-	recipientCode, reason, err := h.wallet.ResolveCashoutRecipient(ctx, &cashout)
+	recipientCode, _, reason, err := h.wallet.ResolveCashoutRecipient(ctx, &cashout)
 	if err != nil {
 		return fmt.Errorf("cashout recipient: %w", err)
 	}
 
-	// Mark processing to prevent duplicate transfers on concurrent retries
-	cashout.Status = "processing"
-	if err := h.wallet.DB().WithContext(ctx).Save(&cashout).Error; err != nil {
-		return fmt.Errorf("cashout: mark processing: %w", err)
-	}
-
-	// Initiate provider transfer
 	resp, err := h.wallet.Provider().InitiateTransfer(ctx, payment.TransferRequest{
 		AmountKobo:    cashout.AmountKobo,
 		RecipientCode: recipientCode,
 		Reference:     cashout.ID.String(),
 		Reason:        reason,
 	})
-
 	if err != nil {
-		// Check if this is the last retry — asynq sets retried count in context
 		retried, _ := asynq.GetRetryCount(ctx)
 		maxRetry, _ := asynq.GetMaxRetry(ctx)
 		if retried >= maxRetry {
-			// Final failure — reverse the ledger debit so merchant gets money back
 			slog.Error("worker: cashout final failure, reversing", "id", cashoutID, "err", err)
 			if reverseErr := h.wallet.ReverseCashout(ctx, &cashout); reverseErr != nil {
 				observability.CaptureError(ctx, reverseErr, "cashout: reversal failed", "cashout_id", cashoutID.String())
 			}
-			return nil // don't retry after reversal
+			return nil
 		}
-		return fmt.Errorf("cashout: provider transfer: %w", err) // retryable
+		// Reset to pending so the next retry can re-claim it.
+		cashout.Status = "pending"
+		h.db.WithContext(ctx).Save(&cashout) //nolint:errcheck — best-effort reset
+		return fmt.Errorf("cashout: provider transfer: %w", err)
 	}
 
-	// Success — mark paid and store provider reference
 	cashout.Status = "paid"
 	cashout.ProviderRef = &resp.TransferCode
-	if err := h.wallet.DB().WithContext(ctx).Save(&cashout).Error; err != nil {
+	if err := h.db.WithContext(ctx).Save(&cashout).Error; err != nil {
 		observability.CaptureError(ctx, err, "cashout: mark paid failed", "cashout_id", cashoutID.String())
-		// Transfer already sent — don't retry or we'd double-send. Log and move on.
-		return nil
+		return nil // transfer already sent — don't retry
 	}
 	slog.Info("worker: cashout paid", "id", cashoutID, "provider_ref", resp.TransferCode)
 	return nil
@@ -247,10 +267,11 @@ func EnqueueCashout(client *asynq.Client, cashoutID string) error {
 
 func (h *Handlers) handleMerchantBatchPayout(ctx context.Context, _ *asynq.Task) error {
 	slog.Info("worker: merchant batch payout starting")
-	// Find all pending standard merchant cashouts and enqueue them now.
-	// "standard" cashouts were not enqueued at creation — this is their trigger.
+	if h.db == nil {
+		return fmt.Errorf("merchant batch: DB not injected")
+	}
 	var pending []model.CashoutRequest
-	if err := h.wallet.DB().WithContext(ctx).
+	if err := h.db.WithContext(ctx).
 		Where("actor_type = 'merchant' AND status = 'pending'").
 		Find(&pending).Error; err != nil {
 		return fmt.Errorf("merchant batch: query pending: %w", err)
@@ -261,7 +282,7 @@ func (h *Handlers) handleMerchantBatchPayout(ctx context.Context, _ *asynq.Task)
 		task := asynq.NewTask(TaskCashoutProcess, payload,
 			asynq.Queue("default"),
 			asynq.MaxRetry(3),
-			asynq.TaskID("cashout:"+c.ID.String()), // deduplication key
+			asynq.TaskID("cashout:"+c.ID.String()),
 		)
 		if _, err := h.asynqClient.Enqueue(task); err != nil {
 			observability.CaptureError(ctx, err, "merchant batch: enqueue failed", "cashout_id", c.ID.String())
@@ -287,12 +308,9 @@ func (h *Handlers) handleOnboardUser(ctx context.Context, t *asynq.Task) error {
 // ReviewAggregatePayload is the typed payload for post-review recomputation.
 type ReviewAggregatePayload struct {
 	RevieweeID   string `json:"reviewee_id"`
-	RevieweeType string `json:"reviewee_type"` // driver|merchant
+	RevieweeType string `json:"reviewee_type"`
 }
 
-// handleReviewAggregate recomputes the reviewee's average rating and, for
-// drivers, awards any newly-earned milestone badges. Runs in the worker so a
-// failure is retried and observable instead of vanishing in a goroutine.
 func (h *Handlers) handleReviewAggregate(ctx context.Context, t *asynq.Task) error {
 	var p ReviewAggregatePayload
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
@@ -316,8 +334,7 @@ func (h *Handlers) handleReviewAggregate(ctx context.Context, t *asynq.Task) err
 	return nil
 }
 
-// EnqueueReviewAggregate schedules rating recomputation + badge award after a
-// review is submitted. Replaces two fire-and-forget goroutines.
+// EnqueueReviewAggregate schedules rating recomputation + badge award after a review.
 func EnqueueReviewAggregate(client *asynq.Client, revieweeID, revieweeType string) error {
 	payload, _ := json.Marshal(ReviewAggregatePayload{RevieweeID: revieweeID, RevieweeType: revieweeType})
 	task := asynq.NewTask(TaskReviewAggregate, payload,
@@ -329,7 +346,6 @@ func EnqueueReviewAggregate(client *asynq.Client, revieweeID, revieweeType strin
 }
 
 // EnqueueOnboarding enqueues DVA + card + trust-tier creation for a new user.
-// Retried up to 5 times with asynq backoff — replaces the fire-and-forget goroutine.
 func EnqueueOnboarding(client *asynq.Client, userID string) error {
 	payload, _ := json.Marshal(OnboardPayload{UserID: userID})
 	task := asynq.NewTask(TaskOnboardUser, payload,
@@ -338,4 +354,48 @@ func EnqueueOnboarding(client *asynq.Client, userID string) error {
 	)
 	_, err := client.Enqueue(task)
 	return err
+}
+
+func (h *Handlers) handleAssembleRuns(ctx context.Context, _ *asynq.Task) error {
+	if h.runs == nil {
+		return nil
+	}
+	slog.Info("worker: assembling gas delivery runs")
+	return h.runs.AssembleAllDueRuns(ctx)
+}
+
+func (h *Handlers) handleFillAccuracy(ctx context.Context, _ *asynq.Task) error {
+	if h.orders == nil {
+		return nil
+	}
+	slog.Info("worker: recomputing gas fill accuracy")
+	return h.orders.RecomputeFillAccuracy(ctx)
+}
+
+func (h *Handlers) handleBurnRateUpdate(ctx context.Context, _ *asynq.Task) error {
+	if h.subscriptions == nil {
+		return nil
+	}
+	slog.Info("worker: updating gas burn rates")
+	return h.subscriptions.UpdateBurnRates(ctx)
+}
+
+func (h *Handlers) handleRecertReminders(ctx context.Context, _ *asynq.Task) error {
+	if h.orders == nil {
+		return nil
+	}
+	results, err := h.orders.RecertReminders(ctx)
+	if err != nil {
+		return err
+	}
+	slog.Info("worker: cylinder recert reminders", "count", len(results))
+	for _, r := range results {
+		slog.Info("recert reminder",
+			"cylinder_id", r.CylinderID,
+			"user_id", r.UserID,
+			"serial", r.Serial,
+			"days_until_expiry", r.DaysUntilExpiry,
+		)
+	}
+	return nil
 }

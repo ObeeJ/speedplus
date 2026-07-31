@@ -1,0 +1,27 @@
+ALTER TABLE merchants
+    DROP COLUMN IF EXISTS float_count,
+    DROP COLUMN IF EXISTS plant_capacity_kg,
+    DROP COLUMN IF EXISTS is_gas_plant;
+
+ALTER TABLE order_items
+    DROP COLUMN IF EXISTS cylinder_spec_id;
+
+ALTER TABLE orders
+    DROP COLUMN IF EXISTS cylinder_id,
+    DROP COLUMN IF EXISTS gas_mode;
+
+ALTER TABLE customer_cylinders
+    DROP COLUMN IF EXISTS notes,
+    DROP COLUMN IF EXISTS tare_kg,
+    DROP COLUMN IF EXISTS valve_type,
+    DROP COLUMN IF EXISTS manufacture_year,
+    DROP COLUMN IF EXISTS spec_id;
+
+DELETE FROM cylinder_specs WHERE id IN (
+    '00000000-0000-0000-0000-000000000021',
+    '00000000-0000-0000-0000-000000000022',
+    '00000000-0000-0000-0000-000000000023',
+    '00000000-0000-0000-0000-000000000024'
+);
+
+DROP TABLE IF EXISTS cylinder_specs;

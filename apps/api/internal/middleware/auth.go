@@ -9,25 +9,16 @@ import (
 )
 
 const (
-	CtxUserID   = "user_id"
-	CtxUserRole = "user_role"
+	CtxUserID     = "user_id"
+	CtxUserRole   = "user_role"
+	CtxIsVerified = "is_verified"
 )
 
 func Auth(authSvc *service.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Browsers cannot set an Authorization header on a WebSocket handshake.
-		// Preferred carrier is the Sec-WebSocket-Protocol header ("bearer,
-		// <token>"), which keeps the credential out of the URL entirely.
-		// ?token= remains as a deprecated fallback for older clients: query
-		// strings are commonly captured by upstream proxy/CDN access logs
-		// (our own logger records only URL.Path). Remove the fallback once
-		// every client has moved to the subprotocol form.
 		var raw string
 		if isWSUpgrade(c.Request) {
 			raw = wsTokenFromSubprotocol(c.Request)
-			if raw == "" {
-				raw = c.Query("token")
-			}
 		}
 		if raw == "" {
 			header := c.GetHeader("Authorization")
@@ -50,6 +41,7 @@ func Auth(authSvc *service.AuthService) gin.HandlerFunc {
 
 		c.Set(CtxUserID, claims.UserID)
 		c.Set(CtxUserRole, claims.Role)
+		c.Set(CtxIsVerified, claims.IsVerified)
 		c.Next()
 	}
 }
@@ -86,6 +78,23 @@ func wsTokenFromSubprotocol(r *http.Request) string {
 		}
 	}
 	return ""
+}
+
+// RequireVerified blocks unverified users from money-moving endpoints.
+// IsVerified is baked into the JWT at issue time — no DB hit required.
+func RequireVerified() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !c.GetBool(CtxIsVerified) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": gin.H{
+					"code":    "UNVERIFIED",
+					"message": "Phone verification required before placing orders.",
+				},
+			})
+			return
+		}
+		c.Next()
+	}
 }
 
 // RequireRole enforces vertical RBAC.

@@ -179,3 +179,6 @@ jobs:
 
       - name: Typecheck merchant app
         run: pnpm --filter merchant exec tsc --noEmit
+
+      - name: Audit frontend dependencies
+        run: pnpm audit --audit-level=high

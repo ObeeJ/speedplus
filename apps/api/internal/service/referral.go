@@ -6,56 +6,50 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
+	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
 )
 
-const ReferralRewardKobo = 50000 // ₦500 to referrer wallet after referee's first qualifying order
-
-// ReferralMinOrderKobo: orders below this subtotal don't qualify (and don't
-// consume the reward — a later qualifying order still pays it). Blocks
-// bonus-farming via ₦100 token orders.
-const ReferralMinOrderKobo = 200000 // ₦2,000
+const ReferralRewardKobo = 50000
+const ReferralMinOrderKobo = 200000
 
 type ReferralService struct {
-	db      *gorm.DB
+	repo    repo.ReferralRepo
+	users   repo.UserRepo
 	ledger  *LedgerService
 	loyalty *LoyaltyService
 }
 
-func NewReferralService(db *gorm.DB, ledger *LedgerService, loyalty *LoyaltyService) *ReferralService {
-	return &ReferralService{db: db, ledger: ledger, loyalty: loyalty}
+func NewReferralService(r repo.ReferralRepo, users repo.UserRepo, ledger *LedgerService, loyalty *LoyaltyService) *ReferralService {
+	return &ReferralService{repo: r, users: users, ledger: ledger, loyalty: loyalty}
 }
 
-// Record links referee to referrer at registration. Safe to call with empty code.
-// Rejects self-referral (same user or same phone across accounts) and referrers
-// whose trust tier is frozen.
 func (s *ReferralService) Record(ctx context.Context, refereeID uuid.UUID, referrerID uuid.UUID) error {
 	if referrerID == refereeID {
 		return nil
 	}
 
-	var referrer, referee model.User
-	if err := s.db.WithContext(ctx).First(&referrer, referrerID).Error; err != nil {
-		return nil // unknown referrer code — ignore silently, registration proceeds
+	referrer, err := s.users.FindByID(ctx, referrerID)
+	if err != nil {
+		return nil // unknown referrer — ignore
 	}
-	if err := s.db.WithContext(ctx).First(&referee, refereeID).Error; err != nil {
+	referee, err := s.users.FindByID(ctx, refereeID)
+	if err != nil {
 		return err
 	}
 	if normalizePhone(referrer.Phone) != "" && normalizePhone(referrer.Phone) == normalizePhone(referee.Phone) {
-		return nil // same human, different account — no referral link
+		return nil
 	}
 
-	var tier model.UserTrustTier
-	if err := s.db.WithContext(ctx).Where("user_id = ?", referrerID).First(&tier).Error; err == nil && tier.Frozen {
-		return nil // frozen accounts earn nothing
+	tier, err := s.repo.FindTrustTier(ctx, referrerID)
+	if err == nil && tier.Frozen {
+		return nil
 	}
 
-	ref := model.Referral{ID: uuid.New(), ReferrerID: referrerID, RefereeID: refereeID}
-	return s.db.WithContext(ctx).Create(&ref).Error
+	ref := &model.Referral{ID: uuid.New(), ReferrerID: referrerID, RefereeID: refereeID}
+	return s.repo.CreateReferral(ctx, ref)
 }
 
-// normalizePhone strips non-digits and maps a leading 0 to +234 so the same
-// SIM registered two ways still matches.
 func normalizePhone(p string) string {
 	var b []rune
 	for _, r := range p {
@@ -70,18 +64,15 @@ func normalizePhone(p string) string {
 	return n
 }
 
-// SettleCompletedOrder pays out the referral reward after a referee's
-// completed order, provided the order meets the minimum subtotal. Idempotent —
-// reward_paid_at guards double payment.
 func (s *ReferralService) SettleCompletedOrder(ctx context.Context, refereeID uuid.UUID, subtotalKobo int64) error {
 	if subtotalKobo < ReferralMinOrderKobo {
-		return nil // below threshold: reward stays pending for a later qualifying order
+		return nil
 	}
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var ref model.Referral
-		if err := tx.Where("referee_id = ? AND reward_paid_at IS NULL", refereeID).First(&ref).Error; err != nil {
+	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		ref, err := s.repo.FindUnpaidReferral(ctx, tx, refereeID)
+		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil // no referral, nothing to do
+				return nil
 			}
 			return err
 		}
@@ -95,6 +86,6 @@ func (s *ReferralService) SettleCompletedOrder(ctx context.Context, refereeID uu
 			return err
 		}
 
-		return tx.Model(&ref).Update("reward_paid_at", gorm.Expr("NOW()")).Error
+		return s.repo.MarkReferralPaidTx(ctx, tx, ref)
 	})
 }

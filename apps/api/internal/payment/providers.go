@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
-	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
@@ -70,10 +69,11 @@ type VerifyResponse struct {
 }
 
 type TransferRequest struct {
-	AmountKobo    int64
-	RecipientCode string
-	Reference     string
-	Reason        string
+	AmountKobo             int64
+	RecipientCode          string
+	Reference              string
+	Reason                 string
+	DestinationAccountName string // required by Monnify; ignored by Paystack/Flutterwave
 }
 
 type TransferResponse struct {
@@ -85,14 +85,28 @@ type TransferResponse struct {
 
 type PaystackProvider struct {
 	secretKey  string
+	baseURL    string
 	httpClient *http.Client
 }
 
 func NewPaystack(secretKey string) *PaystackProvider {
 	return &PaystackProvider{
 		secretKey:  secretKey,
+		baseURL:    "https://api.paystack.co",
 		httpClient: &http.Client{Timeout: 15 * time.Second},
 	}
+}
+
+// NewPaystackWithURL is for testing — allows injecting a mock server URL.
+func NewPaystackWithURL(secretKey, baseURL string) *PaystackProvider {
+	return &PaystackProvider{secretKey: secretKey, baseURL: baseURL, httpClient: &http.Client{Timeout: 15 * time.Second}}
+}
+
+// PaystackHMAC returns the HMAC-SHA512 hex digest of payload, for use in tests.
+func PaystackHMAC(payload []byte, secretKey string) string {
+	mac := hmac.New(sha512.New, []byte(secretKey))
+	mac.Write(payload)
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func (p *PaystackProvider) Name() string { return "paystack" }
@@ -194,7 +208,7 @@ func (p *PaystackProvider) VerifyWebhookSignature(payload []byte, signature stri
 
 func (p *PaystackProvider) post(ctx context.Context, path string, body interface{}, out interface{}) error {
 	b, _ := json.Marshal(body)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.paystack.co"+path, bytes.NewReader(b))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+path, bytes.NewReader(b))
 	req.Header.Set("Authorization", "Bearer "+p.secretKey)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := p.httpClient.Do(req)
@@ -206,7 +220,7 @@ func (p *PaystackProvider) post(ctx context.Context, path string, body interface
 }
 
 func (p *PaystackProvider) get(ctx context.Context, path string, out interface{}) error {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.paystack.co"+path, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+path, nil)
 	req.Header.Set("Authorization", "Bearer "+p.secretKey)
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
@@ -221,6 +235,7 @@ func (p *PaystackProvider) get(ctx context.Context, path string, out interface{}
 type FlutterwaveProvider struct {
 	secretKey  string
 	verifyHash string
+	baseURL    string
 	httpClient *http.Client
 }
 
@@ -228,8 +243,14 @@ func NewFlutterwave(secretKey, verifyHash string) *FlutterwaveProvider {
 	return &FlutterwaveProvider{
 		secretKey:  secretKey,
 		verifyHash: verifyHash,
+		baseURL:    "https://api.flutterwave.com/v3",
 		httpClient: &http.Client{Timeout: 15 * time.Second},
 	}
+}
+
+// NewFlutterwaveWithURL is for testing — allows injecting a mock server URL.
+func NewFlutterwaveWithURL(secretKey, verifyHash, baseURL string) *FlutterwaveProvider {
+	return &FlutterwaveProvider{secretKey: secretKey, verifyHash: verifyHash, baseURL: baseURL, httpClient: &http.Client{Timeout: 15 * time.Second}}
 }
 
 func (f *FlutterwaveProvider) Name() string { return "flutterwave" }
@@ -237,7 +258,7 @@ func (f *FlutterwaveProvider) Name() string { return "flutterwave" }
 func (f *FlutterwaveProvider) InitiateCharge(ctx context.Context, req ChargeRequest) (*ChargeResponse, error) {
 	body := map[string]interface{}{
 		"tx_ref":       req.Reference,
-		"amount":       req.AmountKobo / 100, // Flutterwave uses naira, not kobo
+		"amount":       float64(req.AmountKobo) / 100, // Flutterwave uses naira (float), not kobo
 		"currency":     "NGN",
 		"redirect_url": req.CallbackURL,
 		"customer":     map[string]string{"email": req.Email},
@@ -263,10 +284,9 @@ func (f *FlutterwaveProvider) VerifyTransaction(ctx context.Context, ref string)
 	var resp struct {
 		Status string `json:"status"`
 		Data   struct {
-			TxRef     string  `json:"tx_ref"`
-			Amount    float64 `json:"amount"`
-			Status    string  `json:"status"`
-			CreatedAt string  `json:"created_at"`
+			TxRef  string  `json:"tx_ref"`
+			Amount float64 `json:"amount"`
+			Status string  `json:"status"` // "successful" | "failed" | "pending"
 		} `json:"data"`
 		Message string `json:"message"`
 	}
@@ -276,6 +296,8 @@ func (f *FlutterwaveProvider) VerifyTransaction(ctx context.Context, ref string)
 	status := "failed"
 	if resp.Data.Status == "successful" {
 		status = "success"
+	} else if resp.Data.Status == "pending" {
+		status = "pending"
 	}
 	return &VerifyResponse{
 		Reference:  resp.Data.TxRef,
@@ -285,13 +307,18 @@ func (f *FlutterwaveProvider) VerifyTransaction(ctx context.Context, ref string)
 }
 
 func (f *FlutterwaveProvider) InitiateTransfer(ctx context.Context, req TransferRequest) (*TransferResponse, error) {
+	// RecipientCode must be formatted as "bankCode:accountNumber" by the caller.
+	parts := strings.SplitN(req.RecipientCode, ":", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("flutterwave transfer: RecipientCode must be 'bankCode:accountNumber'")
+	}
 	body := map[string]interface{}{
-		"account_bank":    "000", // set by caller via recipient code
-		"account_number":  req.RecipientCode,
-		"amount":          req.AmountKobo / 100,
-		"currency":        "NGN",
-		"reference":       req.Reference,
-		"narration":       req.Reason,
+		"account_bank":   parts[0],
+		"account_number": parts[1],
+		"amount":         float64(req.AmountKobo) / 100,
+		"currency":       "NGN",
+		"reference":      req.Reference,
+		"narration":      req.Reason,
 	}
 	var resp struct {
 		Status  string `json:"status"`
@@ -304,24 +331,23 @@ func (f *FlutterwaveProvider) InitiateTransfer(ctx context.Context, req Transfer
 	if err := f.post(ctx, "/transfers", body, &resp); err != nil {
 		return nil, err
 	}
+	if resp.Status != "success" {
+		return nil, fmt.Errorf("flutterwave transfer: %s", resp.Message)
+	}
 	return &TransferResponse{Status: resp.Data.Status}, nil
 }
 
 // VerifyWebhookSignature validates Flutterwave webhook authenticity.
-// Flutterwave signs the raw request body with HMAC-SHA256 keyed by the
-// secret key and sends the hex digest in the "verif-hash" header.
-// The static verifyHash field is kept for legacy config compatibility but
-// is NOT used for verification — only the cryptographic body signature is.
-func (f *FlutterwaveProvider) VerifyWebhookSignature(payload []byte, signature string) bool {
-	mac := hmac.New(sha256.New, []byte(f.secretKey))
-	mac.Write(payload)
-	expected := hex.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte(expected), []byte(signature))
+// Flutterwave sends a static secret hash (set in the dashboard) in the
+// "verif-hash" header — it is NOT an HMAC of the body. We compare it
+// against the verifyHash field set at construction time.
+func (f *FlutterwaveProvider) VerifyWebhookSignature(_ []byte, signature string) bool {
+	return f.verifyHash != "" && hmac.Equal([]byte(f.verifyHash), []byte(signature))
 }
 
 func (f *FlutterwaveProvider) post(ctx context.Context, path string, body interface{}, out interface{}) error {
 	b, _ := json.Marshal(body)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.flutterwave.com/v3"+path, bytes.NewReader(b))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, f.baseURL+path, bytes.NewReader(b))
 	req.Header.Set("Authorization", "Bearer "+f.secretKey)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := f.httpClient.Do(req)
@@ -333,7 +359,7 @@ func (f *FlutterwaveProvider) post(ctx context.Context, path string, body interf
 }
 
 func (f *FlutterwaveProvider) get(ctx context.Context, path string, out interface{}) error {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.flutterwave.com/v3"+path, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, f.baseURL+path, nil)
 	req.Header.Set("Authorization", "Bearer "+f.secretKey)
 	resp, err := f.httpClient.Do(req)
 	if err != nil {
@@ -355,11 +381,12 @@ func ReadBody(r io.Reader) ([]byte, error) {
 // multiplied by 100 on the way in.
 
 type MonnifyProvider struct {
-	apiKey       string
-	secretKey    string
-	contractCode string
-	baseURL      string
-	httpClient   *http.Client
+	apiKey              string
+	secretKey           string
+	contractCode        string
+	walletAccountNumber string // disbursement source — distinct from contractCode
+	baseURL             string
+	httpClient          *http.Client
 
 	// token cache — refreshed lazily when expired; mu guards token+tokenExp
 	mu       sync.Mutex
@@ -367,13 +394,14 @@ type MonnifyProvider struct {
 	tokenExp time.Time
 }
 
-func NewMonnify(apiKey, secretKey, contractCode string) *MonnifyProvider {
+func NewMonnify(apiKey, secretKey, contractCode, walletAccountNumber string) *MonnifyProvider {
 	return &MonnifyProvider{
-		apiKey:       apiKey,
-		secretKey:    secretKey,
-		contractCode: contractCode,
-		baseURL:      "https://api.monnify.com",
-		httpClient:   &http.Client{Timeout: 15 * time.Second},
+		apiKey:              apiKey,
+		secretKey:           secretKey,
+		contractCode:        contractCode,
+		walletAccountNumber: walletAccountNumber,
+		baseURL:             "https://api.monnify.com",
+		httpClient:          &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
@@ -544,13 +572,14 @@ func (m *MonnifyProvider) InitiateTransfer(ctx context.Context, req TransferRequ
 	amountNaira := float64(req.AmountKobo) / 100.0
 
 	body := map[string]interface{}{
-		"amount":                    amountNaira,
-		"reference":                 req.Reference,
-		"narration":                 req.Reason,
-		"destinationBankCode":       bankCode,
-		"destinationAccountNumber":  accountNumber,
-		"currency":                  "NGN",
-		"sourceAccountNumber":       m.contractCode, // Monnify uses contract code as source
+		"amount":                   amountNaira,
+		"reference":                req.Reference,
+		"narration":                req.Reason,
+		"destinationBankCode":      bankCode,
+		"destinationAccountNumber": accountNumber,
+		"destinationAccountName":   req.DestinationAccountName,
+		"currency":                 "NGN",
+		"sourceAccountNumber":      m.walletAccountNumber,
 	}
 
 	var result struct {
@@ -590,7 +619,7 @@ func (m *MonnifyProvider) CreateReservedAccount(ctx context.Context, req DVARequ
 		"customerEmail":       req.Email,
 		"customerName":        req.FullName,
 		"getAllAvailableBanks": false,
-		"preferredBanks":      []string{"035"}, // Wema Bank
+		"preferredBanks":      []string{"50515"}, // Moniepoint Microfinance Bank (Monnify default)
 	}
 
 	var result struct {
@@ -663,40 +692,66 @@ type USSDResponse struct {
 
 // InitiateUSSD generates a USSD shortcode for wallet funding via Monnify.
 // bankCode is the CBN bank code (e.g. "058" = GTBank, "057" = Zenith).
-// Confirmation arrives via the existing SUCCESSFUL_TRANSACTION webhook.
+// Correct flow per Monnify docs:
+//  1. POST /api/v1/merchant/transactions/init-transaction → get transactionReference
+//  2. POST /api/v1/merchant/bank-transfer/init-payment with transactionReference + bankCode → get ussdPayment
+//
+// Confirmation arrives via the SUCCESSFUL_TRANSACTION webhook.
 func (m *MonnifyProvider) InitiateUSSD(ctx context.Context, bankCode string, amountKobo int64, email, ref string) (*USSDResponse, error) {
 	token, err := m.accessToken(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	body := map[string]interface{}{
-		"amount":             float64(amountKobo) / 100.0,
-		"bankCode":           bankCode,
-		"paymentReference":   ref,
-		"customerEmail":      email,
-		"paymentDescription": "SpeedPlus wallet funding",
-		"contractCode":       m.contractCode,
-		"currencyCode":       "NGN",
-	}
+	amountNaira := float64(amountKobo) / 100.0
 
-	var result struct {
+	// Step 1: initialise the transaction
+	initBody := map[string]interface{}{
+		"amount":             amountNaira,
+		"customerEmail":      email,
+		"paymentReference":   ref,
+		"paymentDescription": "SpeedPlus wallet funding",
+		"currencyCode":       "NGN",
+		"contractCode":       m.contractCode,
+		"paymentMethods":     []string{"USSD", "ACCOUNT_TRANSFER"},
+	}
+	var initResult struct {
 		RequestSuccessful bool `json:"requestSuccessful"`
 		ResponseBody      struct {
 			TransactionReference string `json:"transactionReference"`
-			UssdPaymentCode      string `json:"ussdPaymentCode"`
 		} `json:"responseBody"`
 		ResponseMessage string `json:"responseMessage"`
 	}
-	if err := m.post(ctx, token, "/api/v1/merchant/transactions/pay-with-shortcode", body, &result); err != nil {
-		return nil, err
+	if err := m.post(ctx, token, "/api/v1/merchant/transactions/init-transaction", initBody, &initResult); err != nil {
+		return nil, fmt.Errorf("monnify ussd init-transaction: %w", err)
 	}
-	if !result.RequestSuccessful {
-		return nil, fmt.Errorf("monnify ussd: %s", result.ResponseMessage)
+	if !initResult.RequestSuccessful {
+		return nil, fmt.Errorf("monnify ussd init-transaction: %s", initResult.ResponseMessage)
+	}
+	txRef := initResult.ResponseBody.TransactionReference
+
+	// Step 2: request the bank-transfer / USSD shortcode for the given bank
+	payBody := map[string]interface{}{
+		"transactionReference": txRef,
+		"bankCode":             bankCode,
+	}
+	var payResult struct {
+		RequestSuccessful bool `json:"requestSuccessful"`
+		ResponseBody      struct {
+			TransactionReference string `json:"transactionReference"`
+			UssdPayment          string `json:"ussdPayment"`
+		} `json:"responseBody"`
+		ResponseMessage string `json:"responseMessage"`
+	}
+	if err := m.post(ctx, token, "/api/v1/merchant/bank-transfer/init-payment", payBody, &payResult); err != nil {
+		return nil, fmt.Errorf("monnify ussd init-payment: %w", err)
+	}
+	if !payResult.RequestSuccessful {
+		return nil, fmt.Errorf("monnify ussd init-payment: %s", payResult.ResponseMessage)
 	}
 
 	return &USSDResponse{
-		USSDCode:    result.ResponseBody.UssdPaymentCode,
-		ProviderRef: result.ResponseBody.TransactionReference,
+		USSDCode:    payResult.ResponseBody.UssdPayment,
+		ProviderRef: payResult.ResponseBody.TransactionReference,
 	}, nil
 }

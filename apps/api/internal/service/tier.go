@@ -30,18 +30,17 @@ var (
 //	Tier 1 → Tier 0: fraud_flags > 0 OR pay-on-arrival payment failure
 //	Frozen:          permanent Tier 0, no promotion ever
 type TierService struct {
-	db   *gorm.DB // transaction boundary only — no direct queries
 	repo repo.TierRepo
 }
 
-func NewTierService(db *gorm.DB, r repo.TierRepo) *TierService {
-	return &TierService{db: db, repo: r}
+func NewTierService(r repo.TierRepo) *TierService {
+	return &TierService{repo: r}
 }
 
 // RecordCompletion increments completed_orders and re-evaluates tier.
 // Satisfies ports.TierRecorder.
 func (s *TierService) RecordCompletion(ctx context.Context, userID uuid.UUID) {
-	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.repo.Transaction(ctx, func(tx *gorm.DB) error {
 		tier, err := s.repo.LockTier(ctx, tx, userID)
 		if err != nil {
 			return err
@@ -60,7 +59,7 @@ func (s *TierService) RecordCompletion(ctx context.Context, userID uuid.UUID) {
 // RecordFraudFlag increments fraud_flags, demotes to Tier 0, and optionally
 // freezes the account permanently.
 func (s *TierService) RecordFraudFlag(ctx context.Context, userID uuid.UUID, freeze bool) {
-	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.repo.Transaction(ctx, func(tx *gorm.DB) error {
 		tier, err := s.repo.LockTier(ctx, tx, userID)
 		if err != nil {
 			return err
@@ -78,7 +77,7 @@ func (s *TierService) RecordFraudFlag(ctx context.Context, userID uuid.UUID, fre
 
 // RecordPayOnArrivalFailure resets the user to Tier 0 (not frozen).
 func (s *TierService) RecordPayOnArrivalFailure(ctx context.Context, userID uuid.UUID) {
-	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.repo.Transaction(ctx, func(tx *gorm.DB) error {
 		tier, err := s.repo.LockTier(ctx, tx, userID)
 		if err != nil {
 			return err
@@ -111,10 +110,8 @@ func (s *TierService) CanUsePayOnArrival(ctx context.Context, userID uuid.UUID, 
 	if orderTotalKobo > Tier1PODCapKobo {
 		return ErrPODCapExceeded
 	}
-	var active int64
-	if err := s.db.WithContext(ctx).Model(&model.Order{}).
-		Where("customer_id = ? AND payment_method = 'pay_on_arrival' AND status NOT IN ('delivered','cancelled','refunded')", userID).
-		Count(&active).Error; err != nil {
+	active, err := s.repo.CountActivePODOrders(ctx, userID)
+	if err != nil {
 		return err
 	}
 	if active > 0 {

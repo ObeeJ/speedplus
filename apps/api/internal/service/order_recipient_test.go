@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	appcrypto "github.com/speedplus/api/internal/crypto"
 	"github.com/speedplus/api/internal/model"
+	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
 )
 
@@ -81,7 +82,7 @@ func TestGetStops_RecipientExposureControl(t *testing.T) {
 		}
 		mustCreate(t, tx, stopActive)
 
-		svc := &OrderService{db: tx, recipients: cipher}
+		svc := &OrderService{orders: repo.NewOrderRepo(tx), recipients: cipher}
 
 		t.Run("customer sees all recipients", func(t *testing.T) {
 			stops, err := svc.GetStops(context.Background(), order.ID, customer.ID, "customer")

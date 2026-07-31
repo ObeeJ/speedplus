@@ -11,17 +11,17 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
+	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 type GiftCardService struct {
-	db     *gorm.DB
+	repo   repo.GiftCardRepo
 	ledger *LedgerService
 }
 
-func NewGiftCardService(db *gorm.DB, ledger *LedgerService) *GiftCardService {
-	return &GiftCardService{db: db, ledger: ledger}
+func NewGiftCardService(r repo.GiftCardRepo, ledger *LedgerService) *GiftCardService {
+	return &GiftCardService{repo: r, ledger: ledger}
 }
 
 func randomGiftCode() (string, error) {
@@ -34,7 +34,6 @@ func randomGiftCode() (string, error) {
 		}
 		code[i] = chars[n.Int64()]
 	}
-	// Format XXXX-XXXX-XXXX-XXXX
 	return fmt.Sprintf("%s-%s-%s-%s", code[:4], code[4:8], code[8:12], code[12:]), nil
 }
 
@@ -62,7 +61,7 @@ func (s *GiftCardService) Issue(ctx context.Context, issuerID uuid.UUID, amountK
 		IssuerID:   issuerID,
 		ExpiresAt:  expiresAt,
 	}
-	if err := s.db.WithContext(ctx).Create(gc).Error; err != nil {
+	if err := s.repo.Create(ctx, gc); err != nil {
 		return "", nil, err
 	}
 	return code, gc, nil
@@ -70,11 +69,9 @@ func (s *GiftCardService) Issue(ctx context.Context, issuerID uuid.UUID, amountK
 
 func (s *GiftCardService) Redeem(ctx context.Context, redeemerID uuid.UUID, code string) error {
 	codeHash := hashCode(code)
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var gc model.GiftCard
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("code_hash = ? AND redeemed_by IS NULL", codeHash).
-			First(&gc).Error; err != nil {
+	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		gc, err := s.repo.LockByCodeHash(ctx, tx, codeHash)
+		if err != nil {
 			return fmt.Errorf("gift card not found or already redeemed")
 		}
 		if gc.ExpiresAt != nil && time.Now().After(*gc.ExpiresAt) {
@@ -88,6 +85,6 @@ func (s *GiftCardService) Redeem(ctx context.Context, redeemerID uuid.UUID, code
 		now := time.Now()
 		gc.RedeemedBy = &redeemerID
 		gc.RedeemedAt = &now
-		return tx.Save(&gc).Error
+		return s.repo.SaveTx(ctx, tx, gc)
 	})
 }

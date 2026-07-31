@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ordersApi } from '@speedplus/api-client';
 import { apiClient } from '@speedplus/api-client';
-import type { ApiResponse } from '@speedplus/types';
+import type { ApiResponse, Order } from '@speedplus/types';
 import { Skeleton } from '@speedplus/ui';
 
 function naira(kobo: number) {
@@ -78,6 +78,7 @@ export default function OrdersPage() {
   const [status, setStatus] = useState('all');
   const [receiptOrder, setReceiptOrder] = useState<Receipt | null>(null);
   const [reviewOrder, setReviewOrder] = useState<{ orderId: string; driverId?: string; merchantId: string } | null>(null);
+  const [detailOrder, setDetailOrder] = useState<Order | null>(null);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
   const [reviewTarget, setReviewTarget] = useState<'driver' | 'merchant'>('driver');
@@ -98,10 +99,15 @@ export default function OrdersPage() {
     if (data.success) setReceiptOrder(data.data);
   }
 
+  async function openDetail(orderId: string) {
+    const order = await ordersApi.getById(orderId);
+    setDetailOrder(order);
+  }
+
   const reviewMutation = useMutation({
-    mutationFn: ({ orderId, revieweeId, revieweeType, rating, comment }: {
-      orderId: string; revieweeId: string; revieweeType: string; rating: number; comment?: string;
-    }) => apiClient.post(`/orders/${orderId}/review`, { revieweeId, revieweeType, rating, comment }),
+    mutationFn: ({ orderId, revieweeType, rating, comment }: {
+      orderId: string; revieweeType: string; rating: number; comment?: string;
+    }) => ordersApi.review(orderId, { revieweeType, rating, comment }, `review-${orderId}-${revieweeType}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['orders-list'] });
       setReviewOrder(null);
@@ -112,9 +118,7 @@ export default function OrdersPage() {
 
   function submitReview() {
     if (!reviewOrder) return;
-    const revieweeId = reviewTarget === 'driver' ? reviewOrder.driverId : reviewOrder.merchantId;
-    if (!revieweeId) return;
-    reviewMutation.mutate({ orderId: reviewOrder.orderId, revieweeId, revieweeType: reviewTarget, rating, comment: comment || undefined });
+    reviewMutation.mutate({ orderId: reviewOrder.orderId, revieweeType: reviewTarget, rating, comment: comment || undefined });
   }
 
   return (
@@ -205,10 +209,16 @@ export default function OrdersPage() {
                   </button>
                 )}
                 <button
+                  onClick={() => openDetail(order.id)}
+                  className="flex-1 text-center text-[12px] font-semibold text-[#63636E] bg-[#F7F5EF] rounded-xl py-2 hover:bg-[#EFECE3] transition-colors"
+                >
+                  Details
+                </button>
+                <button
                   onClick={() => openReceipt(order.id)}
                   className="flex-1 text-center text-[12px] font-semibold text-[#63636E] bg-[#F7F5EF] rounded-xl py-2 hover:bg-[#EFECE3] transition-colors"
                 >
-                  View receipt
+                  Receipt
                 </button>
                 {isDelivered && (
                   <button
@@ -223,6 +233,26 @@ export default function OrdersPage() {
           );
         })}
       </div>
+
+      {/* Order detail modal */}
+      {detailOrder && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4" onClick={() => setDetailOrder(null)}>
+          <div className="bg-white w-full sm:max-w-[480px] rounded-t-3xl sm:rounded-2xl p-6 flex flex-col gap-3 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <p className="font-display font-semibold text-[16px] text-[#121216] capitalize">{detailOrder.vertical} order</p>
+              <button onClick={() => setDetailOrder(null)} className="text-[#9A968D] hover:text-[#121216]">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            </div>
+            <p className="text-[11px] text-[#9A968D]">#{detailOrder.id.slice(0, 8).toUpperCase()}</p>
+            <div className="flex flex-col gap-1.5 text-[13px]">
+              <div className="flex justify-between"><span className="text-[#63636E]">Status</span><span className="font-semibold text-[#121216] capitalize">{STATUS_LABEL[detailOrder.status] ?? detailOrder.status}</span></div>
+              <div className="flex justify-between"><span className="text-[#63636E]">Total</span><span className="font-semibold text-[#121216]">{naira(detailOrder.total.amount)}</span></div>
+              <div className="flex justify-between"><span className="text-[#63636E]">Placed</span><span className="font-semibold text-[#121216]">{fmt(detailOrder.createdAt)}</span></div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Receipt modal */}
       {receiptOrder && (

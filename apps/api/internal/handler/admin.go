@@ -24,9 +24,9 @@ func NewAdminHandler(admin *service.AdminService, ledger *service.LedgerService,
 // ── Merchants ─────────────────────────────────────────────────────────────────
 
 func (h *AdminHandler) ListMerchants(c *gin.Context) {
-	status := c.Query("status") // optional filter: pending|active|suspended
-	page := queryInt(c, "page", 0)
-	merchants, err := h.admin.ListMerchants(c.Request.Context(), status, page, 20)
+	status := c.Query("status")
+	cursor := parseCursor(c)
+	merchants, err := h.admin.ListMerchants(c.Request.Context(), status, cursor, 20)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
 		return
@@ -59,9 +59,9 @@ func (h *AdminHandler) SetMerchantStatus(c *gin.Context) {
 // ── Drivers ───────────────────────────────────────────────────────────────────
 
 func (h *AdminHandler) ListDrivers(c *gin.Context) {
-	status := c.Query("status") // optional filter: pending|under_review|approved|suspended
-	page := queryInt(c, "page", 0)
-	drivers, err := h.admin.ListDrivers(c.Request.Context(), status, page, 20)
+	status := c.Query("status")
+	cursor := parseCursor(c)
+	drivers, err := h.admin.ListDrivers(c.Request.Context(), status, cursor, 20)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
 		return
@@ -94,10 +94,10 @@ func (h *AdminHandler) SetDriverStatus(c *gin.Context) {
 // ── Orders ────────────────────────────────────────────────────────────────────
 
 func (h *AdminHandler) SearchOrders(c *gin.Context) {
-	q := c.Query("q")       // order ID prefix, customer phone, or status
+	q := c.Query("q")
 	status := c.Query("status")
-	page := queryInt(c, "page", 0)
-	orders, err := h.admin.SearchOrders(c.Request.Context(), q, status, page, 20)
+	cursor := parseCursor(c)
+	orders, err := h.admin.SearchOrders(c.Request.Context(), q, status, cursor, 20)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
 		return
@@ -303,4 +303,81 @@ func queryInt(c *gin.Context, key string, def int) int {
 		return def
 	}
 	return v
+}
+
+func parseCursor(c *gin.Context) *uuid.UUID {
+	if raw := c.Query("cursor"); raw != "" {
+		if id, err := uuid.Parse(raw); err == nil {
+			return &id
+		}
+	}
+	return nil
+}
+
+// ── Gas: fill_status ──────────────────────────────────────────────────────────
+
+func (h *AdminHandler) ListGasMerchants(c *gin.Context) {
+	cursor := parseCursor(c)
+	merchants, err := h.admin.ListGasMerchants(c.Request.Context(), c.Query("fillStatus"), cursor, 20)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"merchants": merchants}))
+}
+
+func (h *AdminHandler) SetMerchantFillStatus(c *gin.Context) {
+	merchantID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid merchant ID", "id"))
+		return
+	}
+	var req struct {
+		Status string `json:"status" binding:"required,oneof=good warned probation delisted"`
+		Reason string `json:"reason" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		return
+	}
+	adminID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	if err := h.admin.SetMerchantFillStatus(c.Request.Context(), merchantID, adminID, req.Status, req.Reason); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", err.Error(), ""))
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(dto.MessageResponse{Message: "fill status updated"}))
+}
+
+// ── Gas: zones / launch_status ────────────────────────────────────────────────
+
+func (h *AdminHandler) ListZones(c *gin.Context) {
+	cursor := parseCursor(c)
+	zones, err := h.admin.ListZones(c.Request.Context(), c.Query("launchStatus"), cursor, 20)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"zones": zones}))
+}
+
+func (h *AdminHandler) SetZoneLaunchStatus(c *gin.Context) {
+	zoneID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid zone ID", "id"))
+		return
+	}
+	var req struct {
+		Status string `json:"status" binding:"required,oneof=piloting live paused"`
+		Reason string `json:"reason" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		return
+	}
+	adminID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	if err := h.admin.SetZoneLaunchStatus(c.Request.Context(), zoneID, adminID, req.Status, req.Reason); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", err.Error(), ""))
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(dto.MessageResponse{Message: "launch status updated"}))
 }

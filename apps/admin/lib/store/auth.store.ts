@@ -28,7 +28,7 @@ export const useAdminAuthStore = create<AdminAuthState>()(
     }),
     {
       name: 'speedplus-admin-auth',
-      partialize: (s) => ({ user: s.user, isAuthenticated: s.isAuthenticated }),
+      partialize: (s) => ({ user: s.user }),
     },
   ),
 );

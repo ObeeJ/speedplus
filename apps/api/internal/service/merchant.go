@@ -6,18 +6,18 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
-	"gorm.io/gorm"
+	"github.com/speedplus/api/internal/repo"
 )
 
 // MerchantService is the self-service surface for an authenticated merchant
 // managing their own business — as distinct from AdminService, which acts on
 // merchants from the operator side.
 type MerchantService struct {
-	db *gorm.DB
+	merchants repo.MerchantRepo
 }
 
-func NewMerchantService(db *gorm.DB) *MerchantService {
-	return &MerchantService{db: db}
+func NewMerchantService(merchants repo.MerchantRepo) *MerchantService {
+	return &MerchantService{merchants: merchants}
 }
 
 // ResolveByUserID maps a merchant's login User.ID to their catalog/order
@@ -25,11 +25,11 @@ func NewMerchantService(db *gorm.DB) *MerchantService {
 // this indirection exists — Order/Product/ledger rows key off Merchant.ID,
 // not the login user ID.
 func (s *MerchantService) ResolveByUserID(ctx context.Context, userID uuid.UUID) (*model.Merchant, error) {
-	var m model.Merchant
-	if err := s.db.WithContext(ctx).Where("user_id = ?", userID).First(&m).Error; err != nil {
+	m, err := s.merchants.FindByUserID(ctx, userID)
+	if err != nil {
 		return nil, fmt.Errorf("merchant profile not found: %w", err)
 	}
-	return &m, nil
+	return m, nil
 }
 
 // GetProfile returns the merchant's business row plus their onboarding/KYC
@@ -40,11 +40,11 @@ func (s *MerchantService) GetProfile(ctx context.Context, userID uuid.UUID) (*mo
 	if err != nil {
 		return nil, nil, err
 	}
-	var profile model.MerchantProfile
-	if err := s.db.WithContext(ctx).Where("user_id = ?", userID).First(&profile).Error; err != nil {
+	profile, err := s.merchants.FindProfileByUserID(ctx, userID)
+	if err != nil {
 		return merchant, nil, nil // KYC profile not yet created — not an error, just incomplete onboarding
 	}
-	return merchant, &profile, nil
+	return merchant, profile, nil
 }
 
 // SetOpen toggles whether the merchant is currently accepting orders.
@@ -54,9 +54,7 @@ func (s *MerchantService) SetOpen(ctx context.Context, userID uuid.UUID, isOpen 
 	if err != nil {
 		return err
 	}
-	return s.db.WithContext(ctx).Model(&model.Merchant{}).
-		Where("id = ?", merchant.ID).
-		Update("is_open", isOpen).Error
+	return s.merchants.SetOpen(ctx, merchant.ID, isOpen)
 }
 
 // ── Bank account management ─────────────────────────────────────────────────────────────────
@@ -67,11 +65,11 @@ func (s *MerchantService) GetBankAccount(ctx context.Context, userID uuid.UUID) 
 	if err != nil {
 		return nil, err
 	}
-	var acct model.MerchantBankAccount
-	if err := s.db.WithContext(ctx).Where("merchant_id = ?", merchant.ID).First(&acct).Error; err != nil {
+	acct, err := s.merchants.FindBankAccount(ctx, merchant.ID)
+	if err != nil {
 		return nil, nil // no account saved yet — not an error
 	}
-	return &acct, nil
+	return acct, nil
 }
 
 // SaveBankAccount upserts the merchant's withdrawal bank account.
@@ -82,7 +80,7 @@ func (s *MerchantService) SaveBankAccount(ctx context.Context, userID uuid.UUID,
 	if err != nil {
 		return nil, err
 	}
-	acct := model.MerchantBankAccount{
+	acct := &model.MerchantBankAccount{
 		MerchantID:    merchant.ID,
 		BankCode:      bankCode,
 		BankName:      bankName,
@@ -90,11 +88,8 @@ func (s *MerchantService) SaveBankAccount(ctx context.Context, userID uuid.UUID,
 		AccountName:   accountName,
 		IsVerified:    true,
 	}
-	if err := s.db.WithContext(ctx).
-		Where("merchant_id = ?", merchant.ID).
-		Assign(acct).
-		FirstOrCreate(&acct).Error; err != nil {
+	if err := s.merchants.UpsertBankAccount(ctx, acct); err != nil {
 		return nil, err
 	}
-	return &acct, nil
+	return acct, nil
 }

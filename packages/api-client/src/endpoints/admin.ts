@@ -101,6 +101,26 @@ export interface FuelSuggestion {
   suggestedPerKmKobo: number;
 }
 
+export type FillStatus = 'good' | 'warned' | 'probation' | 'delisted';
+export type LaunchStatus = 'piloting' | 'live' | 'paused';
+
+export interface GasMerchantRow {
+  id: string;
+  businessName: string;
+  fillAccuracyPct: number | null;
+  fillSampleCount: number;
+  fillStatus: FillStatus;
+}
+
+export interface ZoneRow {
+  id: string;
+  name: string;
+  launchStatus: LaunchStatus;
+  isActive: boolean;
+  windowStart: number;
+  windowEnd: number;
+}
+
 export interface LedgerEntry {
   id: string;
   journalId: string;
@@ -233,11 +253,48 @@ export const adminApi = {
     return data.data;
   },
 
+  // Gas: fill_status
+  async listGasMerchants(fillStatus?: FillStatus, page = 0) {
+    const { data } = await apiClient.get<ApiResponse<{ merchants: GasMerchantRow[] }>>('/admin/gas/merchants', {
+      params: { ...(fillStatus ? { fillStatus } : {}), page },
+    });
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
+  async setMerchantFillStatus(id: string, status: FillStatus, reason: string) {
+    const { data } = await apiClient.put<ApiResponse<{ message: string }>>(`/admin/gas/merchants/${id}/fill-status`, { status, reason });
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
+  // Gas: zones / launch_status
+  async listZones(launchStatus?: LaunchStatus, page = 0) {
+    const { data } = await apiClient.get<ApiResponse<{ zones: ZoneRow[] }>>('/admin/gas/zones', {
+      params: { ...(launchStatus ? { launchStatus } : {}), page },
+    });
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
+  async setZoneLaunchStatus(id: string, status: LaunchStatus, reason: string) {
+    const { data } = await apiClient.put<ApiResponse<{ message: string }>>(`/admin/gas/zones/${id}/launch-status`, { status, reason });
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
   // Ledger viewer
   async getLedger(userId: string, cursor?: string) {
     const { data } = await apiClient.get<ApiResponse<{ entries: LedgerEntry[] }>>('/admin/ledger', {
       params: { userId, ...(cursor ? { cursor } : {}) },
     });
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
+  // LPG price index
+  async recordLPGPrice(payload: { region: string; pricePerKgKobo: number; source: string }) {
+    const { data } = await apiClient.post<ApiResponse<{ entry: unknown; suggestion: string | null }>>('/admin/gas/price-index', payload);
     if (!data.success) throw new Error(data.error.message);
     return data.data;
   },

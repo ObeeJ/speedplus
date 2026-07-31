@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,11 +13,35 @@ import (
 )
 
 var (
-	errForbidden        = errors.New("forbidden")
-	ErrPrescriptionUsed = errors.New("prescription already reviewed")
+	errForbidden = errors.New("forbidden")
+	// ErrForbidden is the exported alias of errForbidden, for handlers that
+	// need to distinguish "not your resource" (403) from other failures
+	// (500) — see merchant.go's ReviewPrescription handler, which used to
+	// collapse every error into 403 and mask real DB failures.
+	ErrForbidden           = errForbidden
+	ErrPrescriptionUsed    = errors.New("prescription already reviewed")
+	ErrInvalidContentType  = errors.New("unsupported content type for prescription upload")
+	ErrMerchantNotPharmacy = errors.New("merchant is not a pharmacy")
+	ErrStorageUnavailable  = errors.New("media storage not configured")
 )
 
-const prescriptionViewTTL = 15 * time.Minute
+const (
+	prescriptionViewTTL   = 15 * time.Minute
+	prescriptionUploadTTL = 5 * time.Minute
+	// prescriptionValidityWindow is how long an approved Rx may be used to
+	// place an order before it expires. 48h is a placeholder default — this
+	// is a business/regulatory decision (PCN guidance, not engineering) that
+	// should be confirmed and may need to become admin-configurable per
+	// vertical rather than a compile-time constant.
+	prescriptionValidityWindow = 48 * time.Hour
+)
+
+var validPrescriptionContentTypes = map[string]bool{
+	"image/jpeg":      true,
+	"image/png":       true,
+	"image/webp":      true,
+	"application/pdf": true,
+}
 
 type CatalogService struct {
 	repo repo.CatalogRepo
@@ -47,11 +72,42 @@ func (s *CatalogService) GetMerchant(ctx context.Context, id uuid.UUID) (*model.
 	return s.repo.GetMerchant(ctx, id)
 }
 
-func (s *CatalogService) CreatePrescription(ctx context.Context, customerID uuid.UUID, r2Key string, merchantID *uuid.UUID) (*model.Prescription, error) {
+// PresignPrescriptionUpload issues a short-lived direct-upload URL and the
+// server-derived object key the client must PUT its file to. The key is never
+// accepted from the client (see CreatePrescription) — this is the only way a
+// prescription's r2Key comes into existence, so it always points at a real
+// uploaded object.
+func (s *CatalogService) PresignPrescriptionUpload(ctx context.Context, customerID uuid.UUID, contentType string) (uploadURL, key string, err error) {
+	if !validPrescriptionContentTypes[contentType] {
+		return "", "", ErrInvalidContentType
+	}
+	if s.r2 == nil {
+		return "", "", ErrStorageUnavailable
+	}
+	key = fmt.Sprintf("prescriptions/%s/%s", customerID, uuid.New())
+	url, err := s.r2.PresignPut(ctx, key, contentType, prescriptionUploadTTL)
+	if err != nil {
+		return "", "", err
+	}
+	return url, key, nil
+}
+
+// CreatePrescription requires a merchantID resolving to a pharmacy-vertical
+// merchant — a prescription with no target pharmacy could never be reviewed
+// (ReviewPrescription requires ownership match), so this is enforced at
+// creation rather than left to fail silently downstream.
+func (s *CatalogService) CreatePrescription(ctx context.Context, customerID uuid.UUID, r2Key string, merchantID uuid.UUID) (*model.Prescription, error) {
+	merchant, err := s.repo.GetMerchant(ctx, merchantID)
+	if err != nil {
+		return nil, fmt.Errorf("merchant not found: %w", err)
+	}
+	if merchant.Vertical != model.VerticalPharmacy {
+		return nil, ErrMerchantNotPharmacy
+	}
 	p := &model.Prescription{
 		ID:         uuid.New(),
 		CustomerID: customerID,
-		MerchantID: merchantID,
+		MerchantID: &merchantID,
 		R2Key:      r2Key,
 		Status:     "pending",
 	}
@@ -151,37 +207,53 @@ func (s *CatalogService) ListPrescriptionsForMerchant(ctx context.Context, merch
 			ID: p.ID, CustomerID: p.CustomerID, Status: p.Status,
 			ReviewNote: p.ReviewNote, CreatedAt: p.CreatedAt.Format(time.RFC3339),
 		}
-		if s.r2 != nil {
-			if url, err := s.r2.PresignGet(ctx, p.R2Key, prescriptionViewTTL); err == nil {
-				view.ViewURL = url
-			}
+		if s.r2 == nil {
+			return nil, ErrStorageUnavailable
 		}
+		url, err := s.r2.PresignGet(ctx, p.R2Key, prescriptionViewTTL)
+		if err != nil {
+			// Previously swallowed: a presign failure silently produced an
+			// empty viewUrl with HTTP 200, so the pharmacist saw a broken
+			// image with no error to explain why. Fail the whole call —
+			// better a visible 500 than a silently unreviewable queue.
+			return nil, fmt.Errorf("presign prescription %s: %w", p.ID, err)
+		}
+		view.ViewURL = url
 		out = append(out, view)
 	}
 	return out, nil
 }
 
-// ReviewPrescription approves or rejects a pending prescription. Ownership
-// (the prescription's merchant matches the caller) and idempotency (already
-// reviewed can't be re-reviewed) are enforced here — this is the gate
-// OrderService.Create relies on before letting a pharmacy order through.
+// ReviewPrescription approves or rejects a pending prescription in one
+// conditional UPDATE (ReviewPrescriptionAtomic) — ownership and idempotency
+// are enforced by the WHERE clause itself, not a Go-level read-then-write, so
+// two concurrent reviews of the same Rx can't both succeed (P9). This is the
+// gate OrderService.Create relies on before letting a pharmacy order through.
 func (s *CatalogService) ReviewPrescription(ctx context.Context, reviewerUserID, merchantID, prescriptionID uuid.UUID, approve bool, note *string) (*model.Prescription, error) {
-	p, err := s.repo.GetPrescriptionByID(ctx, prescriptionID)
+	newStatus := "rejected"
+	var expiresAt *time.Time
+	if approve {
+		newStatus = "approved"
+		t := time.Now().Add(prescriptionValidityWindow)
+		expiresAt = &t
+	}
+	rows, err := s.repo.ReviewPrescriptionAtomic(ctx, prescriptionID, merchantID, newStatus, reviewerUserID, note, expiresAt)
 	if err != nil {
 		return nil, err
 	}
-	if p.MerchantID == nil || *p.MerchantID != merchantID {
-		return nil, errForbidden
-	}
-	if p.Status != "pending" {
+	if rows == 0 {
+		// Ambiguous by design at this layer: not-found, not-owned, and
+		// already-reviewed all fail the same WHERE clause. Disambiguate by a
+		// cheap follow-up read so the handler can return the right status
+		// code instead of collapsing everything to 403.
+		p, gerr := s.repo.GetPrescriptionByID(ctx, prescriptionID)
+		if gerr != nil {
+			return nil, gerr
+		}
+		if p.MerchantID == nil || *p.MerchantID != merchantID {
+			return nil, errForbidden
+		}
 		return nil, ErrPrescriptionUsed
 	}
-	if approve {
-		p.Status = "approved"
-	} else {
-		p.Status = "rejected"
-	}
-	p.ReviewerID = &reviewerUserID
-	p.ReviewNote = note
-	return p, s.repo.UpdatePrescription(ctx, p)
+	return s.repo.GetPrescriptionByID(ctx, prescriptionID)
 }

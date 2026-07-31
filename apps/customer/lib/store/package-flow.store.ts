@@ -1,5 +1,7 @@
 import { create } from 'zustand';
+import type { QuoteResult } from '@speedplus/api-client';
 
+export type { QuoteResult };
 export type PackageSize = 'small' | 'medium' | 'large';
 export type PackageWeight = 'light' | 'medium' | 'heavy' | 'very_heavy';
 export type PaymentMethod = 'wallet' | 'pay_on_arrival';
@@ -19,18 +21,6 @@ export interface StopInput {
   recipientName: string;
   recipientPhone: string;
   notes: string;
-}
-
-export interface QuoteResult {
-  id: string;
-  totalKobo: number;
-  deliveryKobo: number;
-  serviceKobo: number;
-  subtotalKobo: number;
-  distanceKm: number;
-  etaMinutes: number;
-  weatherAdvisory: string;
-  expiresAt: string;
 }
 
 interface PackageFlowState {

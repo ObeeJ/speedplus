@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
@@ -18,6 +19,13 @@ type CatalogRepo interface {
 	CreatePrescription(ctx context.Context, p *model.Prescription) error
 	GetPrescription(ctx context.Context, id, customerID uuid.UUID) (*model.Prescription, error)
 	ListPrescriptions(ctx context.Context, customerID uuid.UUID) ([]model.Prescription, error)
+	// ReviewPrescriptionAtomic conditionally updates a pending prescription
+	// owned by merchantID to approved/rejected in one statement — the
+	// WHERE status='pending' clause is the concurrency guard: two
+	// simultaneous reviews of the same Rx can't both succeed, since the
+	// second UPDATE's WHERE clause no longer matches after the first commits.
+	// Returns rows affected (0 = already reviewed, or not owned by merchantID).
+	ReviewPrescriptionAtomic(ctx context.Context, id, merchantID uuid.UUID, newStatus string, reviewerID uuid.UUID, note *string, expiresAt *time.Time) (int64, error)
 
 	// Merchant catalog management. ListProductsForMerchant includes
 	// unavailable items (unlike ListProducts, which is the public/customer view).
@@ -145,4 +153,16 @@ func (r *catalogRepo) GetPrescriptionByID(ctx context.Context, id uuid.UUID) (*m
 
 func (r *catalogRepo) UpdatePrescription(ctx context.Context, p *model.Prescription) error {
 	return r.db.WithContext(ctx).Save(p).Error
+}
+
+func (r *catalogRepo) ReviewPrescriptionAtomic(ctx context.Context, id, merchantID uuid.UUID, newStatus string, reviewerID uuid.UUID, note *string, expiresAt *time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&model.Prescription{}).
+		Where("id = ? AND merchant_id = ? AND status = 'pending'", id, merchantID).
+		Updates(map[string]interface{}{
+			"status":      newStatus,
+			"reviewer_id": reviewerID,
+			"review_note": note,
+			"expires_at":  expiresAt,
+		})
+	return res.RowsAffected, res.Error
 }

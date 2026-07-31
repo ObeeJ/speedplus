@@ -8,17 +8,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
+	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 const (
-	offerRadiusKm  = 5.0
-	offerTTL       = 15 * time.Second
+	offerRadiusKm   = 5.0
+	offerTTL        = 15 * time.Second
 	maxOfferCascade = 10
 )
 
-// vehicleClassRules maps vertical → minimum vehicle type for non-gas verticals.
 var vehicleClassRules = map[string]model.VehicleType{
 	"grocery":  model.VehicleMotorcycle,
 	"food":     model.VehicleMotorcycle,
@@ -26,8 +25,6 @@ var vehicleClassRules = map[string]model.VehicleType{
 	"package":  model.VehicleMotorcycle,
 }
 
-// vehicleClassFor returns the minimum vehicle class for an order.
-// Gas derives from total cylinder weight; all other verticals use the static map.
 func vehicleClassFor(vertical string, totalKg float64) model.VehicleType {
 	if vertical == "gas" {
 		switch {
@@ -46,21 +43,27 @@ func vehicleClassFor(vertical string, totalKg float64) model.VehicleType {
 }
 
 type DispatchService struct {
-	db *gorm.DB
+	repo   repo.DispatchRepo
+	orders *OrderService
 }
 
-func NewDispatchService(db *gorm.DB) *DispatchService {
-	return &DispatchService{db: db}
+func NewDispatchService(r repo.DispatchRepo) *DispatchService {
+	return &DispatchService{repo: r}
+}
+
+// InjectOrders wires the OrderService after both services are constructed
+// (breaks the circular dependency at construction time).
+func (s *DispatchService) InjectOrders(orders *OrderService) {
+	s.orders = orders
 }
 
 type driverCandidate struct {
-	DriverID    uuid.UUID
-	DistanceKm  float64
-	Rating      float64
-	index       int
+	DriverID   uuid.UUID
+	DistanceKm float64
+	Rating     float64
+	index      int
 }
 
-// candidateHeap is a min-heap sorted by distance, then rating descending.
 type candidateHeap []*driverCandidate
 
 func (h candidateHeap) Len() int { return len(h) }
@@ -74,128 +77,82 @@ func (h candidateHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i]; h[i].inde
 func (h *candidateHeap) Push(x interface{}) { *h = append(*h, x.(*driverCandidate)) }
 func (h *candidateHeap) Pop() interface{}   { old := *h; n := len(old); x := old[n-1]; *h = old[:n-1]; return x }
 
-// DispatchCandidate is one driver targeted by a cascaded offer.
 type DispatchCandidate struct {
 	DriverID   uuid.UUID
 	OfferID    uuid.UUID
 	DistanceKm float64
 }
 
-// Dispatch finds nearby eligible drivers and creates offer records, each bound
-// to the specific driver it was cascaded to (DriverID is set at creation, not
-// left null — an offer only that driver may accept).
-// Returns the ordered list of candidates to notify (via WS).
 func (s *DispatchService) Dispatch(ctx context.Context, order *model.Order, merchantLat, merchantLng float64) ([]DispatchCandidate, error) {
-	minVehicle := vehicleClassFor(order.Vertical, order.WeightKg)
-
-	// PostGIS KNN: find online approved drivers within 5km, ordered by distance
-	type row struct {
-		DriverID   uuid.UUID
-		DistanceKm float64
-		Rating     float64
+	var totalKg float64
+	for _, item := range order.Items {
+		totalKg += item.WeightKg * float64(item.Quantity)
 	}
-	var rows []row
+	minVehicle := vehicleClassFor(order.Vertical, totalKg)
 
-	vehicleFilter := vehicleFilter(minVehicle)
+	hazmatClause := ""
+	if order.Vertical == "gas" && totalKg > 12.5 {
+		hazmatClause = " AND dp.hazmat_certified = true"
+	}
 
-	err := s.db.WithContext(ctx).Raw(`
-		SELECT dp.user_id AS driver_id,
-		       ST_Distance(dl.location::geography, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography) / 1000.0 AS distance_km,
-		       dp.rating
-		FROM driver_locations dl
-		JOIN driver_profiles dp ON dp.user_id = dl.driver_id
-		WHERE dp.is_online = true
-		  AND dp.status = 'approved'
-		  AND `+vehicleFilter+`
-		  AND ST_DWithin(dl.location::geography, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography, ?)
-		  AND dl.updated_at > NOW() - INTERVAL '30 seconds'
-		ORDER BY distance_km ASC
-		LIMIT ?
-	`, merchantLng, merchantLat, merchantLng, merchantLat, offerRadiusKm*1000, maxOfferCascade*3).
-		Scan(&rows).Error
+	nearby, err := s.repo.NearbyDrivers(ctx, merchantLat, merchantLng, offerRadiusKm*1000, vehicleFilter(minVehicle)+hazmatClause, maxOfferCascade*3)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch query: %w", err)
 	}
 
-	// Build min-heap
 	h := &candidateHeap{}
 	heap.Init(h)
-	for _, r := range rows {
-		heap.Push(h, &driverCandidate{
-			DriverID:   r.DriverID,
-			DistanceKm: r.DistanceKm,
-			Rating:     r.Rating,
-		})
+	for _, r := range nearby {
+		heap.Push(h, &driverCandidate{DriverID: r.DriverID, DistanceKm: r.DistanceKm, Rating: r.Rating})
 	}
 
-	// Create offer records for top N candidates, each bound to its driver.
 	var notifyOrder []DispatchCandidate
 	exp := time.Now().Add(offerTTL)
 	for h.Len() > 0 && len(notifyOrder) < maxOfferCascade {
 		c := heap.Pop(h).(*driverCandidate)
 		driverID := c.DriverID
-		offer := model.DeliveryOffer{
+		offer := &model.DeliveryOffer{
 			ID:        uuid.New(),
 			OrderID:   order.ID,
 			DriverID:  &driverID,
 			Status:    "pending",
 			ExpiresAt: exp,
 		}
-		if err := s.db.WithContext(ctx).Create(&offer).Error; err != nil {
+		if err := s.repo.CreateOffer(ctx, offer); err != nil {
 			continue
 		}
-		notifyOrder = append(notifyOrder, DispatchCandidate{
-			DriverID:   c.DriverID,
-			OfferID:    offer.ID,
-			DistanceKm: c.DistanceKm,
-		})
-		exp = exp.Add(offerTTL) // cascade: each driver gets 15s window
+		notifyOrder = append(notifyOrder, DispatchCandidate{DriverID: c.DriverID, OfferID: offer.ID, DistanceKm: c.DistanceKm})
+		exp = exp.Add(offerTTL)
 	}
-
 	return notifyOrder, nil
 }
 
-// AcceptOffer atomically assigns the driver to the order.
-// Offers are bound to their target driver at creation (Dispatch sets DriverID),
-// so this requires driver_id = the calling driver — a driver can only accept
-// an offer actually cascaded to them, not any pending offer by ID.
 func (s *DispatchService) AcceptOffer(ctx context.Context, offerID, driverID uuid.UUID) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		result := tx.Model(&model.DeliveryOffer{}).
-			Where("id = ? AND driver_id = ? AND status = 'pending' AND expires_at > ?", offerID, driverID, time.Now()).
-			Update("status", "accepted")
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected == 0 {
-			return fmt.Errorf("offer not found, not yours, already taken, or expired")
-		}
-
-		// Assign driver to order
-		var offer model.DeliveryOffer
-		if err := tx.First(&offer, offerID).Error; err != nil {
+	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		rows, err := s.repo.AcceptOfferTx(ctx, tx, offerID, driverID)
+		if err != nil {
 			return err
 		}
-
-		return tx.Model(&model.Order{}).
-			Where("id = ? AND driver_id IS NULL", offer.OrderID).
-			Updates(map[string]interface{}{
-				"driver_id": driverID,
-				"status":    string(model.OrderDriverAssigned),
-			}).Error
+		if rows == 0 {
+			return fmt.Errorf("offer not found, not yours, already taken, or expired")
+		}
+		offer, err := s.repo.FindOfferTx(ctx, tx, offerID)
+		if err != nil {
+			return err
+		}
+		// Set driver_id first so the ownership check in transitionTx passes.
+		if err := s.repo.SetDriverID(ctx, tx, offer.OrderID, driverID); err != nil {
+			return err
+		}
+		if s.orders != nil {
+			return s.orders.transitionTx(ctx, tx, offer.OrderID, driverID, "driver", model.OrderDriverAssigned, nil)
+		}
+		return s.repo.AssignDriverToOrder(ctx, tx, offer.OrderID, driverID)
 	})
 }
 
-// UpdateLocation upserts a driver's PostGIS location.
 func (s *DispatchService) UpdateLocation(ctx context.Context, driverID uuid.UUID, lat, lng, heading float64) error {
-	return s.db.WithContext(ctx).Exec(`
-		INSERT INTO driver_locations (id, driver_id, location, heading, updated_at)
-		VALUES (gen_random_uuid(), ?, ST_SetSRID(ST_MakePoint(?, ?), 4326), ?, NOW())
-		ON CONFLICT (driver_id) DO UPDATE
-		SET location = EXCLUDED.location,
-		    heading = EXCLUDED.heading,
-		    updated_at = EXCLUDED.updated_at
-	`, driverID, lng, lat, heading).Error
+	return s.repo.UpsertDriverLocation(ctx, driverID, lat, lng, heading)
 }
 
 func vehicleFilter(minType model.VehicleType) string {
@@ -209,34 +166,32 @@ func vehicleFilter(minType model.VehicleType) string {
 	}
 }
 
-// ExpireOffers is called by a cron to mark stale offers expired.
 func (s *DispatchService) ExpireOffers(ctx context.Context) error {
-	return s.db.WithContext(ctx).
-		Model(&model.DeliveryOffer{}).
-		Where("status = 'pending' AND expires_at < ?", time.Now()).
-		Update("status", "expired").Error
+	return s.repo.ExpireStaleOffers(ctx)
 }
 
-// RejectOffer marks an offer rejected by the driver.
 func (s *DispatchService) RejectOffer(ctx context.Context, offerID uuid.UUID) error {
-	return s.db.WithContext(ctx).
-		Model(&model.DeliveryOffer{}).
-		Where("id = ? AND status = 'pending'", offerID).
-		Update("status", "rejected").Error
+	return s.repo.UpdateOfferStatus(ctx, offerID, "rejected")
 }
 
-// ManualAssign allows admin to assign a driver directly.
 func (s *DispatchService) ManualAssign(ctx context.Context, orderID, driverID uuid.UUID) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var order model.Order
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, orderID).Error; err != nil {
+	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		order, err := s.repo.LockOrderTx(ctx, tx, orderID)
+		if err != nil {
 			return err
 		}
 		if order.DriverID != nil {
 			return fmt.Errorf("driver already assigned")
 		}
 		order.DriverID = &driverID
+		if err := s.repo.SaveOrderTx(ctx, tx, order); err != nil {
+			return err
+		}
+		if s.orders != nil {
+			return s.orders.transitionTx(ctx, tx, orderID, driverID, "admin", model.OrderDriverAssigned, nil)
+		}
+		// Fallback if orders not injected (should not happen in production).
 		order.Status = model.OrderDriverAssigned
-		return tx.Save(&order).Error
+		return s.repo.SaveOrderTx(ctx, tx, order)
 	})
 }

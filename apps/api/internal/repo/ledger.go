@@ -56,6 +56,16 @@ type LedgerRepo interface {
 	// Idempotency keys
 	CreateIdempotencyKey(ctx context.Context, tx *gorm.DB, k *model.IdempotencyKey) error
 	FindIdempotencyKey(ctx context.Context, key string) (*model.IdempotencyKey, error)
+
+	// Reconciliation / snapshots
+	GetMaterialisedBalance(ctx context.Context, accountID uuid.UUID) (int64, error)
+	GetLedgerSum(ctx context.Context, accountID uuid.UUID) (int64, error)
+	CreateBalanceSnapshot(ctx context.Context, snap *model.PlatformBalanceSnapshot) error
+
+	// Non-tx platform account lookup (reconciliation / snapshot paths)
+	FindPlatformAccount(ctx context.Context, acctType model.AccountType) (*model.LedgerAccount, error)
+	// FindMerchantUserID resolves a merchants.id to its owning user_id inside a tx.
+	FindMerchantUserID(ctx context.Context, tx *gorm.DB, merchantID uuid.UUID) (uuid.UUID, error)
 }
 
 type ledgerRepo struct{ db *gorm.DB }
@@ -266,4 +276,42 @@ func (r *ledgerRepo) FindIdempotencyKey(ctx context.Context, key string) (*model
 	var k model.IdempotencyKey
 	err := r.db.WithContext(ctx).Where("key = ?", key).First(&k).Error
 	return &k, err
+}
+
+func (r *ledgerRepo) GetMaterialisedBalance(ctx context.Context, accountID uuid.UUID) (int64, error) {
+	var bal int64
+	err := r.db.WithContext(ctx).Model(&model.WalletBalance{}).
+		Where("account_id = ?", accountID).
+		Select("balance_kobo").Scan(&bal).Error
+	return bal, err
+}
+
+func (r *ledgerRepo) GetLedgerSum(ctx context.Context, accountID uuid.UUID) (int64, error) {
+	var sum int64
+	err := r.db.WithContext(ctx).Model(&model.LedgerEntry{}).
+		Where("account_id = ?", accountID).
+		Select("COALESCE(SUM(amount_kobo), 0)").Scan(&sum).Error
+	return sum, err
+}
+
+func (r *ledgerRepo) CreateBalanceSnapshot(ctx context.Context, snap *model.PlatformBalanceSnapshot) error {
+	return r.db.WithContext(ctx).Create(snap).Error
+}
+
+func (r *ledgerRepo) FindPlatformAccount(ctx context.Context, acctType model.AccountType) (*model.LedgerAccount, error) {
+	var acct model.LedgerAccount
+	err := r.db.WithContext(ctx).
+		Where("owner_id IS NULL AND type = ?", acctType).
+		First(&acct).Error
+	return &acct, err
+}
+
+func (r *ledgerRepo) FindMerchantUserID(ctx context.Context, tx *gorm.DB, merchantID uuid.UUID) (uuid.UUID, error) {
+	var m struct{ UserID uuid.UUID }
+	err := tx.WithContext(ctx).
+		Table("merchants").
+		Select("user_id").
+		Where("id = ?", merchantID).
+		First(&m).Error
+	return m.UserID, err
 }

@@ -14,6 +14,8 @@ type TierRepo interface {
 	LockTier(ctx context.Context, tx *gorm.DB, userID uuid.UUID) (*model.UserTrustTier, error)
 	SaveTier(ctx context.Context, tx *gorm.DB, tier *model.UserTrustTier) error
 	GetTier(ctx context.Context, userID uuid.UUID) (*model.UserTrustTier, error)
+	Transaction(ctx context.Context, fn func(tx *gorm.DB) error) error
+	CountActivePODOrders(ctx context.Context, userID uuid.UUID) (int64, error)
 }
 
 type tierRepo struct{ db *gorm.DB }
@@ -37,4 +39,16 @@ func (r *tierRepo) GetTier(ctx context.Context, userID uuid.UUID) (*model.UserTr
 	var tier model.UserTrustTier
 	err := r.db.WithContext(ctx).Where("user_id = ?", userID).First(&tier).Error
 	return &tier, err
+}
+
+func (r *tierRepo) Transaction(ctx context.Context, fn func(tx *gorm.DB) error) error {
+	return r.db.WithContext(ctx).Transaction(fn)
+}
+
+func (r *tierRepo) CountActivePODOrders(ctx context.Context, userID uuid.UUID) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&model.Order{}).
+		Where("customer_id = ? AND payment_method = 'pay_on_arrival' AND status NOT IN ('delivered','cancelled','refunded')", userID).
+		Count(&count).Error
+	return count, err
 }

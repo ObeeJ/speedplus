@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/config"
 	"github.com/speedplus/api/internal/model"
+	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
 )
 
@@ -60,7 +61,7 @@ func TestQuoteMultiStop_PricesRouteAndPerStopFee(t *testing.T) {
 	gdb := testDB(t)
 	withTx(t, gdb, func(tx *gorm.DB) {
 		cfg := &config.Config{JWTSecret: "test-secret-at-least-32-bytes-long!!"}
-		svc := &PricingService{db: tx, cfg: cfg, osrmURL: srv.URL, httpClient: srv.Client()}
+		svc := &PricingService{orders: repo.NewOrderRepo(tx), cfg: cfg, osrmURL: srv.URL, httpClient: srv.Client()}
 
 		// pricing_quotes.customer_id/merchant_id carry FKs — seed real rows.
 		customer := seedWalletOwner(t, tx)

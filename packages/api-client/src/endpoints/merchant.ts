@@ -9,6 +9,9 @@ export interface MerchantProfile {
   isOpen: boolean;
   rating: number;
   kycStatus: 'not_started' | 'pending' | 'under_review' | 'approved' | 'rejected';
+  // Gas-specific fields (Phase 2+)
+  fillAccuracyPct?: number | null;  // null until first verified fill
+  fillSampleCount?: number;
 }
 
 export interface BankAccount {

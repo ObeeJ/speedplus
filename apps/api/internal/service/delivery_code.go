@@ -37,12 +37,11 @@ const deliveryCodeMaxAttempts = 5
 //  - Rider uses PaycodeService.ConfirmByCard() instead
 //  - Customer shows SpeedPlus card + enters 4-digit wallet PIN
 type DeliveryCodeService struct {
-	db   *gorm.DB // transaction boundary only
 	repo repo.DeliveryCodeRepo
 }
 
-func NewDeliveryCodeService(db *gorm.DB, r repo.DeliveryCodeRepo) *DeliveryCodeService {
-	return &DeliveryCodeService{db: db, repo: r}
+func NewDeliveryCodeService(r repo.DeliveryCodeRepo) *DeliveryCodeService {
+	return &DeliveryCodeService{repo: r}
 }
 
 // Generate creates a new 6-digit delivery code for the order and returns the

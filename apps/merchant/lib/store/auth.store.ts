@@ -34,7 +34,7 @@ export const useMerchantAuthStore = create<MerchantAuthState>()(
     {
       name: 'speedplus-merchant-auth',
       // Never persist tokens — only user identity and merchant profile
-      partialize: (s) => ({ user: s.user, merchant: s.merchant, isAuthenticated: s.isAuthenticated }),
+      partialize: (s) => ({ user: s.user, merchant: s.merchant }),
     },
   ),
 );

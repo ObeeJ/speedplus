@@ -1,0 +1,125 @@
+services:
+
+  # ── Postgres 16 + PostGIS ────────────────────────────────────────────────────
+  # PostGIS is required for ST_Contains / ST_DWithin / ST_MakePoint used in
+  # dispatch (KNN driver search) and run assembly (zone containment).
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: speedplus
+      POSTGRES_PASSWORD: speedplus
+      POSTGRES_DB: speedplus
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U speedplus -d speedplus"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Redis ─────────────────────────────────────────────────────────────────────
+  # Used by asynq (job queue + scheduler) and the WS pub/sub hub.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── OSRM (routing engine) ─────────────────────────────────────────────────────
+  # In dev the API points at the public demo (OSRM_URL below) so this
+  # container is just a placeholder. In production a real OSRM service is
+  # deployed on Railway with a persistent volume at /data (see apps/osrm/).
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:v5.27.1
+    restart: unless-stopped
+    entrypoint: ["sh", "-c", "echo 'OSRM placeholder — API uses public demo' && sleep infinity"]
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 10s
+
+  # ── API ───────────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: "8000"
+      ENVIRONMENT: development
+
+      DATABASE_URL: postgres://speedplus:speedplus@postgres:5432/speedplus?sslmode=disable
+
+      REDIS_URL: redis://redis:6379
+
+      # ── Secrets (dev-only values — never use these in production) ────────────
+      # Generated with: openssl rand -hex 32
+      # These are intentionally committed for local dev convenience.
+      # Production secrets must come from Railway / environment secrets.
+      JWT_SECRET: "6465766c6f63616c6a77747365637265746b65796d757374626532636861727"
+      JWT_ACCESS_TTL_MIN: "15"
+      JWT_REFRESH_TTL_DAYS: "30"
+
+      # Must differ from JWT_SECRET and be >= 32 bytes.
+      PAYCODE_SECRET: "6465766c6f63616c7061796c6f61647365637265746b65796d757374626532"
+
+      # 32-byte AES-GCM key for recipient PII encryption (hex → raw 32 bytes).
+      # config.go checks len == 32, so pass the raw 32-char string directly.
+      ENCRYPTION_KEY: "devlocalencryptionkey32byteslong"
+
+      # ── Routing ──────────────────────────────────────────────────────────────
+      # Public OSRM demo — fine for development, replace for production.
+      OSRM_URL: "http://router.project-osrm.org"
+
+      # ── CORS ─────────────────────────────────────────────────────────────────
+      ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003"
+
+      # ── Optional integrations (leave blank to disable in dev) ────────────────
+      SENTRY_DSN: ""
+      R2_ACCOUNT_ID: ""
+      R2_ACCESS_KEY_ID: ""
+      R2_SECRET_ACCESS_KEY: ""
+      R2_BUCKET_NAME: "speedplus-docs"
+      R2_PUBLIC_URL: ""
+      PREMBLY_API_KEY: ""
+      PREMBLY_BASE_URL: "https://sandbox.prembly.com"
+      PREMBLY_APP_ID: ""
+      PAYSTACK_SECRET_KEY: ""
+      PAYSTACK_WEBHOOK_HASH: ""
+      FLUTTERWAVE_SECRET_KEY: ""
+      FLUTTERWAVE_HASH: ""
+      MONNIFY_API_KEY: ""
+      MONNIFY_SECRET_KEY: ""
+      MONNIFY_CONTRACT_CODE: ""
+      BRIDGE_API_KEY: ""
+      BRIDGE_ENABLED: "false"
+      SENDBYTE_API_KEY: ""
+      SENDBYTE_FROM_ADDRESS: "SpeedPlus <noreply@speedplus.app>"
+      PIN_THRESHOLD_KOBO: "5000000"
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  postgres_data:
+  redis_data:

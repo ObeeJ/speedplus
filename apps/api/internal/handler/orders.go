@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -34,7 +35,10 @@ func (h *OrderHandler) Create(c *gin.Context) {
 		PaymentMethod     string  `json:"paymentMethod"`
 		PrescriptionID    *string `json:"prescriptionId"`
 		TipKobo           int64   `json:"tipKobo"`
-		DeclaredValueKobo *int64  `json:"declaredValueKobo"` // package vertical only
+		DeclaredValueKobo *int64  `json:"declaredValueKobo"`
+		// Gas-specific
+		GasMode    *string `json:"gasMode"`
+		CylinderID *string `json:"cylinderId"`
 		Items []struct {
 			ProductID        string  `json:"productId" binding:"required"`
 			Name             string  `json:"name"`
@@ -75,11 +79,28 @@ func (h *OrderHandler) Create(c *gin.Context) {
 		TipKobo:           req.TipKobo,
 		DeclaredValueKobo: req.DeclaredValueKobo,
 		IdempotencyKey:    idempotencyKey,
+		GasMode:           req.GasMode,
 	}
 
 	if req.PrescriptionID != nil {
-		pid, _ := uuid.Parse(*req.PrescriptionID)
+		// Previously the parse error was discarded, so a malformed
+		// prescriptionId silently became the nil UUID and surfaced later as
+		// a confusing PRESCRIPTION_REQUIRED instead of a clear 400.
+		pid, err := uuid.Parse(*req.PrescriptionID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Invalid prescriptionId", "prescriptionId"))
+			return
+		}
 		in.PrescriptionID = &pid
+	}
+
+	if req.CylinderID != nil {
+		cid, err := uuid.Parse(*req.CylinderID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Invalid cylinderId", "cylinderId"))
+			return
+		}
+		in.CylinderID = &cid
 	}
 
 	for _, item := range req.Items {
@@ -117,15 +138,19 @@ func (h *OrderHandler) Create(c *gin.Context) {
 
 	order, err := h.orders.Create(c.Request.Context(), in)
 	if err != nil {
-		switch err {
-		case service.ErrQuoteInvalid:
+		switch {
+		case errors.Is(err, service.ErrQuoteInvalid):
 			c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", err.Error(), "quoteId"))
-		case service.ErrMerchantClosed:
+		case errors.Is(err, service.ErrMerchantClosed):
 			c.JSON(http.StatusConflict, errResp("MERCHANT_CLOSED", "Merchant is currently closed", ""))
-		case service.ErrRxRequired:
+		case errors.Is(err, service.ErrRxRequired):
 			c.JSON(http.StatusUnprocessableEntity, errResp("PRESCRIPTION_REQUIRED", "Prescription required", "prescriptionId"))
-		case service.ErrRxNotApproved:
+		case errors.Is(err, service.ErrRxNotApproved):
 			c.JSON(http.StatusUnprocessableEntity, errResp("PRESCRIPTION_NOT_APPROVED", err.Error(), "prescriptionId"))
+		case errors.Is(err, service.ErrGasValidation):
+			c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", err.Error(), "gas"))
+		case errors.Is(err, service.ErrInsufficientBalance):
+			c.JSON(http.StatusPaymentRequired, errResp("INSUFFICIENT_BALANCE", "Insufficient wallet balance", "wallet"))
 		default:
 			internalError(c, err)
 		}
@@ -186,15 +211,25 @@ func (h *OrderHandler) ConfirmStop(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Sequence int    `json:"sequence" binding:"required,min=1"`
-		Code     string `json:"code" binding:"required"`
+		Sequence            int      `json:"sequence" binding:"required,min=1"`
+		Code                string   `json:"code" binding:"required"`
+		EmptyCollected      bool     `json:"emptyCollected"`
+		EmptyCylinderSerial *string  `json:"emptyCylinderSerial"`
+		CapturedLat         *float64 `json:"capturedLat"`
+		CapturedLng         *float64 `json:"capturedLng"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		validationError(c, err)
 		return
 	}
 	driverID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
-	if err := h.orders.ConfirmStop(c.Request.Context(), orderID, driverID, req.Sequence, req.Code); err != nil {
+	if err := h.orders.ConfirmStop(c.Request.Context(), orderID, driverID, req.Sequence, service.ConfirmStopInput{
+		Code:                req.Code,
+		EmptyCollected:      req.EmptyCollected,
+		EmptyCylinderSerial: req.EmptyCylinderSerial,
+		CapturedLat:         req.CapturedLat,
+		CapturedLng:         req.CapturedLng,
+	}); err != nil {
 		c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", err.Error(), ""))
 		return
 	}

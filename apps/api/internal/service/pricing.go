@@ -14,7 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/config"
 	"github.com/speedplus/api/internal/model"
-	"gorm.io/gorm"
+	"github.com/speedplus/api/internal/repo"
 )
 
 // math shims so haversineFallback avoids a math import alias clash
@@ -66,16 +66,16 @@ var DefaultFeeTable = map[string]FeeConfig{
 }
 
 type PricingService struct {
-	db         *gorm.DB
+	orders     repo.OrderRepo
 	cfg        *config.Config
 	osrmURL    string
 	httpClient *http.Client
-	feeConfigs *FeeConfigService // nil => DefaultFeeTable fallback
+	feeConfigs *FeeConfigService
 }
 
-func NewPricingService(db *gorm.DB, cfg *config.Config, osrmURL string, feeConfigs *FeeConfigService) *PricingService {
+func NewPricingService(orders repo.OrderRepo, cfg *config.Config, osrmURL string, feeConfigs *FeeConfigService) *PricingService {
 	return &PricingService{
-		db:         db,
+		orders:     orders,
 		cfg:        cfg,
 		osrmURL:    osrmURL,
 		httpClient: &http.Client{Timeout: 5 * time.Second},
@@ -144,7 +144,7 @@ func (s *PricingService) Quote(ctx context.Context, req QuoteRequest) (*model.Pr
 	}
 	quote.QuoteHash = s.signQuote(quote)
 
-	if err := s.db.WithContext(ctx).Create(quote).Error; err != nil {
+	if err := s.orders.CreateQuote(ctx, quote); err != nil {
 		return nil, err
 	}
 	return quote, nil
@@ -152,8 +152,8 @@ func (s *PricingService) Quote(ctx context.Context, req QuoteRequest) (*model.Pr
 
 // ValidateQuote checks the quote is unexpired, unused, and untampered.
 func (s *PricingService) ValidateQuote(ctx context.Context, quoteID uuid.UUID, subtotalKobo int64) (*model.PricingQuote, error) {
-	var q model.PricingQuote
-	if err := s.db.WithContext(ctx).First(&q, quoteID).Error; err != nil {
+	q, err := s.orders.FindQuote(ctx, quoteID)
+	if err != nil {
 		return nil, fmt.Errorf("quote not found")
 	}
 	if q.UsedAt != nil {
@@ -165,18 +165,15 @@ func (s *PricingService) ValidateQuote(ctx context.Context, quoteID uuid.UUID, s
 	if q.SubtotalKobo != subtotalKobo {
 		return nil, fmt.Errorf("quote subtotal mismatch")
 	}
-	expected := s.signQuote(&q)
+	expected := s.signQuote(q)
 	if expected != q.QuoteHash {
 		return nil, fmt.Errorf("quote tampered")
 	}
-	return &q, nil
+	return q, nil
 }
 
 func (s *PricingService) MarkQuoteUsed(ctx context.Context, quoteID uuid.UUID) error {
-	now := time.Now()
-	return s.db.WithContext(ctx).Model(&model.PricingQuote{}).
-		Where("id = ?", quoteID).
-		Update("used_at", now).Error
+	return s.orders.MarkQuoteUsed(ctx, quoteID)
 }
 
 func (s *PricingService) signQuote(q *model.PricingQuote) string {
@@ -188,7 +185,7 @@ func (s *PricingService) signQuote(q *model.PricingQuote) string {
 		q.ID, q.CustomerID, q.MerchantID,
 		q.SubtotalKobo, q.DeliveryKobo, q.ServiceKobo, q.TotalKobo, q.StopCount,
 	)
-	mac := hmac.New(sha256.New, []byte(s.cfg.JWTSecret))
+	mac := hmac.New(sha256.New, []byte(s.cfg.QuoteSecret))
 	mac.Write([]byte(payload))
 	return hex.EncodeToString(mac.Sum(nil))
 }
@@ -323,7 +320,7 @@ func (s *PricingService) QuoteMultiStop(ctx context.Context, req MultiStopQuoteR
 	}
 	quote.QuoteHash = s.signQuote(quote)
 
-	if err := s.db.WithContext(ctx).Create(quote).Error; err != nil {
+	if err := s.orders.CreateQuote(ctx, quote); err != nil {
 		return nil, err
 	}
 	return quote, nil

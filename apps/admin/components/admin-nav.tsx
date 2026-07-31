@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAdminAuthStore } from '@/lib/store/auth.store';
+import { authApi } from '@speedplus/api-client';
 
 const NAV: { href: string; label: string }[] = [
   { href: '/kyc',                         label: 'KYC Queue' },
@@ -11,6 +12,9 @@ const NAV: { href: string; label: string }[] = [
   { href: '/orders',                      label: 'All Orders' },
   { href: '/orders/package',              label: '📦 Package Orders' },
   { href: '/disputes',                    label: 'Disputes' },
+  { href: '/gas/merchants',               label: '⛽ Fill Accuracy' },
+  { href: '/gas/zones',                   label: '⛽ Zones' },
+  { href: '/gas/price-index',             label: '⛽ LPG Price' },
   { href: '/settings/cancellation-rules', label: 'Cancel Rules' },
   { href: '/settings/fees',               label: 'Fees' },
   { href: '/ledger',                      label: 'Ledger' },
@@ -22,7 +26,8 @@ export function AdminNav() {
   const clearAuth = useAdminAuthStore((s) => s.clearAuth);
   const user = useAdminAuthStore((s) => s.user);
 
-  function handleSignOut() {
+  async function handleSignOut() {
+    await authApi.logout().catch(() => {});
     clearAuth();
     router.replace('/login');
   }

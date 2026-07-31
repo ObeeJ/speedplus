@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
 	"github.com/speedplus/api/internal/payment"
-	"gorm.io/gorm"
+	"github.com/speedplus/api/internal/repo"
 )
 
 type monnifyUSSDProvider interface {
@@ -17,12 +17,12 @@ type monnifyUSSDProvider interface {
 }
 
 type USSDService struct {
-	db      *gorm.DB
+	repo    repo.USSDRepo
 	monnify monnifyUSSDProvider
 }
 
-func NewUSSDService(db *gorm.DB, monnify monnifyUSSDProvider) *USSDService {
-	return &USSDService{db: db, monnify: monnify}
+func NewUSSDService(r repo.USSDRepo, monnify monnifyUSSDProvider) *USSDService {
+	return &USSDService{repo: r, monnify: monnify}
 }
 
 func (s *USSDService) SupportedBanks() []map[string]string {
@@ -37,8 +37,6 @@ func (s *USSDService) SupportedBanks() []map[string]string {
 	}
 }
 
-// InitiateUSSDFund creates a USSDIntent and returns the shortcode to display.
-// Confirmation arrives via the existing SUCCESSFUL_TRANSACTION Monnify webhook.
 func (s *USSDService) InitiateUSSDFund(ctx context.Context, userID uuid.UUID, bankCode string, amountKobo int64, email string) (*model.USSDIntent, error) {
 	ref := uuid.NewString()
 
@@ -55,7 +53,7 @@ func (s *USSDService) InitiateUSSDFund(ctx context.Context, userID uuid.UUID, ba
 		Status:      "pending",
 		ProviderRef: &resp.ProviderRef,
 	}
-	if err := s.db.WithContext(ctx).Create(&intent).Error; err != nil {
+	if err := s.repo.CreatePaymentIntent(ctx, &intent); err != nil {
 		return nil, err
 	}
 
@@ -80,18 +78,12 @@ func (s *USSDService) InitiateUSSDFund(ctx context.Context, userID uuid.UUID, ba
 		Status:          "pending",
 		ExpiresAt:       time.Now().Add(30 * time.Minute),
 	}
-	if err := s.db.WithContext(ctx).Create(ui).Error; err != nil {
+	if err := s.repo.CreateIntent(ctx, ui); err != nil {
 		return nil, err
 	}
 	return ui, nil
 }
 
 func (s *USSDService) GetIntent(ctx context.Context, userID, intentID uuid.UUID) (*model.USSDIntent, error) {
-	var ui model.USSDIntent
-	if err := s.db.WithContext(ctx).
-		Where("id = ? AND user_id = ?", intentID, userID).
-		First(&ui).Error; err != nil {
-		return nil, err
-	}
-	return &ui, nil
+	return s.repo.FindIntent(ctx, intentID, userID)
 }

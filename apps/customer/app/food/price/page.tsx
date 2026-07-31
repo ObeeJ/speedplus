@@ -18,19 +18,25 @@ export default function FoodPricePage() {
   const createOrder = useCreateOrder();
 
   function handleConfirm() {
+    if (!m || !deliverTo) return;
     createOrder.mutate(
       {
-        merchantId: m?.kitchen ?? 'speedplus-food',
+        merchantId: m.kitchen,
         vertical: 'food',
-        items: [{ productId: m?.id ?? 'meal', quantity: 1 }],
-        deliveryAddressId: deliverTo ?? 'demo-address',
+        items: [{ productId: m.id, quantity: 1 }],
+        deliveryAddressId: deliverTo,
       },
       {
-        onSuccess: (order) => setOrderId(order.id),
-        onSettled: () => router.push('/food/finding'),
+        onSuccess: (order) => {
+          setOrderId(order.id);
+          router.push('/food/finding');
+        },
+        // No onSettled navigate — only navigate on success.
       },
     );
   }
+
+  const canConfirm = Boolean(m && deliverTo) && !createOrder.isPending;
 
   return (
     <main className="min-h-screen bg-sand flex flex-col">
@@ -61,12 +67,22 @@ export default function FoodPricePage() {
           You pay {naira(total)} when it arrives — cash or card, your choice.
         </span>
 
-        <Button variant="primary" size="lg" isLoading={createOrder.isPending} onClick={handleConfirm} className="w-full min-[700px]:max-w-[380px]">
+        {createOrder.isError && (
+          <span className="text-xs text-red-600" role="alert">
+            {(createOrder.error as Error).message}
+          </span>
+        )}
+
+        <Button
+          variant="primary"
+          size="lg"
+          disabled={!canConfirm}
+          isLoading={createOrder.isPending}
+          onClick={handleConfirm}
+          className="w-full min-[700px]:max-w-[380px]"
+        >
           Confirm order
         </Button>
-        {createOrder.isError && (
-          <span className="text-xs text-mid">Couldn’t reach the server just now — continuing with your order locally.</span>
-        )}
       </div>
     </main>
   );

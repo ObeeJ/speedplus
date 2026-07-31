@@ -1,11 +1,9 @@
 'use client';
 
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ordersApi, catalogApi, walletApi } from '@speedplus/api-client';
+import { ordersApi, catalogApi, walletApi, quotesApi } from '@speedplus/api-client';
+import type { QuoteResult, QuotePayload, MultiStopQuotePayload } from '@speedplus/api-client';
 import type { CreateOrderPayload } from '@speedplus/types';
-import { apiClient } from '@speedplus/api-client';
-import type { ApiResponse } from '@speedplus/types';
-import type { QuoteResult } from '@/lib/store/package-flow.store';
 
 export function useCreateOrder() {
   return useMutation({
@@ -23,10 +21,44 @@ export function useTrackOrder(orderId: string | null) {
   });
 }
 
+// useUploadPrescription performs the real 3-step upload: presign → PUT the
+// file bytes directly to R2 → create the prescription row with the
+// server-derived key. Previously this flow was faked entirely — a fabricated
+// key was sent straight to createPrescription with no bytes ever uploaded,
+// so the pharmacist reviewed an image that didn't exist.
 export function useUploadPrescription() {
   return useMutation({
-    mutationFn: ({ r2Key, merchantId }: { r2Key: string; merchantId?: string }) =>
-      catalogApi.createPrescription(r2Key, merchantId),
+    mutationFn: async ({ file, merchantId }: { file: File; merchantId: string }) => {
+      const { uploadUrl, key } = await catalogApi.presignPrescription(file.type);
+      const putRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+      if (!putRes.ok) {
+        throw new Error(`Upload to storage failed (${putRes.status})`);
+      }
+      return catalogApi.createPrescription(key, merchantId);
+    },
+  });
+}
+
+// usePrescriptionStatus polls the real server-side review status — replaces
+// the client-side setTimeout that previously faked pharmacist approval.
+// Stops polling once the prescription reaches a terminal state.
+export function usePrescriptionStatus(prescriptionId: string | null) {
+  return useQuery({
+    queryKey: ['prescription-status', prescriptionId],
+    queryFn: () => catalogApi.getPrescription(prescriptionId as string),
+    enabled: Boolean(prescriptionId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      if (status === 'approved' || status === 'rejected' || status === 'expired') {
+        return false;
+      }
+      return 3000;
+    },
+    retry: false,
   });
 }
 
@@ -40,21 +72,7 @@ export function useWalletBalance() {
 
 export function useRequestQuote() {
   return useMutation({
-    mutationFn: async (payload: {
-      merchantId: string;
-      vertical: string;
-      subtotalKobo: number;
-      originLat: number;
-      originLng: number;
-      destLat: number;
-      destLng: number;
-      weightKg?: number;
-      sizeCategory?: string;
-    }): Promise<QuoteResult> => {
-      const { data } = await apiClient.post<ApiResponse<QuoteResult>>('/quotes', payload);
-      if (!data.success) throw new Error((data as { error: { message: string } }).error.message);
-      return data.data;
-    },
+    mutationFn: (payload: QuotePayload): Promise<QuoteResult> => quotesApi.quote(payload),
   });
 }
 
@@ -65,19 +83,6 @@ export function useRequestQuote() {
  */
 export function useRequestMultiStopQuote() {
   return useMutation({
-    mutationFn: async (payload: {
-      merchantId: string;
-      vertical: string;
-      subtotalKobo: number;
-      originLat: number;
-      originLng: number;
-      stops: { lat: number; lng: number }[];
-      weightKg?: number;
-      sizeCategory?: string;
-    }): Promise<QuoteResult> => {
-      const { data } = await apiClient.post<ApiResponse<QuoteResult>>('/quotes/multistop', payload);
-      if (!data.success) throw new Error((data as { error: { message: string } }).error.message);
-      return data.data;
-    },
+    mutationFn: (payload: MultiStopQuotePayload): Promise<QuoteResult> => quotesApi.multiStop(payload),
   });
 }

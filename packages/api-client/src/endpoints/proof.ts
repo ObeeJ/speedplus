@@ -1,7 +1,7 @@
 import type { ApiResponse } from '@speedplus/types';
 import { apiClient } from '../client';
 
-export type ProofKind = 'pickup_photo' | 'pickup_video' | 'dropoff_photo' | 'dropoff_video';
+export type ProofKind = 'pickup_photo' | 'pickup_video' | 'dropoff_photo' | 'dropoff_video' | 'weight_photo';
 
 export interface ProofMediaView {
   id: string;
@@ -10,6 +10,7 @@ export interface ProofMediaView {
   viewUrl: string;
   sha256: string;
   sealSerial?: string;
+  measuredKg?: number;
   capturedLat?: number;
   capturedLng?: number;
   capturedAt: string;
@@ -53,6 +54,7 @@ export const proofApi = {
       sha256: string;
       stopId?: string;
       sealSerial?: string;
+      measuredKg?: number;
       capturedLat?: number;
       capturedLng?: number;
     },

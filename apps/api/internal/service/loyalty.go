@@ -1,13 +1,14 @@
 package service
 
 import (
-	"fmt"
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
+	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 const (
@@ -17,17 +18,14 @@ const (
 )
 
 type LoyaltyService struct {
-	db *gorm.DB
+	repo repo.LoyaltyRepo
 }
 
-func NewLoyaltyService(db *gorm.DB) *LoyaltyService {
-	return &LoyaltyService{db: db}
+func NewLoyaltyService(r repo.LoyaltyRepo) *LoyaltyService {
+	return &LoyaltyService{repo: r}
 }
 
 func (s *LoyaltyService) Award(ctx context.Context, tx *gorm.DB, userID uuid.UUID, eventType string, points int, refID *uuid.UUID) error {
-	if tx == nil {
-		tx = s.db
-	}
 	event := model.LoyaltyEvent{
 		ID: uuid.New(), UserID: userID, EventType: eventType, Points: points, RefID: refID,
 	}
@@ -43,36 +41,29 @@ func (s *LoyaltyService) Award(ctx context.Context, tx *gorm.DB, userID uuid.UUI
 }
 
 func (s *LoyaltyService) GetBalance(ctx context.Context, userID uuid.UUID) (int, error) {
-	var b model.LoyaltyBalance
-	if err := s.db.WithContext(ctx).Where("user_id = ?", userID).First(&b).Error; err != nil {
+	b, err := s.repo.FindBalance(ctx, userID)
+	if err != nil {
 		return 0, nil
 	}
 	return b.Points, nil
 }
 
 func (s *LoyaltyService) Redeem(ctx context.Context, userID uuid.UUID, points int) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var b model.LoyaltyBalance
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("user_id = ?", userID).First(&b).Error; err != nil {
+	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		b, err := s.repo.LockBalance(ctx, tx, userID)
+		if err != nil {
 			return err
 		}
 		if b.Points < points {
 			return fmt.Errorf("insufficient loyalty points")
 		}
-		return tx.Exec(
-			`UPDATE loyalty_balances SET points = points - ?, updated_at = NOW() WHERE user_id = ?`,
-			points, userID,
-		).Error
+		return s.repo.DeductBalanceTx(ctx, tx, userID, points)
 	})
 }
 
 func (s *LoyaltyService) History(ctx context.Context, userID uuid.UUID, limit int) ([]model.LoyaltyEvent, error) {
-	var events []model.LoyaltyEvent
-	err := s.db.WithContext(ctx).
-		Where("user_id = ?", userID).
-		Order("created_at DESC").
-		Limit(limit).
-		Find(&events).Error
-	return events, err
+	return s.repo.ListEvents(ctx, userID, limit)
 }
+
+// ensure errors package used
+var _ = errors.New

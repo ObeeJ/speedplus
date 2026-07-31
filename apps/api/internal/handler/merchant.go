@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -338,11 +339,17 @@ func (h *MerchantHandler) ReviewPrescription(c *gin.Context) {
 	}
 	p, err := h.catalog.ReviewPrescription(c.Request.Context(), h.userID(c), merchant.ID, prescriptionID, req.Approve, req.Note)
 	if err != nil {
-		if err == service.ErrPrescriptionUsed {
+		switch {
+		case errors.Is(err, service.ErrPrescriptionUsed):
 			c.JSON(http.StatusConflict, errResp("VALIDATION_ERROR", err.Error(), ""))
-			return
+		case errors.Is(err, service.ErrForbidden):
+			c.JSON(http.StatusForbidden, errResp("FORBIDDEN", "Access denied", ""))
+		default:
+			// Previously every non-conflict error (including DB failures)
+			// was collapsed into 403 FORBIDDEN, which is misleading for
+			// clients and hid real outages behind an auth-looking error.
+			internalError(c, err)
 		}
-		c.JSON(http.StatusForbidden, errResp("FORBIDDEN", "Access denied", ""))
 		return
 	}
 	c.JSON(http.StatusOK, successResp(gin.H{"id": p.ID, "status": p.Status}))

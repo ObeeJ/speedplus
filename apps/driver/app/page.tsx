@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useCallback, type ReactElement } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDriverStore } from '../lib/store/driver.store';
-import { dispatchApi, paycodesApi, walletApi } from '@speedplus/api-client';
+import { useDriverAuthStore } from '../lib/store/auth.store';
+import { dispatchApi, paycodesApi, walletApi, authApi, usersApi, ordersApi, earningsApi } from '@speedplus/api-client';
 import {
   SparkIcon,
   BoxStackIcon,
@@ -14,7 +15,7 @@ import {
   type DuotoneIconProps,
 } from '@speedplus/ui';
 import { ProofCapture } from './components/proof-capture';
-import { buildWsUrl } from '@speedplus/api-client';
+import { buildWsUrl, buildWsProtocols } from '@speedplus/api-client';
 import { useQuery } from '@tanstack/react-query';
 
 const LOCATION_INTERVAL_MS = 10_000;
@@ -89,6 +90,9 @@ const STAGE_CTAS = ['', "I've arrived at pickup", 'I have the package', "I've ar
 export default function DriverAppPage() {
   const router = useRouter();
   const { tab, online, pendingOffer, activeJob, setTab, setOnline, setPendingOffer, setActiveJob, advanceJobStage, confirmStop, clearJob } = useDriverStore();
+  const clearAuth = useDriverAuthStore((s) => s.clearAuth);
+  const [resolvePayload, setResolvePayload] = useState('');
+  const [resolveResult, setResolveResult] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const locationRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -98,6 +102,8 @@ export default function DriverAppPage() {
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [cashoutLoading, setCashoutLoading] = useState(false);
   const [cashoutDone, setCashoutDone] = useState(false);
+  const [emptyCollected, setEmptyCollected] = useState(false);
+  const [emptyCylinderSerial, setEmptyCylinderSerial] = useState('');
 
   // Fetch real earnings
   const { data: walletData } = useQuery({
@@ -111,10 +117,8 @@ export default function DriverAppPage() {
   const { data: badgesData } = useQuery({
     queryKey: ['driver-badges'],
     queryFn: async () => {
-      const { data } = await (await import('@speedplus/api-client')).apiClient.get('/users/me/driver-profile');
-      const profile = (data as { success: boolean; data: { userId: string } }).data;
-      const res = await (await import('@speedplus/api-client')).apiClient.get(`/drivers/${profile.userId}/badges`);
-      return (res.data as { success: boolean; data: { badges: { badgeType: string; awardedAt: string }[] } }).data.badges;
+      const profile = await usersApi.getDriverProfile();
+      return usersApi.getDriverBadges(profile.userId);
     },
     enabled: tab === 'me',
     staleTime: 60_000,
@@ -123,7 +127,7 @@ export default function DriverAppPage() {
   // Subscribe to active order WS for cancellation / status updates
   useEffect(() => {
     if (!activeJob) return;
-    const ws = new WebSocket(buildWsUrl());
+    const ws = new WebSocket(buildWsUrl(), buildWsProtocols());
     ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', channel: `order:${activeJob.orderId}` }));
     ws.onmessage = (evt) => {
       try {
@@ -157,7 +161,7 @@ export default function DriverAppPage() {
 
   // WS connection for offer push
   useEffect(() => {
-    const ws = new WebSocket(buildWsUrl());
+    const ws = new WebSocket(buildWsUrl(), buildWsProtocols());
     wsRef.current = ws;
 
     ws.onmessage = (evt) => {
@@ -191,16 +195,14 @@ export default function DriverAppPage() {
       let stops: import('../lib/store/driver.store').JobStop[] = [];
       if ((pendingOffer.stopCount ?? 0) > 1) {
         try {
-          const { data } = await (await import('@speedplus/api-client')).apiClient.get(
-            `/orders/${pendingOffer.orderId}/stops`,
-          );
-          const raw = (data as { success: boolean; data: { stops: { sequence: number; addressId: string; recipientName?: string; recipientPhone?: string; notes?: string; status: string }[] } }).data.stops;
+          const raw = await ordersApi.getStops(pendingOffer.orderId);
           stops = raw.map((s) => ({ ...s, status: s.status as 'pending' | 'confirmed' }));
         } catch { /* non-fatal — driver proceeds without stop details */ }
       }
 
       setActiveJob({
         orderId: pendingOffer.orderId,
+        vertical: pendingOffer.vertical,
         stage: 1,
         customerName: 'Customer',
         customerPhone: '',
@@ -239,19 +241,21 @@ export default function DriverAppPage() {
     try {
       const isMultiDrop = activeJob.stops.length > 0;
       if (isMultiDrop) {
-        // Confirm the current stop
         const currentStop = activeJob.stops[activeJob.currentStopIndex];
         if (!currentStop) return;
-        // Call the stops confirm endpoint
-        const { data } = await (await import('@speedplus/api-client')).apiClient.post(
-          `/orders/${activeJob.orderId}/stops/confirm`,
-          { sequence: currentStop.sequence, code: deliveryCode.trim() },
-        );
-        if ((data as { success: boolean }).success) {
-          confirmStop(currentStop.sequence);
-          advanceJobStage();
-          setDeliveryCode('');
-        }
+        await ordersApi.confirmStop(activeJob.orderId, {
+          sequence: currentStop.sequence,
+          code: deliveryCode.trim(),
+          ...(activeJob.vertical === 'gas' && {
+            emptyCollected,
+            ...(emptyCylinderSerial.trim() && { emptyCylinderSerial: emptyCylinderSerial.trim() }),
+          }),
+        });
+        confirmStop(currentStop.sequence);
+        advanceJobStage();
+        setDeliveryCode('');
+        setEmptyCollected(false);
+        setEmptyCylinderSerial('');
       } else {
         // Single drop-off — use existing confirmByCode
         await paycodesApi.confirmByCode(activeJob.orderId, deliveryCode.trim());
@@ -276,12 +280,8 @@ export default function DriverAppPage() {
     try {
       // EWA cashout — full unpaid balance
       const key = `cashout-${Date.now()}`;
-      const { data } = await (await import('@speedplus/api-client')).apiClient.post(
-        '/earnings/cashout',
-        { amountKobo: walletData.balanceKobo },
-        { headers: { 'Idempotency-Key': key } },
-      );
-      if ((data as { success: boolean }).success) setCashoutDone(true);
+      await earningsApi.cashout(walletData.balanceKobo, key);
+      setCashoutDone(true);
     } catch {
       // show nothing — user can retry
     } finally {
@@ -468,11 +468,40 @@ export default function DriverAppPage() {
                 ) : (
                   <span className="text-[12.5px] font-bold">Proof of delivery</span>
                 )}
-                <ProofCapture
-                  orderId={activeJob.orderId}
-                  kind="dropoff_photo"
-                  label="Photograph the sealed package at drop-off"
-                />
+                {/* Gas orders: weight photo is required before the delivery code */}
+                {activeJob.vertical === 'gas' ? (
+                  <>
+                    <ProofCapture
+                      orderId={activeJob.orderId}
+                      kind="weight_photo"
+                      label="Weigh the cylinder at the door — photograph the scale reading"
+                    />
+                    <label className="flex items-center gap-2 bg-white rounded-[10px] px-3 py-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={emptyCollected}
+                        onChange={(e) => setEmptyCollected(e.target.checked)}
+                        className="w-4 h-4 accent-emerald"
+                      />
+                      <span className="text-[12.5px] font-semibold">I collected the empty cylinder</span>
+                    </label>
+                    {emptyCollected && (
+                      <input
+                        type="text"
+                        value={emptyCylinderSerial}
+                        onChange={(e) => setEmptyCylinderSerial(e.target.value)}
+                        placeholder="Empty cylinder serial (optional)"
+                        className="bg-white border border-line rounded-[10px] px-3 py-2.5 text-[12.5px] outline-none focus:border-emerald"
+                      />
+                    )}
+                  </>
+                ) : (
+                  <ProofCapture
+                    orderId={activeJob.orderId}
+                    kind="dropoff_photo"
+                    label="Photograph the sealed package at drop-off"
+                  />
+                )}
                 <span className="text-[11px] text-mid">
                   Ask the recipient for their 6-digit delivery code.
                 </span>
@@ -567,8 +596,42 @@ export default function DriverAppPage() {
               </div>
             )}
 
+            {/* Paycode resolve */}
+            <div className="bg-white border border-line rounded-2xl p-4 flex flex-col gap-2.5">
+              <span className="text-[10.5px] font-semibold text-mid tracking-[.5px]">RESOLVE PAYCODE</span>
+              <input
+                value={resolvePayload}
+                onChange={(e) => { setResolvePayload(e.target.value); setResolveResult(null); }}
+                placeholder="Scan or paste QR payload"
+                className="w-full border border-line rounded-xl px-3 py-2 text-[12px] font-mono text-ink placeholder-mid focus:outline-none focus:border-emerald"
+              />
+              {resolveResult && (
+                <p className="text-[12px] font-semibold text-emerald" role="status">✓ {resolveResult}</p>
+              )}
+              <button
+                onClick={async () => {
+                  if (!resolvePayload.trim()) return;
+                  try {
+                    await paycodesApi.resolve(resolvePayload.trim());
+                    setResolveResult('Order found');
+                    setResolvePayload('');
+                  } catch (e) {
+                    setResolveResult((e as Error).message);
+                  }
+                }}
+                disabled={!resolvePayload.trim()}
+                className="w-full bg-emerald text-lime font-display font-semibold text-[12px] rounded-xl py-2 hover:bg-emerald/90 transition-colors disabled:opacity-50"
+              >
+                Resolve
+              </button>
+            </div>
+
             <button
-              onClick={() => router.push('/login')}
+              onClick={async () => {
+                await authApi.logout().catch(() => {});
+                clearAuth();
+                router.replace('/login');
+              }}
               className="text-sm font-semibold text-[#DC2626] text-left"
             >
               Sign out

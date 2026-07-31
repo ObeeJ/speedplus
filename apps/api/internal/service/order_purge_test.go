@@ -51,7 +51,7 @@ func TestPurgeStaleRecipientPII_PurgesOldDeliveredOrders(t *testing.T) {
 		cipher := testRecipientCipher(t)
 		old := seedDeliveredPackageOrder(t, tx, time.Now().AddDate(0, 0, -recipientPIIRetentionDays-1), cipher)
 
-		svc := &OrderService{db: tx}
+		svc := &OrderService{orders: repo.NewOrderRepo(tx)}
 		n, err := svc.PurgeStaleRecipientPII(context.Background())
 		if err != nil {
 			t.Fatalf("PurgeStaleRecipientPII: %v", err)
@@ -76,7 +76,7 @@ func TestPurgeStaleRecipientPII_SkipsRecentOrders(t *testing.T) {
 		cipher := testRecipientCipher(t)
 		recent := seedDeliveredPackageOrder(t, tx, time.Now().AddDate(0, 0, -1), cipher)
 
-		svc := &OrderService{db: tx}
+		svc := &OrderService{orders: repo.NewOrderRepo(tx)}
 		if _, err := svc.PurgeStaleRecipientPII(context.Background()); err != nil {
 			t.Fatalf("PurgeStaleRecipientPII: %v", err)
 		}
@@ -99,7 +99,7 @@ func TestPurgeStaleRecipientPII_SkipsOpenDisputes(t *testing.T) {
 
 		// escrow_holds.account_id has an FK to ledger_accounts — create a real
 		// account rather than a free-floating UUID.
-		ledger := NewLedgerService(tx, repo.NewLedgerRepo(tx), nil)
+		ledger := NewLedgerService(repo.NewLedgerRepo(tx), nil)
 		holdAcct, err := ledger.EnsureWallet(context.Background(), tx, seedWalletOwner(t, tx).ID)
 		if err != nil {
 			t.Fatalf("ensure hold account: %v", err)
@@ -110,7 +110,7 @@ func TestPurgeStaleRecipientPII_SkipsOpenDisputes(t *testing.T) {
 		}
 		mustCreate(t, tx, hold)
 
-		svc := &OrderService{db: tx}
+		svc := &OrderService{orders: repo.NewOrderRepo(tx)}
 		n, err := svc.PurgeStaleRecipientPII(context.Background())
 		if err != nil {
 			t.Fatalf("PurgeStaleRecipientPII: %v", err)

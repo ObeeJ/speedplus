@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -98,12 +99,43 @@ func (h *CatalogHandler) SearchProducts(c *gin.Context) {
 
 // ── Prescriptions ─────────────────────────────────────────────────────────────
 
+// PresignPrescriptionUpload — POST /prescriptions/presign {contentType}.
+// Returns a short-lived R2 PUT URL and the server-derived object key the
+// client must upload the bytes to before calling CreatePrescription with that
+// key. The key is never client-supplied (see CreatePrescription below).
+func (h *CatalogHandler) PresignPrescriptionUpload(c *gin.Context) {
+	var req struct {
+		ContentType string `json:"contentType" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		return
+	}
+	customerID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	uploadURL, key, err := h.catalog.PresignPrescriptionUpload(c.Request.Context(), customerID, req.ContentType)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidContentType):
+			c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), "contentType"))
+		case errors.Is(err, service.ErrStorageUnavailable):
+			c.JSON(http.StatusServiceUnavailable, dto.Fail("STORAGE_UNAVAILABLE", err.Error(), ""))
+		default:
+			c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
+		}
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"uploadUrl": uploadURL, "key": key}))
+}
+
 // CreatePrescription records a prescription after the frontend has uploaded
-// the image directly to R2 and obtained the object key.
+// the image directly to R2 (via PresignPrescriptionUpload) and obtained the
+// object key. merchantId is required — a prescription with no target
+// pharmacy can never be reviewed, so this is rejected at creation instead of
+// silently producing an unreviewable row.
 func (h *CatalogHandler) CreatePrescription(c *gin.Context) {
 	var req struct {
-		R2Key      string  `json:"r2Key"      binding:"required"`
-		MerchantID *string `json:"merchantId"`
+		R2Key      string `json:"r2Key"      binding:"required"`
+		MerchantID string `json:"merchantId" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
@@ -112,19 +144,20 @@ func (h *CatalogHandler) CreatePrescription(c *gin.Context) {
 
 	customerID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
 
-	var merchantID *uuid.UUID
-	if req.MerchantID != nil {
-		id, err := uuid.Parse(*req.MerchantID)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid merchantId", "merchantId"))
-			return
-		}
-		merchantID = &id
+	merchantID, err := uuid.Parse(req.MerchantID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid merchantId", "merchantId"))
+		return
 	}
 
 	prescription, err := h.catalog.CreatePrescription(c.Request.Context(), customerID, req.R2Key, merchantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
+		switch {
+		case errors.Is(err, service.ErrMerchantNotPharmacy):
+			c.JSON(http.StatusUnprocessableEntity, dto.Fail("MERCHANT_NOT_PHARMACY", err.Error(), "merchantId"))
+		default:
+			c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
+		}
 		return
 	}
 	c.JSON(http.StatusCreated, dto.OK(prescription))

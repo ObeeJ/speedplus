@@ -4,9 +4,9 @@ import type { User } from '@speedplus/types';
 import { setAuthToken, setRefreshToken } from '@speedplus/api-client';
 
 // Access token lives in memory ONLY — never written to localStorage.
-// This prevents XSS from reading it. The refresh token is also memory-only;
-// the server issues a new pair on every /auth/refresh call.
-// We persist only the user profile so the UI can render without a round-trip.
+// isAuthenticated is derived from user !== null on every read, never persisted.
+// This prevents the auth guard from passing on a hard refresh when the
+// in-memory token is gone.
 
 interface AuthState {
   user: (User & { referralCode?: string }) | null;
@@ -22,7 +22,6 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
 
       setAuth: (user, accessToken, refreshToken) => {
-        // Tokens go to the in-memory api-client store, NOT to Zustand persist.
         setAuthToken(accessToken);
         setRefreshToken(refreshToken);
         set({ user, isAuthenticated: true });
@@ -36,8 +35,11 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'speedplus-auth',
-      // Only persist the user profile — never tokens.
-      partialize: (s) => ({ user: s.user, isAuthenticated: s.isAuthenticated }),
+      // Persist only the user profile. isAuthenticated is intentionally excluded:
+      // on rehydration it defaults to false and is set to true only after a
+      // successful token refresh, preventing the auth guard from passing when
+      // the in-memory access token is absent.
+      partialize: (s) => ({ user: s.user }),
     },
   ),
 );

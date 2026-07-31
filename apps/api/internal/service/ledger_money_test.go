@@ -135,7 +135,7 @@ func TestJournal_RejectsUnbalancedEntries(t *testing.T) {
 	gdb := testDB(t)
 	withTx(t, gdb, func(tx *gorm.DB) {
 		ledgerRepo := repo.NewLedgerRepo(tx)
-		ledger := NewLedgerService(tx, ledgerRepo, nil)
+		ledger := NewLedgerService(ledgerRepo, nil)
 
 		// ledger_accounts.owner_id has an FK to users — seed a real owner.
 		acctA, err := ledger.EnsureWallet(context.Background(), tx, seedWalletOwner(t, tx).ID)
@@ -156,7 +156,7 @@ func TestJournal_AcceptsBalancedEntries(t *testing.T) {
 	gdb := testDB(t)
 	withTx(t, gdb, func(tx *gorm.DB) {
 		ledgerRepo := repo.NewLedgerRepo(tx)
-		ledger := NewLedgerService(tx, ledgerRepo, nil)
+		ledger := NewLedgerService(ledgerRepo, nil)
 
 		acctA, err := ledger.EnsureWallet(context.Background(), tx, seedWalletOwner(t, tx).ID)
 		if err != nil {
@@ -184,7 +184,7 @@ func TestEscrowHoldAndSettle_FullLifecycle(t *testing.T) {
 	withTx(t, gdb, func(tx *gorm.DB) {
 		ctx := context.Background()
 		ledgerRepo := repo.NewLedgerRepo(tx)
-		ledger := NewLedgerService(tx, ledgerRepo, nil)
+		ledger := NewLedgerService(ledgerRepo, nil)
 
 		const subtotal, delivery, service, tip = int64(500000), int64(80000), int64(20000), int64(10000)
 		total := subtotal + delivery + service + tip
@@ -308,10 +308,10 @@ func TestProcessWebhook_DuplicateEventCreditedOnce(t *testing.T) {
 		// is already mid-transaction, keeping everything inside the outer
 		// rollback boundary.
 		ledgerRepo := repo.NewLedgerRepo(tx)
-		ledger := NewLedgerService(tx, ledgerRepo, nil)
+		ledger := NewLedgerService(ledgerRepo, nil)
 		provider := &stubProvider{}
 		userRepo := repo.NewUserRepo(tx)
-		wallet := NewWalletService(tx, ledger, noopPINVerifier{}, provider, noopWalletEmail{}, userRepo)
+		wallet := NewWalletService(repo.NewWalletRepo(tx), ledger, noopPINVerifier{}, provider, noopWalletEmail{}, userRepo)
 
 		payload := WebhookPayload{
 			Provider: "stub", EventID: "evt-" + unique, EventType: "charge.success",

@@ -18,13 +18,13 @@ import (
 )
 
 type WalletService struct {
-	db       *gorm.DB
+	repo     repo.WalletRepo
 	ledger   *LedgerService
 	pins     ports.PINVerifier
 	provider payment.Provider
 	email    walletEmailSender
 	users    repo.UserRepo
-	enqueue  func(cashoutID string) error // injected after construction
+	enqueue  func(cashoutID string) error
 }
 
 type walletEmailSender interface {
@@ -32,8 +32,8 @@ type walletEmailSender interface {
 	SendTransferReceived(ctx context.Context, toEmail, firstName string, amountKobo int64, senderName string)
 }
 
-func NewWalletService(db *gorm.DB, ledger *LedgerService, pins ports.PINVerifier, provider payment.Provider, email walletEmailSender, users repo.UserRepo) *WalletService {
-	return &WalletService{db: db, ledger: ledger, pins: pins, provider: provider, email: email, users: users}
+func NewWalletService(r repo.WalletRepo, ledger *LedgerService, pins ports.PINVerifier, provider payment.Provider, email walletEmailSender, users repo.UserRepo) *WalletService {
+	return &WalletService{repo: r, ledger: ledger, pins: pins, provider: provider, email: email, users: users}
 }
 
 // InjectQueue wires the asynq enqueue function after construction to avoid a
@@ -45,9 +45,7 @@ func (s *WalletService) InjectQueue(fn func(cashoutID string) error) {
 // ── Fund wallet (pay-in) ──────────────────────────────────────────────────────
 
 func (s *WalletService) InitiateFund(ctx context.Context, userID uuid.UUID, amountKobo int64, email, idempotencyKey, callbackURL string) (*payment.ChargeResponse, error) {
-	// Idempotency check
-	var existing model.PaymentIntent
-	if err := s.db.WithContext(ctx).Where("idempotency_key = ?", idempotencyKey).First(&existing).Error; err == nil {
+	if existing, err := s.repo.FindPaymentIntentByKey(ctx, idempotencyKey); err == nil {
 		return &payment.ChargeResponse{Reference: *existing.ProviderRef}, nil
 	}
 
@@ -61,7 +59,7 @@ func (s *WalletService) InitiateFund(ctx context.Context, userID uuid.UUID, amou
 		IdempotencyKey: idempotencyKey,
 		ProviderRef:    &ref,
 	}
-	if err := s.db.WithContext(ctx).Create(&intent).Error; err != nil {
+	if err := s.repo.CreatePaymentIntent(ctx, &intent); err != nil {
 		return nil, err
 	}
 
@@ -73,6 +71,53 @@ func (s *WalletService) InitiateFund(ctx context.Context, userID uuid.UUID, amou
 	})
 	if err != nil {
 		return nil, fmt.Errorf("initiate charge: %w", err)
+	}
+	return resp, nil
+}
+
+// ── Stablecoin fund via Bridge.xyz ───────────────────────────────────────────
+
+// InitiateCryptoFund creates a Bridge Orchestration payment session so the user
+// can fund their wallet with USDC/USDT. bridge must be a *payment.BridgeProvider.
+func (s *WalletService) InitiateCryptoFund(
+	ctx context.Context,
+	userID uuid.UUID,
+	amountKobo int64,
+	email, fullName, idempotencyKey, callbackURL string,
+	bridge *payment.BridgeProvider,
+) (*payment.ChargeResponse, error) {
+	if existing, err := s.repo.FindPaymentIntentByKey(ctx, idempotencyKey); err == nil {
+		return &payment.ChargeResponse{Reference: *existing.ProviderRef}, nil
+	}
+
+	walletID, err := bridge.EnsureWallet(ctx, userID.String(), email, fullName)
+	if err != nil {
+		return nil, fmt.Errorf("bridge wallet: %w", err)
+	}
+
+	ref := uuid.NewString()
+	intent := model.PaymentIntent{
+		ID:             uuid.New(),
+		UserID:         userID,
+		AmountKobo:     amountKobo,
+		Provider:       "bridge",
+		Status:         "pending",
+		IdempotencyKey: idempotencyKey,
+		ProviderRef:    &ref,
+	}
+	if err := s.repo.CreatePaymentIntent(ctx, &intent); err != nil {
+		return nil, err
+	}
+
+	resp, err := bridge.InitiateCharge(ctx, payment.ChargeRequest{
+		AmountKobo:  amountKobo,
+		Email:       email,
+		Reference:   ref,
+		CallbackURL: callbackURL,
+		Metadata:    map[string]string{"bridge_wallet_id": walletID},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("bridge charge: %w", err)
 	}
 	return resp, nil
 }
@@ -94,10 +139,8 @@ var ErrWebhookRetryable = errors.New("transient webhook error — retry")
 
 func (s *WalletService) ProcessWebhook(ctx context.Context, p WebhookPayload) error {
 	var notify *fundedNotice
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Dedupe: skip if already processed — non-retryable, return nil → 200
-		var existing model.WebhookEvent
-		if err := tx.Where("provider = ? AND event_id = ?", p.Provider, p.EventID).First(&existing).Error; err == nil {
+	err := s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		if _, err := s.repo.FindWebhookEventTx(ctx, tx, p.Provider, p.EventID); err == nil {
 			return nil
 		}
 
@@ -109,8 +152,7 @@ func (s *WalletService) ProcessWebhook(ctx context.Context, p WebhookPayload) er
 			EventType: p.EventType,
 			Payload:   string(p.RawBody),
 		}
-		if err := tx.Create(&event).Error; err != nil {
-			// DB write failed — transient, provider must retry
+		if err := s.repo.CreateWebhookEventTx(ctx, tx, &event); err != nil {
 			return ErrWebhookRetryable
 		}
 
@@ -133,12 +175,8 @@ func (s *WalletService) ProcessWebhook(ctx context.Context, p WebhookPayload) er
 			return nil
 		}
 
-		var intent model.PaymentIntent
-		if err := tx.
-			Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("provider_ref = ? AND status = 'pending'", p.Reference).
-			First(&intent).Error; err != nil {
-			// Already credited or reference unknown — non-retryable, 200
+		intent, err := s.repo.LockPaymentIntentByRefTx(ctx, tx, p.Reference)
+		if err != nil {
 			return nil
 		}
 
@@ -148,12 +186,12 @@ func (s *WalletService) ProcessWebhook(ctx context.Context, p WebhookPayload) er
 		}
 
 		intent.Status = "success"
-		if err := tx.Save(&intent).Error; err != nil {
+		if err := s.repo.SavePaymentIntentTx(ctx, tx, intent); err != nil {
 			return ErrWebhookRetryable
 		}
 
 		event.ProcessedAt = &now
-		if err := tx.Save(&event).Error; err != nil {
+		if err := s.repo.SaveWebhookEventTx(ctx, tx, &event); err != nil {
 			return ErrWebhookRetryable
 		}
 
@@ -218,10 +256,13 @@ func (s *WalletService) Transfer(ctx context.Context, senderID, recipientID uuid
 		return fmt.Errorf("pin verification failed")
 	}
 
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Idempotency
-		var existing model.IdempotencyKey
-		if err := tx.Where("key = ?", idempotencyKey).First(&existing).Error; err == nil {
+	// FIX #2: capture notification data outside the goroutine so the email
+	// fires after the transaction commits, never inside it.
+	var notifyEmail *string
+	var notifyFirst, notifySender string
+
+	err := s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		if _, err := s.repo.FindIdempotencyKeyTx(ctx, tx, idempotencyKey); err == nil {
 			return nil
 		}
 
@@ -234,14 +275,12 @@ func (s *WalletService) Transfer(ctx context.Context, senderID, recipientID uuid
 			return err
 		}
 
-		// Check balance (FOR UPDATE already in adjustBalance)
-		var senderBal model.WalletBalance
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("account_id = ?", senderWallet.ID).First(&senderBal).Error; err != nil {
+		senderBal, err := s.repo.LockWalletBalanceTx(ctx, tx, senderWallet.ID)
+		if err != nil {
 			return err
 		}
 		if senderBal.BalanceKobo < amountKobo {
-			return fmt.Errorf("insufficient balance")
+			return fmt.Errorf("%w", ErrInsufficientBalance)
 		}
 
 		journalID := uuid.New()
@@ -261,32 +300,41 @@ func (s *WalletService) Transfer(ctx context.Context, senderID, recipientID uuid
 			return fmt.Errorf("transfer: adjust recipient balance: %w", err)
 		}
 
-		if err := tx.Create(&model.IdempotencyKey{
+		if err := s.repo.CreateIdempotencyKeyTx(ctx, tx, &model.IdempotencyKey{
 			Key:       idempotencyKey,
 			UserID:    senderID,
 			ExpiresAt: time.Now().Add(24 * time.Hour),
-		}).Error; err != nil {
+		}); err != nil {
 			return err
 		}
 
-		// Transfer received email — best-effort, after transaction commits.
-		go func(sid, rid uuid.UUID, amount int64) {
-			sender, err := s.users.FindByID(context.Background(), sid)
-			if err != nil {
-				return
+		// FIX #2: resolve user details INSIDE the transaction (same connection,
+		// no goroutine) so we hold plain values. Email fires after commit.
+		if sender, sErr := s.users.FindByID(ctx, senderID); sErr == nil {
+			if recipient, rErr := s.users.FindByID(ctx, recipientID); rErr == nil && recipient.Email != nil {
+				notifyEmail = recipient.Email
+				notifyFirst = recipient.FirstName
+				notifySender = sender.FirstName + " " + sender.LastName
 			}
-			recipient, err := s.users.FindByID(context.Background(), rid)
-			if err != nil {
-				return
-			}
-			if recipient.Email != nil {
-				s.email.SendTransferReceived(context.Background(), *recipient.Email, recipient.FirstName, amount,
-					sender.FirstName+" "+sender.LastName)
-			}
-		}(senderID, recipientID, amountKobo)
+		}
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	// Post-commit: send notification with pre-resolved plain values — no DB access.
+	if notifyEmail != nil {
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("transfer email panicked", "panic", r)
+				}
+			}()
+			s.email.SendTransferReceived(context.Background(), *notifyEmail, notifyFirst, amountKobo, notifySender)
+		}()
+	}
+	return nil
 }
 
 // ── EWA cashout ───────────────────────────────────────────────────────────────
@@ -294,38 +342,49 @@ func (s *WalletService) Transfer(ctx context.Context, senderID, recipientID uuid
 const EWACashoutFeeKobo = 10000 // ₦100 instant cashout fee
 
 func (s *WalletService) EWACashout(ctx context.Context, driverID uuid.UUID, amountKobo int64, idempotencyKey string) error {
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Idempotency
-		var existing model.CashoutRequest
-		if err := tx.Where("idempotency_key = ?", idempotencyKey).First(&existing).Error; err == nil {
+	err := s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		if _, err := s.repo.FindIdempotencyKeyTx(ctx, tx, idempotencyKey); err == nil {
 			return nil
 		}
 
-		// Check unpaid earnings
-		var totalEarned int64
-		tx.Model(&model.DriverEarning{}).
-			Where("driver_id = ? AND paid_out_at IS NULL", driverID).
-			Select("COALESCE(SUM(amount_kobo + tip_kobo), 0)").Scan(&totalEarned)
-
+		totalEarned, err := s.repo.SumUnpaidEarnings(ctx, tx, driverID)
+		if err != nil {
+			return fmt.Errorf("EWACashout: sum earnings: %w", err)
+		}
 		if totalEarned < amountKobo+EWACashoutFeeKobo {
 			return fmt.Errorf("insufficient earned balance")
 		}
 
-		// Debit earnings wallet, credit fee to platform
-		driverWallet, _ := s.ledger.EnsureWallet(ctx, tx, driverID)
-		revenueAcct, _ := s.ledger.platformAccount(ctx, tx, model.AccountRevenue)
+		// FIX #1: propagate EnsureWallet / platformAccount errors — discarding
+		// them with _ returns a zero-value struct whose ID is uuid.Nil, causing
+		// every subsequent ledger write to silently corrupt the wrong account.
+		driverWallet, err := s.ledger.EnsureWallet(ctx, tx, driverID)
+		if err != nil {
+			return fmt.Errorf("EWACashout: driver wallet: %w", err)
+		}
+		revenueAcct, err := s.ledger.platformAccount(ctx, tx, model.AccountRevenue)
+		if err != nil {
+			return fmt.Errorf("EWACashout: revenue account: %w", err)
+		}
+		// FIX #5: use an earnings/liability account as the payout pass-through,
+		// not revenue. Revenue should only be recognised as the fee portion.
+		// We reuse AccountEarnings (driver-side liability) as the pass-through
+		// so the net revenue impact is exactly EWACashoutFeeKobo.
+		earningsAcct, err := s.ledger.platformAccount(ctx, tx, model.AccountEarnings)
+		if err != nil {
+			return fmt.Errorf("EWACashout: earnings account: %w", err)
+		}
 
 		journalID := uuid.New()
 		entries := []model.LedgerEntry{
+			// Debit driver wallet for full amount + fee
 			{ID: uuid.New(), JournalID: journalID, AccountID: driverWallet.ID, AmountKobo: -(amountKobo + EWACashoutFeeKobo), Description: "EWA cashout debit", RefType: "cashout"},
+			// Fee goes to platform revenue
 			{ID: uuid.New(), JournalID: journalID, AccountID: revenueAcct.ID, AmountKobo: EWACashoutFeeKobo, Description: "EWA cashout fee", RefType: "cashout"},
+			// Net payout is a pass-through via earnings until provider confirms
+			{ID: uuid.New(), JournalID: journalID, AccountID: earningsAcct.ID, AmountKobo: amountKobo, Description: "EWA payout staging", RefType: "cashout"},
+			{ID: uuid.New(), JournalID: journalID, AccountID: earningsAcct.ID, AmountKobo: -amountKobo, Description: "EWA payout to bank", RefType: "cashout"},
 		}
-		// Net payout to driver's bank is handled by provider transfer
-		// We need a "payout" account to balance — use revenue as pass-through
-		entries = append(entries, model.LedgerEntry{
-			ID: uuid.New(), JournalID: journalID, AccountID: revenueAcct.ID,
-			AmountKobo: -amountKobo, Description: "EWA payout to bank", RefType: "cashout",
-		})
 
 		if err := s.ledger.journal(ctx, tx, entries); err != nil {
 			return err
@@ -342,17 +401,16 @@ func (s *WalletService) EWACashout(ctx context.Context, driverID uuid.UUID, amou
 			Status:         "pending",
 			IdempotencyKey: idempotencyKey,
 		}
-		return tx.Create(&cashout).Error
+		return s.repo.CreateCashoutTx(ctx, tx, &cashout)
 	})
 	if err != nil {
 		return err
 	}
-	// Enqueue outside the transaction — only fires after DB commit is durable.
 	if s.enqueue != nil {
-		var created model.CashoutRequest
-		s.db.WithContext(ctx).Where("idempotency_key = ?", idempotencyKey).First(&created)
-		if enqErr := s.enqueue(created.ID.String()); enqErr != nil {
-			observability.CaptureError(ctx, enqErr, "EWACashout: enqueue failed", "idempotency_key", idempotencyKey)
+		if created, err := s.repo.FindCashoutByKey(ctx, idempotencyKey); err == nil {
+			if enqErr := s.enqueue(created.ID.String()); enqErr != nil {
+				observability.CaptureError(ctx, enqErr, "EWACashout: enqueue failed", "idempotency_key", idempotencyKey)
+			}
 		}
 	}
 	return nil
@@ -361,20 +419,14 @@ func (s *WalletService) EWACashout(ctx context.Context, driverID uuid.UUID, amou
 // ── Weekly auto-payout (called by asynq cron) ─────────────────────────────────
 
 func (s *WalletService) WeeklyAutoPayout(ctx context.Context) error {
-	var drivers []uuid.UUID
-	s.db.WithContext(ctx).
-		Model(&model.DriverEarning{}).
-		Where("paid_out_at IS NULL").
-		Distinct("driver_id").
-		Pluck("driver_id", &drivers)
+	drivers, _ := s.repo.ListDriversWithUnpaidEarnings(ctx)
 
 	for _, driverID := range drivers {
-		var total int64
-		s.db.WithContext(ctx).
-			Model(&model.DriverEarning{}).
-			Where("driver_id = ? AND paid_out_at IS NULL", driverID).
-			Select("COALESCE(SUM(amount_kobo + tip_kobo), 0)").Scan(&total)
-
+		total, err := s.repo.SumUnpaidEarnings(ctx, nil, driverID)
+		if err != nil {
+			observability.CaptureError(ctx, err, "weekly payout: sum earnings", "driver_id", driverID.String())
+			continue
+		}
 		if total <= 0 {
 			continue
 		}
@@ -432,18 +484,16 @@ func (s *WalletService) MerchantWithdraw(ctx context.Context, merchantID uuid.UU
 		return fmt.Errorf("pin verification failed")
 	}
 
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Idempotency
-		var existing model.CashoutRequest
-		if err := tx.Where("idempotency_key = ?", idempotencyKey).First(&existing).Error; err == nil {
+	err := s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		if _, err := s.repo.FindIdempotencyKeyTx(ctx, tx, idempotencyKey); err == nil {
 			return nil
 		}
 
-		// Verify bank account is saved
-		var bankAcct model.MerchantBankAccount
-		if err := tx.Where("merchant_id = ? AND is_verified = true", merchantID).First(&bankAcct).Error; err != nil {
+		bankAcct, err := s.repo.FindMerchantBankAccountTx(ctx, tx, merchantID)
+		if err != nil {
 			return fmt.Errorf("no verified bank account on file — add one before withdrawing")
 		}
+		_ = bankAcct
 
 		var feeKobo int64
 		if withdrawalType == "instant" {
@@ -451,8 +501,10 @@ func (s *WalletService) MerchantWithdraw(ctx context.Context, merchantID uuid.UU
 		}
 		totalDebit := amountKobo + feeKobo
 
-		// Check balance
-		merchantWallet, err := s.ledger.EnsureWallet(ctx, tx, merchantID)
+		// FIX #4: use EnsureMerchantWallet which resolves merchants.id → user_id
+		// before touching ledger_accounts. Passing merchantID directly violates
+		// the FK on ledger_accounts.owner_id → users(id).
+		merchantWallet, err := s.ledger.EnsureMerchantWallet(ctx, tx, merchantID)
 		if err != nil {
 			return err
 		}
@@ -462,8 +514,8 @@ func (s *WalletService) MerchantWithdraw(ctx context.Context, merchantID uuid.UU
 			return err
 		}
 		if bal.BalanceKobo < totalDebit {
-			return fmt.Errorf("insufficient balance: have %s, need %s",
-				formatKobo(bal.BalanceKobo), formatKobo(totalDebit))
+			return fmt.Errorf("%w: have %s, need %s",
+				ErrInsufficientBalance, formatKobo(bal.BalanceKobo), formatKobo(totalDebit))
 		}
 
 		// Debit merchant wallet; fee (if any) goes to platform revenue.
@@ -476,14 +528,14 @@ func (s *WalletService) MerchantWithdraw(ctx context.Context, merchantID uuid.UU
 		journalID := uuid.New()
 		entries := []model.LedgerEntry{
 			{ID: uuid.New(), JournalID: journalID, AccountID: merchantWallet.ID,
-				AmountKobo: -totalDebit,
+				AmountKobo:  -totalDebit,
 				Description: fmt.Sprintf("merchant %s withdrawal debit", withdrawalType), RefType: "cashout"},
 			{ID: uuid.New(), JournalID: journalID, AccountID: revenueAcct.ID,
-				AmountKobo: feeKobo,
+				AmountKobo:  feeKobo,
 				Description: fmt.Sprintf("merchant %s withdrawal fee", withdrawalType), RefType: "cashout"},
 			// Net payout: revenue is pass-through, balanced when provider confirms transfer.
 			{ID: uuid.New(), JournalID: journalID, AccountID: revenueAcct.ID,
-				AmountKobo: -amountKobo,
+				AmountKobo:  -amountKobo,
 				Description: "merchant payout to bank", RefType: "cashout"},
 		}
 		if err := s.ledger.journal(ctx, tx, entries); err != nil {
@@ -503,22 +555,17 @@ func (s *WalletService) MerchantWithdraw(ctx context.Context, merchantID uuid.UU
 			Status:         "pending",
 			IdempotencyKey: idempotencyKey,
 		}
-		return tx.Create(&cashout).Error
+		return s.repo.CreateCashoutTx(ctx, tx, &cashout)
 	})
 	if err != nil {
 		return err
 	}
-	// Enqueue outside the transaction — only fires after DB commit is durable.
-	// instant → immediate processing; standard → picked up by 18:00 WAT batch.
 	if s.enqueue != nil {
-		var created model.CashoutRequest
-		s.db.WithContext(ctx).Where("idempotency_key = ?", idempotencyKey).First(&created)
-		if withdrawalType == "instant" {
+		if created, err := s.repo.FindCashoutByKey(ctx, idempotencyKey); err == nil && withdrawalType == "instant" {
 			if enqErr := s.enqueue(created.ID.String()); enqErr != nil {
 				observability.CaptureError(ctx, enqErr, "MerchantWithdraw: enqueue failed", "idempotency_key", idempotencyKey)
 			}
 		}
-		// standard withdrawals are picked up by the daily batch cron — no immediate enqueue
 	}
 	return nil
 }
@@ -526,7 +573,7 @@ func (s *WalletService) MerchantWithdraw(ctx context.Context, merchantID uuid.UU
 // ReverseCashout credits the wallet back when a provider transfer fails permanently.
 // Called by the worker after all retries are exhausted.
 func (s *WalletService) ReverseCashout(ctx context.Context, cashout *model.CashoutRequest) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {
 		// Determine which wallet to credit back
 		var ownerID uuid.UUID
 		if cashout.ActorType == "merchant" && cashout.MerchantID != nil {
@@ -550,10 +597,10 @@ func (s *WalletService) ReverseCashout(ctx context.Context, cashout *model.Casho
 		journalID := uuid.New()
 		entries := []model.LedgerEntry{
 			{ID: uuid.New(), JournalID: journalID, AccountID: wallet.ID,
-				AmountKobo: totalCredit,
+				AmountKobo:  totalCredit,
 				Description: "cashout reversal — transfer failed", RefType: "cashout", RefID: &cashout.ID},
 			{ID: uuid.New(), JournalID: journalID, AccountID: revenueAcct.ID,
-				AmountKobo: -totalCredit,
+				AmountKobo:  -totalCredit,
 				Description: "cashout reversal — unwind revenue", RefType: "cashout", RefID: &cashout.ID},
 		}
 		if err := s.ledger.journal(ctx, tx, entries); err != nil {
@@ -564,26 +611,25 @@ func (s *WalletService) ReverseCashout(ctx context.Context, cashout *model.Casho
 		}
 
 		cashout.Status = "failed"
-		return tx.Save(cashout).Error
+		return s.repo.SaveCashoutTx(ctx, tx, cashout)
 	})
 }
 
-func (s *WalletService) DB() *gorm.DB { return s.db }
+func (s *WalletService) DB() *gorm.DB               { return nil }
 func (s *WalletService) Provider() payment.Provider { return s.provider }
 
-// ResolveCashoutRecipient returns the provider recipient code and narration for a cashout.
-func (s *WalletService) ResolveCashoutRecipient(ctx context.Context, cashout *model.CashoutRequest) (recipientCode, reason string, err error) {
+func (s *WalletService) ResolveCashoutRecipient(ctx context.Context, cashout *model.CashoutRequest) (recipientCode, accountName, reason string, err error) {
 	if cashout.ActorType == "merchant" && cashout.MerchantID != nil {
-		var bankAcct model.MerchantBankAccount
-		if err := s.db.WithContext(ctx).Where("merchant_id = ?", cashout.MerchantID).First(&bankAcct).Error; err != nil {
-			return "", "", fmt.Errorf("merchant bank account: %w", err)
+		bankAcct, err := s.repo.FindMerchantBankAccountTx(ctx, nil, *cashout.MerchantID)
+		if err != nil {
+			return "", "", "", fmt.Errorf("merchant bank account: %w", err)
 		}
 		if s.provider.Name() == "monnify" {
-			return bankAcct.BankCode + ":" + bankAcct.AccountNumber, "SpeedPlus merchant payout", nil
+			return bankAcct.BankCode + ":" + bankAcct.AccountNumber, bankAcct.AccountName, "SpeedPlus merchant payout", nil
 		}
-		return bankAcct.AccountNumber, "SpeedPlus merchant payout", nil
+		return bankAcct.AccountNumber, bankAcct.AccountName, "SpeedPlus merchant payout", nil
 	}
-	return "", "", fmt.Errorf("driver bank account resolution not yet implemented")
+	return "", "", "", fmt.Errorf("driver bank account resolution not yet implemented")
 }
 
 func formatKobo(k int64) string {

@@ -123,6 +123,11 @@ type responseWriter struct {
 }
 
 func (w *responseWriter) Write(b []byte) (int, error) {
+	// FIX #6: capture status on first Write if WriteHeader was never called
+	// explicitly (Gin calls Write before WriteHeader for c.JSON responses).
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
 	w.body.Write(b)
 	return w.ResponseWriter.Write(b)
 }

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type MerchantTab = 'dash' | 'orders' | 'rx' | 'prod' | 'earn' | 'set';
+export type MerchantTab = 'dash' | 'orders' | 'rx' | 'prod' | 'earn' | 'set' | 'gas' | 'pay';
 
 interface MerchantState {
   tab: MerchantTab;

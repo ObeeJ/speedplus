@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,14 +14,13 @@ import (
 )
 
 type LedgerService struct {
-	db         *gorm.DB // kept for transaction boundaries only
 	repo       repo.LedgerRepo
 	pricing    *PricingService
 	feeConfigs *FeeConfigService // nil => DefaultFeeTable fallback
 }
 
-func NewLedgerService(db *gorm.DB, r repo.LedgerRepo, pricing *PricingService) *LedgerService {
-	return &LedgerService{db: db, repo: r, pricing: pricing}
+func NewLedgerService(r repo.LedgerRepo, pricing *PricingService) *LedgerService {
+	return &LedgerService{repo: r, pricing: pricing}
 }
 
 // InjectFeeConfigs wires the FeeConfigService after construction to break the
@@ -49,7 +49,7 @@ func (s *LedgerService) adjustBalance(ctx context.Context, tx *gorm.DB, accountI
 	}
 	newBal := bal.BalanceKobo + deltaKobo
 	if newBal < 0 {
-		return fmt.Errorf("insufficient balance: have %d kobo, need %d", bal.BalanceKobo, -deltaKobo)
+		return fmt.Errorf("%w: have %d kobo, need %d", ErrInsufficientBalance, bal.BalanceKobo, -deltaKobo)
 	}
 	return s.repo.UpdateBalance(ctx, tx, accountID, newBal)
 }
@@ -66,11 +66,11 @@ func (s *LedgerService) EnsureWallet(ctx context.Context, tx *gorm.DB, ownerID u
 // Passing model.Merchant.ID straight through is an FK violation, not merely a
 // lookup miss.
 func (s *LedgerService) EnsureMerchantWallet(ctx context.Context, tx *gorm.DB, merchantID uuid.UUID) (*model.LedgerAccount, error) {
-	var m model.Merchant
-	if err := tx.WithContext(ctx).Select("user_id").First(&m, "id = ?", merchantID).Error; err != nil {
+	userID, err := s.repo.FindMerchantUserID(ctx, tx, merchantID)
+	if err != nil {
 		return nil, fmt.Errorf("resolve merchant %s to user: %w", merchantID, err)
 	}
-	return s.repo.FindOrCreateWallet(ctx, tx, m.UserID)
+	return s.repo.FindOrCreateWallet(ctx, tx, userID)
 }
 
 func (s *LedgerService) platformAccount(ctx context.Context, tx *gorm.DB, acctType model.AccountType) (*model.LedgerAccount, error) {
@@ -117,6 +117,70 @@ func (s *LedgerService) HoldEscrow(ctx context.Context, tx *gorm.DB, orderID, cu
 
 // ── Settlement ────────────────────────────────────────────────────────────────
 
+// shortfallTolerance is the fraction of ordered weight within which no refund
+// is issued. 2% on a 12.5kg cylinder = 250g tolerance.
+const shortfallTolerance = 0.02
+
+// weightProof loads the weight_photo proof row for a gas order and returns
+// the measured kg. Returns 0, nil only when no weight_photo row exists yet —
+// any other DB error is propagated, never swallowed. A swallowed error here
+// would look identical to "no proof" and silently skip the shortfall refund.
+func (s *LedgerService) weightProof(ctx context.Context, tx *gorm.DB, orderID uuid.UUID) (float64, error) {
+	var proof model.ProofMedia
+	err := tx.WithContext(ctx).
+		Where("order_id = ? AND kind = 'weight_photo'", orderID).
+		Order("captured_at DESC").
+		First(&proof).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("load weight proof: %w", err)
+	}
+	if proof.MeasuredKg == nil {
+		return 0, nil
+	}
+	return *proof.MeasuredKg, nil
+}
+
+// orderedWeightKg sums the ordered weight directly from order_items via tx,
+// rather than trusting order.Items to be populated. Settle is called with
+// orders loaded by LockOrderTx / FindActiveInTransitOrder (paycode.go), none
+// of which preload Items — relying on the in-memory struct here would make
+// this always read 0 and silently skip every gas shortfall calculation in
+// production, while still passing tests that construct Order with Items set
+// by hand.
+func (s *LedgerService) orderedWeightKg(ctx context.Context, tx *gorm.DB, orderID uuid.UUID) (float64, error) {
+	var orderedKg float64
+	err := tx.WithContext(ctx).Model(&model.OrderItem{}).
+		Where("order_id = ?", orderID).
+		Select("COALESCE(SUM(weight_kg * quantity), 0)").
+		Scan(&orderedKg).Error
+	if err != nil {
+		return 0, fmt.Errorf("load ordered weight: %w", err)
+	}
+	return orderedKg, nil
+}
+
+// liveLPGPriceKobo returns the current LPG price per kg for a region, or 0 if
+// no index row exists yet. Used to price gas shortfall refunds in new_cylinder
+// mode, where SubtotalKobo includes the cylinder body and is not a reliable
+// ₦/kg basis.
+func (s *LedgerService) liveLPGPriceKobo(ctx context.Context, tx *gorm.DB, region string) (int64, error) {
+	var row model.LPGPriceIndex
+	err := tx.WithContext(ctx).
+		Where("region = ? AND effective_at <= NOW()", region).
+		Order("effective_at DESC").
+		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("load lpg price: %w", err)
+	}
+	return row.PricePerKgKobo, nil
+}
+
 func (s *LedgerService) Settle(ctx context.Context, tx *gorm.DB, order *model.Order, paycodeEventID uuid.UUID) error {
 	// Pin the split to the fee config in force when the order was created —
 	// an admin rate change mid-delivery must never reallocate money in flight.
@@ -132,8 +196,66 @@ func (s *LedgerService) Settle(ctx context.Context, tx *gorm.DB, order *model.Or
 		return fmt.Errorf("escrow hold not found: %w", err)
 	}
 
+	// Gas orders must never settle without a weight photo — this is the
+	// trust wedge the whole gas vertical rests on. Enforced here, inside
+	// Settle, so every current and future confirmation path (QR, code, card)
+	// is covered by construction rather than by remembering to add a check
+	// at each new call site. Fetched once and reused below for the shortfall
+	// calculation, so the guard and the calculation can never read different
+	// data — "has a weight photo" and "has a measured_kg to price against"
+	// are the same fact by construction, not two separately-maintained checks.
+	var gasMeasuredKg float64
+	if order.Vertical == "gas" {
+		var err error
+		gasMeasuredKg, err = s.weightProof(ctx, tx, order.ID)
+		if err != nil {
+			return fmt.Errorf("settle: weight proof: %w", err)
+		}
+		if gasMeasuredKg <= 0 {
+			return fmt.Errorf("gas order requires a weight photo before settlement")
+		}
+	}
+
 	merchantShareKobo := int64(float64(order.SubtotalKobo) * fees.MerchantTakeRate)
 	driverEarningKobo := int64(float64(order.DeliveryKobo) * fees.DriverTakeRate)
+
+	// Gas shortfall refund: if measured < ordered beyond tolerance, debit the
+	// shortfall from the merchant's share and credit it to the customer —
+	// within this same balanced journal.
+	var shortfallRefundKobo int64
+	if order.Vertical == "gas" {
+		orderedKg, err := s.orderedWeightKg(ctx, tx, order.ID)
+		if err != nil {
+			return fmt.Errorf("settle: %w", err)
+		}
+		if orderedKg > 0 {
+			measuredKg := gasMeasuredKg
+			shortKg := orderedKg - measuredKg
+			if shortKg > orderedKg*shortfallTolerance {
+				// price per kg = subtotal / orderedKg. In new_cylinder mode
+				// the subtotal includes the cylinder body, not just the
+				// gas fill, so subtotal/kg overstates ₦/kg — price off the
+				// LPG index instead when one is available.
+				pricePerKg := float64(order.SubtotalKobo) / orderedKg
+				if order.GasMode != nil && *order.GasMode == "new_cylinder" {
+					lpgPriceKobo, err := s.liveLPGPriceKobo(ctx, tx, "Lagos")
+					if err != nil {
+						return fmt.Errorf("settle: lpg price: %w", err)
+					}
+					if lpgPriceKobo > 0 {
+						pricePerKg = float64(lpgPriceKobo)
+					}
+				}
+				shortfallRefundKobo = int64(shortKg * pricePerKg)
+				// Cap at merchant's share — never go negative
+				if shortfallRefundKobo > merchantShareKobo {
+					shortfallRefundKobo = merchantShareKobo
+				}
+				merchantShareKobo -= shortfallRefundKobo
+			}
+		}
+	}
+
 	platformTotal := (order.SubtotalKobo - merchantShareKobo) + (order.DeliveryKobo - driverEarningKobo) + order.ServiceKobo
 
 	if order.DriverID == nil {
@@ -170,6 +292,22 @@ func (s *LedgerService) Settle(ctx context.Context, tx *gorm.DB, order *model.Or
 		{ID: uuid.New(), JournalID: journalID, AccountID: merchantWallet.ID, AmountKobo: merchantShareKobo, Description: "merchant settlement", RefType: "order", RefID: &order.ID},
 		{ID: uuid.New(), JournalID: journalID, AccountID: driverWallet.ID, AmountKobo: driverEarningKobo, Description: "driver delivery fee", RefType: "order", RefID: &order.ID},
 		{ID: uuid.New(), JournalID: journalID, AccountID: revenueAcct.ID, AmountKobo: platformTotal, Description: "platform fee", RefType: "order", RefID: &order.ID},
+	}
+	// Shortfall refund: credit customer from the already-reduced merchant share.
+	// The escrow debit above covers the full baseHoldKobo; the shortfall is
+	// redistributed within the journal so the zero-sum invariant still holds.
+	if shortfallRefundKobo > 0 {
+		customerWallet, err := s.EnsureWallet(ctx, tx, order.CustomerID)
+		if err != nil {
+			return fmt.Errorf("settle: customer wallet for shortfall: %w", err)
+		}
+		entries = append(entries,
+			model.LedgerEntry{ID: uuid.New(), JournalID: journalID, AccountID: revenueAcct.ID, AmountKobo: -shortfallRefundKobo, Description: "gas shortfall debit platform", RefType: "order", RefID: &order.ID},
+			model.LedgerEntry{ID: uuid.New(), JournalID: journalID, AccountID: customerWallet.ID, AmountKobo: shortfallRefundKobo, Description: "gas shortfall refund to customer", RefType: "order", RefID: &order.ID},
+		)
+		if err := s.adjustBalance(ctx, tx, customerWallet.ID, shortfallRefundKobo); err != nil {
+			return fmt.Errorf("settle: adjust customer balance for shortfall: %w", err)
+		}
 	}
 	// Tip block: separate escrow debit + driver credit — sums to zero on its own.
 	if order.TipKobo > 0 {
@@ -359,36 +497,18 @@ func (s *LedgerService) CreditWallet(ctx context.Context, tx *gorm.DB, userID uu
 // the sum of all ledger entries for the escrow account.
 // Returns the drift in kobo (0 = clean). Never auto-corrects.
 func (s *LedgerService) ReconcileEscrow(ctx context.Context) (int64, error) {
-	escrowAcct, err := s.repo.FindOrCreatePlatformAccount(ctx, s.db, model.AccountEscrow)
+	escrowAcct, err := s.repo.FindPlatformAccount(ctx, model.AccountEscrow)
 	if err != nil {
 		return 0, fmt.Errorf("reconcile: escrow account: %w", err)
 	}
-
-	// Materialised balance
-	matBal, err := s.repo.GetBalance(ctx, *escrowAcct.OwnerID)
+	materialised, err := s.repo.GetMaterialisedBalance(ctx, escrowAcct.ID)
 	if err != nil {
-		// Platform accounts have nil OwnerID — query by account ID directly
-	}
-	var materialised int64
-	if err := s.db.WithContext(ctx).
-		Model(&model.WalletBalance{}).
-		Where("account_id = ?", escrowAcct.ID).
-		Select("balance_kobo").
-		Scan(&materialised).Error; err != nil {
 		return 0, fmt.Errorf("reconcile: read materialised balance: %w", err)
 	}
-	_ = matBal
-
-	// Ledger sum
-	var ledgerSum int64
-	if err := s.db.WithContext(ctx).
-		Model(&model.LedgerEntry{}).
-		Where("account_id = ?", escrowAcct.ID).
-		Select("COALESCE(SUM(amount_kobo), 0)").
-		Scan(&ledgerSum).Error; err != nil {
+	ledgerSum, err := s.repo.GetLedgerSum(ctx, escrowAcct.ID)
+	if err != nil {
 		return 0, fmt.Errorf("reconcile: ledger sum: %w", err)
 	}
-
 	return materialised - ledgerSum, nil
 }
 
@@ -397,27 +517,21 @@ func (s *LedgerService) ReconcileEscrow(ctx context.Context) (int64, error) {
 // so the snapshot is the only fast historical view.
 func (s *LedgerService) SnapshotPlatformBalances(ctx context.Context) error {
 	for _, acctType := range []model.AccountType{model.AccountRevenue, model.AccountProviderClearing} {
-		acct, err := s.repo.FindOrCreatePlatformAccount(ctx, s.db, acctType)
+		acct, err := s.repo.FindPlatformAccount(ctx, acctType)
 		if err != nil {
 			return fmt.Errorf("snapshot: %s account: %w", acctType, err)
 		}
-
-		var sum int64
-		if err := s.db.WithContext(ctx).
-			Model(&model.LedgerEntry{}).
-			Where("account_id = ?", acct.ID).
-			Select("COALESCE(SUM(amount_kobo), 0)").
-			Scan(&sum).Error; err != nil {
+		sum, err := s.repo.GetLedgerSum(ctx, acct.ID)
+		if err != nil {
 			return fmt.Errorf("snapshot: sum %s: %w", acctType, err)
 		}
-
 		snap := model.PlatformBalanceSnapshot{
 			ID:           uuid.New(),
 			AccountType:  acctType,
 			BalanceKobo:  sum,
 			SnapshotDate: time.Now().UTC().Truncate(24 * time.Hour),
 		}
-		if err := s.db.WithContext(ctx).Create(&snap).Error; err != nil {
+		if err := s.repo.CreateBalanceSnapshot(ctx, &snap); err != nil {
 			return fmt.Errorf("snapshot: create %s: %w", acctType, err)
 		}
 	}

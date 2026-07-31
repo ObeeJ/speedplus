@@ -21,14 +21,16 @@ export function ProofCapture({
   stopId?: string;
   kind: ProofKind;
   label: string;
-  onCaptured?: () => void;
+  onCaptured?: (measuredKg?: number) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [sealSerial, setSealSerial] = useState('');
+  const [measuredKgInput, setMeasuredKgInput] = useState('');
   const [status, setStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle');
   const [error, setError] = useState('');
 
   const isVideo = kind.endsWith('_video');
+  const isWeightPhoto = kind === 'weight_photo';
 
   async function currentCoords(): Promise<{ lat?: number; lng?: number }> {
     return new Promise((resolve) => {
@@ -46,6 +48,7 @@ export function ProofCapture({
     setError('');
     try {
       const contentType = file.type || (isVideo ? 'video/mp4' : 'image/jpeg');
+      const measuredKg = isWeightPhoto && measuredKgInput ? parseFloat(measuredKgInput) : undefined;
       const [hash, coords, presigned] = await Promise.all([
         sha256Hex(file),
         currentCoords(),
@@ -58,11 +61,12 @@ export function ProofCapture({
         sha256: hash,
         stopId,
         sealSerial: sealSerial.trim() || undefined,
+        measuredKg: measuredKg && !isNaN(measuredKg) ? measuredKg : undefined,
         capturedLat: coords.lat,
         capturedLng: coords.lng,
       });
       setStatus('done');
-      onCaptured?.();
+      onCaptured?.(measuredKg && !isNaN(measuredKg) ? measuredKg : undefined);
     } catch (e) {
       setStatus('error');
       setError(e instanceof Error ? e.message : 'Upload failed');
@@ -73,13 +77,27 @@ export function ProofCapture({
     <div className="flex flex-col gap-2 rounded-xl border border-line bg-white/60 p-3">
       <span className="text-[12px] font-semibold text-emerald">{label}</span>
 
-      <input
-        aria-label="Seal serial number"
-        value={sealSerial}
-        onChange={(e) => setSealSerial(e.target.value)}
-        placeholder="Seal number (on the tamper sticker)"
-        className="rounded-lg border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
-      />
+      {isWeightPhoto ? (
+        <input
+          aria-label="Measured weight in kg"
+          type="number"
+          inputMode="decimal"
+          step="0.1"
+          min="0"
+          value={measuredKgInput}
+          onChange={(e) => setMeasuredKgInput(e.target.value)}
+          placeholder="Scale reading (kg) e.g. 12.3"
+          className="rounded-lg border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
+        />
+      ) : (
+        <input
+          aria-label="Seal serial number"
+          value={sealSerial}
+          onChange={(e) => setSealSerial(e.target.value)}
+          placeholder="Seal number (on the tamper sticker)"
+          className="rounded-lg border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
+        />
+      )}
 
       <input
         ref={inputRef}

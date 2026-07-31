@@ -1,8 +1,11 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { QuoteResult } from '@/lib/store/package-flow.store';
 
 export type PharmacyTab = 'otc' | 'rx';
-export type RxStatus = 'uploaded' | 'under_review' | 'approved';
+// Mirrors the backend's real prescription.status values (service/catalog.go)
+// plus the client-only 'uploading' transient state for the upload-in-flight UI.
+export type RxStatus = 'uploading' | 'pending' | 'approved' | 'rejected' | 'expired';
 
 export interface OtcItem {
   id: string;
@@ -18,29 +21,40 @@ export const OTC_ITEMS: OtcItem[] = [
   { id: 'malariakit', name: 'Malaria test kit', description: 'Rapid diagnostic kit', price: 2000 },
 ];
 
-const BASE_FARE = 100;
-const PER_KM = 45;
-const DEMO_KM = 5.1;
-const RX_ITEMS_PRICE = 6500;
+export interface PharmacyAddress {
+  id: string;
+  label?: string;
+  street: string;
+  city: string;
+  lat: number;
+  lng: number;
+}
 
 interface PharmacyFlowState {
   tab: PharmacyTab;
   otcItemId: string | null;
   rxStatus: RxStatus | null;
-  deliverTo: string | null;
+  // The pharmacy the Rx was submitted to — required by the backend as of the
+  // integrity fix (a prescription with no target pharmacy could never be
+  // reviewed). Must be chosen before upload. Lat/lng are the quote origin.
+  merchantId: string | null;
+  merchantLat: number | null;
+  merchantLng: number | null;
+  deliverToId: string | null;
+  deliverToAddress: PharmacyAddress | null;
+  quote: QuoteResult | null;
   orderId: string | null;
   prescriptionId: string | null;
   setTab: (v: PharmacyTab) => void;
   setOtcItemId: (v: string) => void;
-  uploadRx: () => void;
+  setMerchant: (id: string, lat: number, lng: number) => void;
   setRxStatus: (v: RxStatus | null) => void;
   setPrescriptionId: (v: string | null) => void;
-  setDeliverTo: (v: string) => void;
+  setDeliverTo: (v: PharmacyAddress) => void;
+  setQuote: (v: QuoteResult) => void;
   setOrderId: (v: string | null) => void;
   reset: () => void;
-  km: () => number;
   canContinueItems: () => boolean;
-  priceBreakdown: () => { base: number; distance: number; item: number; total: number };
 }
 
 export const usePharmacyFlowStore = create<PharmacyFlowState>()(
@@ -49,31 +63,39 @@ export const usePharmacyFlowStore = create<PharmacyFlowState>()(
       tab: 'otc',
       otcItemId: null,
       rxStatus: null,
-      deliverTo: null,
+      merchantId: null,
+      merchantLat: null,
+      merchantLng: null,
+      deliverToId: null,
+      deliverToAddress: null,
+      quote: null,
       orderId: null,
       prescriptionId: null,
       setTab: (v) => set({ tab: v }),
-      setOtcItemId: (v) => set({ otcItemId: v }),
-      uploadRx: () => {
-        set({ rxStatus: 'uploaded' });
-        setTimeout(() => set({ rxStatus: 'under_review' }), 300);
-        setTimeout(() => set({ rxStatus: 'approved' }), 3000);
-      },
+      setOtcItemId: (v) => set({ otcItemId: v, quote: null }),
+      setMerchant: (id, lat, lng) => set({ merchantId: id, merchantLat: lat, merchantLng: lng, quote: null }),
       setRxStatus: (v) => set({ rxStatus: v }),
       setPrescriptionId: (v) => set({ prescriptionId: v }),
-      setDeliverTo: (v) => set({ deliverTo: v }),
+      setDeliverTo: (v) => set({ deliverToId: v.id, deliverToAddress: v, quote: null }),
+      setQuote: (v) => set({ quote: v }),
       setOrderId: (v) => set({ orderId: v }),
-      reset: () => set({ tab: 'otc', otcItemId: null, rxStatus: null, deliverTo: null, orderId: null, prescriptionId: null }),
-      km: () => DEMO_KM,
+      reset: () =>
+        set({
+          tab: 'otc',
+          otcItemId: null,
+          rxStatus: null,
+          merchantId: null,
+          merchantLat: null,
+          merchantLng: null,
+          deliverToId: null,
+          deliverToAddress: null,
+          quote: null,
+          orderId: null,
+          prescriptionId: null,
+        }),
       canContinueItems: () => {
         const { tab, otcItemId, rxStatus } = get();
         return tab === 'otc' ? Boolean(otcItemId) : rxStatus === 'approved';
-      },
-      priceBreakdown: () => {
-        const { tab, otcItemId } = get();
-        const distance = Math.round(get().km() * PER_KM);
-        const item = tab === 'otc' ? (OTC_ITEMS.find((o) => o.id === otcItemId)?.price ?? 0) : RX_ITEMS_PRICE;
-        return { base: BASE_FARE, distance, item, total: BASE_FARE + distance + item };
       },
     }),
     { name: 'speedplus-pharmacy-flow' },

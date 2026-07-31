@@ -59,15 +59,36 @@ export default function WalletPage() {
             </p>
           )}
 
-          <button
-            onClick={() => router.push('/wallet/fund')}
-            className="mt-5 flex items-center gap-2 bg-[#C6F24E] text-[#0A3D2C] font-display font-semibold text-[13px] rounded-xl px-5 py-2.5 hover:bg-[#AEE032] transition-colors"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            Add money
-          </button>
+          <div className="mt-5 flex gap-2 flex-wrap">
+            <button
+              onClick={() => router.push('/wallet/fund')}
+              className="flex items-center gap-2 bg-[#C6F24E] text-[#0A3D2C] font-display font-semibold text-[13px] rounded-xl px-4 py-2.5 hover:bg-[#AEE032] transition-colors"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+              Add money
+            </button>
+            <button
+              onClick={() => router.push('/wallet/transfer')}
+              className="flex items-center gap-2 bg-white/10 text-white font-semibold text-[13px] rounded-xl px-4 py-2.5 hover:bg-white/20 transition-colors"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+              Send
+            </button>
+            <button
+              onClick={() => router.push('/wallet/ussd')}
+              className="flex items-center gap-2 bg-white/10 text-white font-semibold text-[13px] rounded-xl px-4 py-2.5 hover:bg-white/20 transition-colors"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2" /><line x1="12" y1="18" x2="12.01" y2="18" /></svg>
+              USSD
+            </button>
+            <button
+              onClick={() => router.push('/wallet/payment-links')}
+              className="flex items-center gap-2 bg-white/10 text-white font-semibold text-[13px] rounded-xl px-4 py-2.5 hover:bg-white/20 transition-colors"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" /></svg>
+              Pay link
+            </button>
+          </div>
         </div>
       </div>
 

@@ -6,10 +6,13 @@ import { Button, Input } from '@speedplus/ui';
 import { walletApi } from '@speedplus/api-client';
 import { useAuthStore } from '@/lib/store/auth.store';
 
+type Method = 'naira' | 'crypto';
+
 export default function WalletFundPage() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
 
+  const [method, setMethod] = useState<Method>('naira');
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -31,12 +34,22 @@ export default function WalletFundPage() {
     try {
       const key = `fund-${Date.now()}`;
       const callbackUrl = `${window.location.origin}/wallet?funded=1`;
-      const result = await walletApi.fund(
-        { amountKobo: Math.round(amountNaira * 100), email: user.email, callbackUrl },
-        key,
-      );
-      // Redirect to Paystack/Flutterwave authorization page
-      window.location.href = result.authorizationUrl;
+      const amountKobo = Math.round(amountNaira * 100);
+
+      if (method === 'crypto') {
+        const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
+        const result = await walletApi.fundCrypto(
+          { amountKobo, email: user.email, fullName, callbackUrl },
+          key,
+        );
+        window.location.href = result.authorizationUrl;
+      } else {
+        const result = await walletApi.fund(
+          { amountKobo, email: user.email, callbackUrl },
+          key,
+        );
+        window.location.href = result.authorizationUrl;
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not initiate payment. Try again.');
       setLoading(false);
@@ -55,6 +68,33 @@ export default function WalletFundPage() {
       </div>
 
       <div className="flex-1 px-5 py-6 flex flex-col gap-5 min-[700px]:max-w-[480px] min-[700px]:mx-auto min-[700px]:w-full">
+
+        {/* Payment method toggle */}
+        <div className="flex flex-col gap-2.5">
+          <span className="text-[13px] font-semibold text-mid">Payment method</span>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setMethod('naira')}
+              className={`rounded-[13px] border py-3 px-4 text-left transition-all duration-150 ${
+                method === 'naira' ? 'border-emerald bg-tile' : 'border-line bg-white hover:border-emerald/40'
+              }`}
+            >
+              <p className={`text-[13px] font-semibold ${method === 'naira' ? 'text-emerald' : 'text-ink'}`}>₦ Naira</p>
+              <p className="text-[11px] text-mid mt-0.5">Card / bank transfer</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMethod('crypto')}
+              className={`rounded-[13px] border py-3 px-4 text-left transition-all duration-150 ${
+                method === 'crypto' ? 'border-emerald bg-tile' : 'border-line bg-white hover:border-emerald/40'
+              }`}
+            >
+              <p className={`text-[13px] font-semibold ${method === 'crypto' ? 'text-emerald' : 'text-ink'}`}>⬡ Stablecoin</p>
+              <p className="text-[11px] text-mid mt-0.5">USDC / USDT via Bridge</p>
+            </button>
+          </div>
+        </div>
 
         {/* Preset amounts */}
         <div className="flex flex-col gap-2.5">
@@ -85,6 +125,12 @@ export default function WalletFundPage() {
           min="100"
         />
 
+        {method === 'crypto' && (
+          <div className="bg-[#F0F7FF] border border-[#C3DEFF] rounded-xl px-4 py-3 text-[12px] text-[#1A4A8A]">
+            You&apos;ll pay in USDC or USDT. Bridge converts to NGN and credits your wallet instantly.
+          </div>
+        )}
+
         {!user?.email && (
           <div className="bg-[#FFF7E6] border border-[#F0DFB4] rounded-xl px-4 py-3 text-[12px] text-[#8A6A1B]">
             You need an email address on your account to fund your wallet.{' '}
@@ -106,7 +152,9 @@ export default function WalletFundPage() {
         </Button>
 
         <p className="text-[11px] text-mid text-center">
-          Secured by Paystack. Your card details are never stored by SpeedPlus.
+          {method === 'crypto'
+            ? 'Stablecoin payments powered by Bridge.xyz.'
+            : 'Secured by Paystack. Your card details are never stored by SpeedPlus.'}
         </p>
       </div>
     </main>

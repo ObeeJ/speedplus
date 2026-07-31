@@ -23,6 +23,8 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		// CSP — tight policy for an API server (no HTML served, so default-src 'none' is safe)
+		c.Header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
 
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)

@@ -28,7 +28,7 @@ export const useDriverAuthStore = create<DriverAuthState>()(
     }),
     {
       name: 'speedplus-driver-auth',
-      partialize: (s) => ({ user: s.user, isAuthenticated: s.isAuthenticated }),
+      partialize: (s) => ({ user: s.user }),
     },
   ),
 );

@@ -20,15 +20,15 @@ type linkEmailSender interface {
 }
 
 type PaymentLinkService struct {
-	db       *gorm.DB
+	repo     repo.PaymentLinkRepo
 	ledger   *LedgerService
 	provider payment.Provider
 	email    linkEmailSender
 	users    repo.UserRepo
 }
 
-func NewPaymentLinkService(db *gorm.DB, ledger *LedgerService, provider payment.Provider, email linkEmailSender, users repo.UserRepo) *PaymentLinkService {
-	return &PaymentLinkService{db: db, ledger: ledger, provider: provider, email: email, users: users}
+func NewPaymentLinkService(r repo.PaymentLinkRepo, ledger *LedgerService, provider payment.Provider, email linkEmailSender, users repo.UserRepo) *PaymentLinkService {
+	return &PaymentLinkService{repo: r, ledger: ledger, provider: provider, email: email, users: users}
 }
 
 func randomSlug() (string, error) {
@@ -53,38 +53,36 @@ func (s *PaymentLinkService) Create(ctx context.Context, creatorID uuid.UUID, am
 		Status:     "pending",
 		ExpiresAt:  time.Now().Add(7 * 24 * time.Hour),
 	}
-	if err := s.db.WithContext(ctx).Create(pl).Error; err != nil {
+	if err := s.repo.Create(ctx, pl); err != nil {
 		return nil, err
 	}
 	return pl, nil
 }
 
 func (s *PaymentLinkService) Get(ctx context.Context, slug string) (*model.PaymentLink, error) {
-	var pl model.PaymentLink
-	if err := s.db.WithContext(ctx).Where("slug = ? AND status = 'pending'", slug).First(&pl).Error; err != nil {
+	pl, err := s.repo.FindPendingBySlug(ctx, slug)
+	if err != nil {
 		return nil, err
 	}
 	if time.Now().After(pl.ExpiresAt) {
-		s.db.WithContext(ctx).Model(&pl).Update("status", "expired")
+		s.repo.ExpireLink(ctx, pl.ID)
 		return nil, fmt.Errorf("payment link expired")
 	}
-	return &pl, nil
+	return pl, nil
 }
 
 func (s *PaymentLinkService) PayByWallet(ctx context.Context, slug string, payerID uuid.UUID, idempotencyKey string) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var existing model.IdempotencyKey
-		if err := tx.Where("key = ?", idempotencyKey).First(&existing).Error; err == nil {
+	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		if _, err := s.repo.FindIdempotencyKeyTx(ctx, tx, idempotencyKey); err == nil {
 			return nil
 		}
 
-		var pl model.PaymentLink
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("slug = ? AND status = 'pending'", slug).First(&pl).Error; err != nil {
+		pl, err := s.repo.LockPendingBySlugTx(ctx, tx, slug)
+		if err != nil {
 			return fmt.Errorf("link not found or inactive")
 		}
 		if time.Now().After(pl.ExpiresAt) {
-			tx.Model(&pl).Update("status", "expired")
+			s.repo.ExpireLinkTx(ctx, tx, pl.ID)
 			return fmt.Errorf("payment link expired")
 		}
 		if pl.CreatorID == payerID {
@@ -106,7 +104,7 @@ func (s *PaymentLinkService) PayByWallet(ctx context.Context, slug string, payer
 			return err
 		}
 		if payerBal.BalanceKobo < pl.AmountKobo {
-			return fmt.Errorf("insufficient balance")
+			return fmt.Errorf("%w", ErrInsufficientBalance)
 		}
 
 		journalID := uuid.New()
@@ -128,15 +126,15 @@ func (s *PaymentLinkService) PayByWallet(ctx context.Context, slug string, payer
 		pl.Status = "paid"
 		pl.PaidByID = &payerID
 		pl.PaidAt = &now
-		if err := tx.Save(&pl).Error; err != nil {
+		if err := s.repo.SaveLinkTx(ctx, tx, pl); err != nil {
 			return err
 		}
 
-		return tx.Create(&model.IdempotencyKey{
+		return s.repo.CreateIdempotencyKeyTx(ctx, tx, &model.IdempotencyKey{
 			Key:       idempotencyKey,
 			UserID:    payerID,
 			ExpiresAt: time.Now().Add(24 * time.Hour),
-		}).Error
+		})
 	})
 }
 
@@ -155,15 +153,11 @@ func (s *PaymentLinkService) InitiateGuestPayment(ctx context.Context, slug, ema
 		Status:      "pending",
 		ProviderRef: &ref,
 	}
-	if err := s.db.WithContext(ctx).Create(&intent).Error; err != nil {
+	if err := s.repo.CreatePaymentIntent(ctx, &intent); err != nil {
 		return nil, err
 	}
 
-	guestEmail := email
-	s.db.WithContext(ctx).Model(pl).Updates(map[string]interface{}{
-		"provider_ref":  ref,
-		"paid_by_email": guestEmail,
-	})
+	s.repo.UpdateLinkProviderRef(ctx, pl.ID, ref, email)
 
 	return s.provider.InitiateCharge(ctx, payment.ChargeRequest{
 		AmountKobo:  pl.AmountKobo,

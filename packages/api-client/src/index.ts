@@ -1,10 +1,11 @@
 export { apiClient, setAuthToken, getAuthToken, setRefreshToken, getRefreshToken } from './client';
-export { buildWsUrl } from './ws';
+export { buildWsUrl, buildWsProtocols } from './ws';
 export { SpeedPlusError } from './errors';
 
 // Auth & users
 export { authApi } from './endpoints/auth';
 export { usersApi } from './endpoints/users';
+export type { SavedAddress, CreateAddressPayload, DriverProfileData, DriverBadge } from './endpoints/users';
 export { kycApi } from './endpoints/kyc';
 
 // Catalog (replaces phantom productsApi + prescriptionsApi)
@@ -13,6 +14,9 @@ export type { MerchantSummary, ProductSummary, PrescriptionRecord } from './endp
 
 // Orders & dispatch
 export { ordersApi } from './endpoints/orders';
+export type { OrderStop, ConfirmStopInput } from './endpoints/orders';
+export { quotesApi } from './endpoints/quotes';
+export type { QuoteResult, QuotePayload, MultiStopQuotePayload } from './endpoints/quotes';
 export { dispatchApi } from './endpoints/dispatch';
 export { paycodesApi } from './endpoints/paycodes';
 export { proofApi, sha256Hex } from './endpoints/proof';
@@ -59,4 +63,14 @@ export type {
   LedgerEntry,
   FeeConfig,
   FuelSuggestion,
+  GasMerchantRow,
+  ZoneRow,
+  FillStatus,
+  LaunchStatus,
 } from './endpoints/admin';
+
+// Gas vertical
+export { gasApi, cylindersApi } from './endpoints/gas';
+export type { CylinderSpec, CustomerCylinder, RegisterCylinderInput, LPGPriceEntry } from './endpoints/gas';
+export { runsApi } from './endpoints/runs';
+export type { DeliveryRun } from './endpoints/runs';

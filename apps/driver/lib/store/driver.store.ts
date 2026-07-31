@@ -26,6 +26,7 @@ export interface JobStop {
 
 export interface ActiveJob {
   orderId: string;
+  vertical: string; // gas|food|grocery|pharmacy|package
   // stage: 1=ride to pickup, 2=arrived pickup, 3=picked up,
   //        4=at stop (multi) or at dropoff (single), 5=pod, 6=done
   stage: number;

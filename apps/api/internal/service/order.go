@@ -16,16 +16,17 @@ import (
 	"github.com/speedplus/api/internal/observability"
 	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 var (
-	ErrIllegalTransition = errors.New("illegal order state transition")
-	ErrQuoteInvalid      = errors.New("quote invalid or expired")
-	ErrMerchantClosed    = errors.New("merchant is currently closed")
-	ErrRxRequired        = errors.New("prescription required for this order")
-	ErrRxNotApproved     = errors.New("prescription is not yet approved by the pharmacy")
-	ErrOrderNotFound     = errors.New("order not found")
+	ErrIllegalTransition    = errors.New("illegal order state transition")
+	ErrQuoteInvalid         = errors.New("quote invalid or expired")
+	ErrMerchantClosed       = errors.New("merchant is currently closed")
+	ErrRxRequired           = errors.New("prescription required for this order")
+	ErrRxNotApproved        = errors.New("prescription is not yet approved by the pharmacy")
+	ErrOrderNotFound        = errors.New("order not found")
+	ErrGasValidation        = errors.New("gas order validation failed")
+	ErrInsufficientBalance  = errors.New("insufficient balance")
 )
 
 type CreateOrderInput struct {
@@ -41,9 +42,12 @@ type CreateOrderInput struct {
 	TipKobo           int64
 	ScheduledFor      *time.Time
 	PaymentMethod     string
-	DeclaredValueKobo *int64  // package vertical only
+	DeclaredValueKobo *int64
 	IdempotencyKey    string
 	Stops             []OrderStopInput
+	// Gas-specific (Phase 1)
+	GasMode    *string    // swap|refill|new_cylinder
+	CylinderID *uuid.UUID // refill mode: customer's registered cylinder
 }
 
 type OrderStopInput struct {
@@ -66,7 +70,7 @@ type OrderItemInput struct {
 }
 
 type OrderService struct {
-	db            *gorm.DB
+	orders        repo.OrderRepo
 	pricing       *PricingService
 	ledger        *LedgerService
 	tier          *TierService
@@ -113,8 +117,8 @@ type wsPublisher interface {
 	Publish(ctx context.Context, channel, event string, data interface{}) error
 }
 
-func NewOrderService(db *gorm.DB, pricing *PricingService, ledger *LedgerService, tier *TierService) *OrderService {
-	return &OrderService{db: db, pricing: pricing, ledger: ledger, tier: tier}
+func NewOrderService(orders repo.OrderRepo, pricing *PricingService, ledger *LedgerService, tier *TierService) *OrderService {
+	return &OrderService{orders: orders, pricing: pricing, ledger: ledger, tier: tier}
 }
 
 func (s *OrderService) InjectDispatch(d *DispatchService, hub wsPublisher) {
@@ -172,9 +176,8 @@ func generateTrackingRef() string {
 
 func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.Order, error) {
 	// Idempotency check
-	var existing model.Order
-	if err := s.db.WithContext(ctx).Where("idempotency_key = ?", in.IdempotencyKey).First(&existing).Error; err == nil {
-		return &existing, nil
+	if existing, err := s.orders.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil {
+		return existing, nil
 	}
 
 	// Validate quote
@@ -188,22 +191,63 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 	}
 
 	// Pharmacy vertical requires a prescription that has actually been
-	// approved by the merchant — a present-but-pending/rejected ID must not
-	// be enough to place the order (the comment claimed "approved
-	// prescription" but the code never checked status until now).
+	// approved by the merchant this order is being placed against, is not
+	// expired, and has not already been used on another order. This
+	// pre-transaction check is a fast-fail for the common case (bad ID,
+	// wrong customer, not yet approved) with a clear error; the real
+	// single-use guarantee comes from ConsumePrescriptionTx's conditional
+	// UPDATE inside the transaction below, which is what actually prevents
+	// two concurrent order-creations from both succeeding off the same Rx —
+	// a Go-level check here alone would race.
 	if in.Vertical == "pharmacy" {
 		if in.PrescriptionID == nil {
 			return nil, ErrRxRequired
 		}
-		var rx model.Prescription
-		if err := s.db.WithContext(ctx).First(&rx, *in.PrescriptionID).Error; err != nil {
+		rx, err := s.orders.FindPrescription(ctx, *in.PrescriptionID)
+		if err != nil {
 			return nil, ErrRxRequired
 		}
 		if rx.CustomerID != in.CustomerID {
 			return nil, ErrRxRequired
 		}
+		if rx.MerchantID == nil || *rx.MerchantID != in.MerchantID {
+			return nil, ErrRxRequired
+		}
 		if rx.Status != "approved" {
 			return nil, ErrRxNotApproved
+		}
+		if rx.ExpiresAt != nil && rx.ExpiresAt.Before(time.Now()) {
+			return nil, ErrRxNotApproved
+		}
+	}
+
+	// Gas vertical: validate gas_mode; require registered cylinder for refill;
+	// set DeclaredValueKobo to the cylinder's custody value.
+	if in.Vertical == "gas" {
+		validModes := map[string]bool{"swap": true, "refill": true, "new_cylinder": true}
+		if in.GasMode == nil || !validModes[*in.GasMode] {
+			return nil, fmt.Errorf("%w: gas_mode must be swap, refill, or new_cylinder", ErrGasValidation)
+		}
+		if *in.GasMode == "refill" {
+			if in.CylinderID == nil {
+				return nil, fmt.Errorf("%w: refill orders require a registered cylinder (cylinder_id)", ErrGasValidation)
+			}
+			// Verify the cylinder belongs to this customer and is active.
+			cyl, err := s.orders.FindCylinder(ctx, *in.CylinderID)
+			if err != nil {
+				return nil, fmt.Errorf("%w: cylinder not found", ErrGasValidation)
+			}
+			if cyl.UserID != in.CustomerID {
+				return nil, fmt.Errorf("%w: cylinder does not belong to this customer", ErrGasValidation)
+			}
+			if cyl.Status != "active" {
+				return nil, fmt.Errorf("%w: cylinder is not available (status: %s)", ErrGasValidation, cyl.Status)
+			}
+			// Set declared value to the cylinder's replacement cost (₦50,000 default).
+			if in.DeclaredValueKobo == nil {
+				v := int64(5_000_000) // ₦50,000 in kobo
+				in.DeclaredValueKobo = &v
+			}
 		}
 	}
 
@@ -231,14 +275,17 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 	}
 
 	var order *model.Order
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.orders.Transaction(ctx, func(tx *gorm.DB) error {
 		// Check merchant is open + KYC approved
-		var merchant model.Merchant
-		if err := tx.First(&merchant, in.MerchantID).Error; err != nil {
+		merchant, err := s.orders.FindMerchant(ctx, in.MerchantID)
+		if err != nil {
 			return fmt.Errorf("merchant not found")
 		}
 		if !merchant.IsOpen {
 			return ErrMerchantClosed
+		}
+		if in.Vertical == "gas" && merchant.FillStatus == "delisted" {
+			return fmt.Errorf("%w: this merchant is temporarily unavailable for gas orders", ErrGasValidation)
 		}
 
 		order = &model.Order{
@@ -260,6 +307,8 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 			ScheduledFor:      in.ScheduledFor,
 			PaymentMethod:     "wallet",
 			DeclaredValueKobo: in.DeclaredValueKobo,
+			GasMode:           in.GasMode,
+			CylinderID:        in.CylinderID,
 			IdempotencyKey:    in.IdempotencyKey,
 		}
 		if in.PaymentMethod == "pay_on_arrival" {
@@ -288,8 +337,23 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 			})
 		}
 
-		if err := tx.Create(order).Error; err != nil {
+		if err := s.orders.CreateTx(ctx, tx, order); err != nil {
 			return err
+		}
+
+		// Atomically consume the Rx now that we're holding the transaction —
+		// this is the actual single-use guarantee (see comment above). A race
+		// where two requests both passed the pre-check above will have exactly
+		// one succeed here; the loser gets ErrRxNotApproved even though its
+		// earlier read said "approved".
+		if in.Vertical == "pharmacy" {
+			rows, err := s.orders.ConsumePrescriptionTx(ctx, tx, *in.PrescriptionID, in.CustomerID, in.MerchantID, order.ID)
+			if err != nil {
+				return fmt.Errorf("consume prescription: %w", err)
+			}
+			if rows == 0 {
+				return ErrRxNotApproved
+			}
 		}
 
 		// Mark quote used
@@ -320,7 +384,7 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 			})
 		}
 		if len(in.Stops) > 0 {
-			if err := tx.Create(&order.Stops).Error; err != nil {
+			if err := s.orders.CreateStopsTx(ctx, tx, order.Stops); err != nil {
 				return fmt.Errorf("create stops: %w", err)
 			}
 		}
@@ -335,13 +399,13 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 		}
 
 		// Audit event
-		return tx.Create(&model.OrderEvent{
+		return s.orders.CreateEventTx(ctx, tx, &model.OrderEvent{
 			ID:        uuid.New(),
 			OrderID:   order.ID,
 			ToStatus:  model.OrderPending,
 			ActorID:   in.CustomerID,
 			ActorRole: "customer",
-		}).Error
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -356,12 +420,11 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 					slog.Error("dispatch goroutine panic", "panic", r, "order_id", o.ID)
 				}
 			}()
-			var merchant model.Merchant
-			if dbErr := s.db.First(&merchant, o.MerchantID).Error; dbErr != nil {
+			merchant, dbErr := s.orders.FindMerchant(context.Background(), o.MerchantID)
+			if dbErr != nil {
 				return
 			}
-			var dropoff model.Address
-			_ = s.db.First(&dropoff, o.DeliveryAddressID).Error // best-effort label; ok if empty
+			dropoff, _ := s.orders.FindAddress(context.Background(), o.DeliveryAddressID) // best-effort
 
 			candidates, dispErr := s.dispatch.Dispatch(context.Background(), o, merchant.Lat, merchant.Lng)
 			if dispErr != nil || len(candidates) == 0 {
@@ -371,18 +434,22 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 			// Payload matches what the driver app's offer card expects:
 			// offerId (so accept/reject hits the right row), addresses, distance.
 			if s.hub != nil {
+				dropoffLabel := ""
+				if dropoff != nil {
+					dropoffLabel = fmt.Sprintf("%s, %s", dropoff.Street, dropoff.City)
+				}
 				for _, cand := range candidates {
 					_ = s.hub.Publish(context.Background(),
 						"driver:"+cand.DriverID.String(),
 						"new_offer",
 						map[string]interface{}{
-							"offerId":         cand.OfferID,
-							"orderId":         o.ID,
-							"vertical":        o.Vertical,
-							"totalKobo":       o.TotalKobo,
-							"distanceKm":      cand.DistanceKm,
-							"pickupAddress":   merchant.BusinessName,
-							"dropoffAddress":  fmt.Sprintf("%s, %s", dropoff.Street, dropoff.City),
+							"offerId":        cand.OfferID,
+							"orderId":        o.ID,
+							"vertical":       o.Vertical,
+							"totalKobo":      o.TotalKobo,
+							"distanceKm":     cand.DistanceKm,
+							"pickupAddress":  merchant.BusinessName,
+							"dropoffAddress": dropoffLabel,
 						},
 					)
 				}
@@ -409,138 +476,133 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 // for the same wrinkle on the wallet side); for a driver, order.DriverID
 // already IS the login user ID. Callers must resolve that before invoking.
 func (s *OrderService) Transition(ctx context.Context, orderID, actorID uuid.UUID, actorRole string, to model.OrderStatus, note *string) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var order model.Order
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, orderID).Error; err != nil {
-			return err
-		}
-
-		// Row-level ownership — fail closed. Without this, any authenticated
-		// caller could transition any order's status by ID (BOLA).
-		switch actorRole {
-		case "merchant":
-			if order.MerchantID != actorID {
-				return errors.New("forbidden")
-			}
-		case "driver":
-			if order.DriverID == nil || *order.DriverID != actorID {
-				return errors.New("forbidden")
-			}
-		case "customer":
-			if order.CustomerID != actorID {
-				return errors.New("forbidden")
-			}
-		case "admin":
-			// admin may transition any order
-		default:
-			return errors.New("forbidden")
-		}
-
-		allowed := model.ValidTransitions[order.Status]
-		valid := false
-		for _, st := range allowed {
-			if st == to {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			return fmt.Errorf("%w: %s → %s", ErrIllegalTransition, order.Status, to)
-		}
-
-		from := order.Status
-		order.Status = to
-		if to == model.OrderDelivered {
-			now := time.Now()
-			order.DeliveredAt = &now
-		}
-
-		if err := tx.Save(&order).Error; err != nil {
-			return err
-		}
-
-		if err := tx.Create(&model.OrderEvent{
-			ID:         uuid.New(),
-			OrderID:    orderID,
-			FromStatus: from,
-			ToStatus:   to,
-			ActorID:    actorID,
-			ActorRole:  actorRole,
-			Note:       note,
-		}).Error; err != nil {
-			return err
-		}
-
-		// When order goes in_transit: generate delivery code and send to customer.
-		// Done inside the transaction so a failed code generation rolls back the
-		// transition — the driver cannot proceed without a code the customer has.
-		if to == model.OrderInTransit && s.deliveryCodes != nil {
-			code, err := s.deliveryCodes.Generate(ctx, orderID)
-			if err != nil {
-				return fmt.Errorf("delivery code generate: %w", err)
-			}
-			// Send code to customer — best-effort, non-blocking after tx commits.
-			if s.email != nil && s.users != nil {
-				go func(customerID uuid.UUID, c, oid string) {
-					defer func() {
-						if r := recover(); r != nil {
-							slog.Error("delivery code email goroutine panic", "panic", r)
-						}
-					}()
-					u, err := s.users.FindByID(context.Background(), customerID)
-					if err != nil || u.Email == nil {
-						return
-					}
-					s.email.SendDeliveryCode(context.Background(), *u.Email, u.FirstName, c, oid)
-				}(order.CustomerID, code, orderID.String())
-			}
-			// Also push the code to the customer via WS so the app shows it immediately.
-			if s.hub != nil {
-				_ = s.hub.Publish(ctx,
-					"order:"+orderID.String(),
-					"delivery_code",
-					map[string]interface{}{"code": code, "orderId": orderID},
-				)
-			}
-		}
-
-		// Notify customer when a driver is assigned — the finding page listens
-		// for this event to navigate to the tracking screen.
-		if to == model.OrderDriverAssigned && s.hub != nil {
-			_ = s.hub.Publish(ctx,
-				"order:"+orderID.String(),
-				"driver_assigned",
-				map[string]interface{}{"orderId": orderID, "driverId": order.DriverID},
-			)
-		}
-
-		// Broadcast every status change so the customer tracking page updates
-		// in real-time without relying solely on polling.
-		if s.hub != nil {
-			_ = s.hub.Publish(ctx,
-				"order:"+orderID.String(),
-				"order_status_changed",
-				map[string]interface{}{"orderId": orderID, "status": to},
-			)
-		}
-
-		// Notify on delivery so the tracking page transitions immediately
-		// without waiting for the next 5-second poll cycle.
-		if to == model.OrderDelivered && s.hub != nil {
-			_ = s.hub.Publish(ctx,
-				"order:"+orderID.String(),
-				"order_delivered",
-				map[string]interface{}{"orderId": orderID},
-			)
-		}
-
-		return nil
+	return s.orders.Transaction(ctx, func(tx *gorm.DB) error {
+		return s.transitionTx(ctx, tx, orderID, actorID, actorRole, to, note)
 	})
 }
 
+// transitionTx runs the state machine check and all side-effects inside an
+// already-open transaction. Use this when the caller owns the transaction
+// (e.g. paycode confirmation, dispatch assignment) to avoid nested tx issues.
+func (s *OrderService) transitionTx(ctx context.Context, tx *gorm.DB, orderID, actorID uuid.UUID, actorRole string, to model.OrderStatus, note *string) error {
+	order, err := s.orders.LockForUpdate(ctx, tx, orderID)
+	if err != nil {
+		return err
+	}
+
+	// Row-level ownership — fail closed.
+	switch actorRole {
+	case "merchant":
+		if order.MerchantID != actorID {
+			return errors.New("forbidden")
+		}
+	case "driver":
+		if order.DriverID == nil || *order.DriverID != actorID {
+			return errors.New("forbidden")
+		}
+	case "customer":
+		if order.CustomerID != actorID {
+			return errors.New("forbidden")
+		}
+	case "admin":
+		// admin may transition any order
+	default:
+		return errors.New("forbidden")
+	}
+
+	allowed := model.ValidTransitions[order.Status]
+	valid := false
+	for _, st := range allowed {
+		if st == to {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return fmt.Errorf("%w: %s → %s", ErrIllegalTransition, order.Status, to)
+	}
+
+	from := order.Status
+	order.Status = to
+	if to == model.OrderDelivered {
+		now := time.Now()
+		order.DeliveredAt = &now
+	}
+
+	if err := s.orders.SaveTx(ctx, tx, order); err != nil {
+		return err
+	}
+
+	if err := s.orders.CreateEventTx(ctx, tx, &model.OrderEvent{
+		ID:         uuid.New(),
+		OrderID:    orderID,
+		FromStatus: from,
+		ToStatus:   to,
+		ActorID:    actorID,
+		ActorRole:  actorRole,
+		Note:       note,
+	}); err != nil {
+		return err
+	}
+
+	if to == model.OrderInTransit && s.deliveryCodes != nil {
+		code, err := s.deliveryCodes.Generate(ctx, orderID)
+		if err != nil {
+			return fmt.Errorf("delivery code generate: %w", err)
+		}
+		if s.email != nil && s.users != nil {
+			go func(customerID uuid.UUID, c, oid string) {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("delivery code email goroutine panic", "panic", r)
+					}
+				}()
+				u, err := s.users.FindByID(context.Background(), customerID)
+				if err != nil || u.Email == nil {
+					return
+				}
+				s.email.SendDeliveryCode(context.Background(), *u.Email, u.FirstName, c, oid)
+			}(order.CustomerID, code, orderID.String())
+		}
+		if s.hub != nil {
+			_ = s.hub.Publish(ctx,
+				"order:"+orderID.String(),
+				"delivery_code",
+				map[string]interface{}{"code": code, "orderId": orderID},
+			)
+		}
+	}
+
+	if to == model.OrderDriverAssigned && s.hub != nil {
+		_ = s.hub.Publish(ctx,
+			"order:"+orderID.String(),
+			"driver_assigned",
+			map[string]interface{}{"orderId": orderID, "driverId": order.DriverID},
+		)
+	}
+
+	if s.hub != nil {
+		_ = s.hub.Publish(ctx,
+			"order:"+orderID.String(),
+			"order_status_changed",
+			map[string]interface{}{"orderId": orderID, "status": to},
+		)
+	}
+
+	if to == model.OrderDelivered && s.hub != nil {
+		_ = s.hub.Publish(ctx,
+			"order:"+orderID.String(),
+			"order_delivered",
+			map[string]interface{}{"orderId": orderID},
+		)
+	}
+
+	return nil
+}
+
 func (s *OrderService) GetByID(ctx context.Context, orderID, requesterID uuid.UUID, requesterRole string) (*model.Order, error) {
-	var order model.Order
-	if err := s.db.WithContext(ctx).Preload("Items").Preload("Events").First(&order, orderID).Error; err != nil {
+	order, err := s.orders.FindByIDWithItems(ctx, orderID)
+	if err != nil {
 		return nil, err
 	}
 	// Row-level ownership. Fail closed: only the four known roles are allowed,
@@ -564,7 +626,7 @@ func (s *OrderService) GetByID(ctx context.Context, orderID, requesterID uuid.UU
 	default:
 		return nil, errors.New("forbidden")
 	}
-	return &order, nil
+	return order, nil
 }
 
 // ToResponse converts an Order to the API response shape, enriching with
@@ -575,12 +637,12 @@ func (s *OrderService) ToResponse(ctx context.Context, o *model.Order) dto.Order
 		return resp
 	}
 	// Best-effort driver enrichment — never blocks the response.
-	var dp model.DriverProfile
-	if err := s.db.WithContext(ctx).Where("user_id = ?", o.DriverID).First(&dp).Error; err != nil {
+	dp, err := s.orders.FindDriverProfile(ctx, *o.DriverID)
+	if err != nil {
 		return resp
 	}
-	var u model.User
-	if err := s.db.WithContext(ctx).First(&u, o.DriverID).Error; err != nil {
+	u, err := s.users.FindByID(ctx, *o.DriverID)
+	if err != nil {
 		return resp
 	}
 	name := u.FirstName + " " + u.LastName
@@ -596,9 +658,9 @@ func (s *OrderService) ToResponse(ctx context.Context, o *model.Order) dto.Order
 
 // Cancel handles cancellation with the refund engine.
 func (s *OrderService) Cancel(ctx context.Context, orderID, actorID uuid.UUID, actorRole, reason string) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var order model.Order
-		if err := tx.First(&order, orderID).Error; err != nil {
+	return s.orders.Transaction(ctx, func(tx *gorm.DB) error {
+		order, err := s.orders.LockForUpdate(ctx, tx, orderID)
+		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrOrderNotFound
 			}
@@ -619,26 +681,24 @@ func (s *OrderService) Cancel(ctx context.Context, orderID, actorID uuid.UUID, a
 		from := order.Status
 		order.Status = model.OrderCancelled
 		order.CancelReason = &reason
-		if err := tx.Save(&order).Error; err != nil {
+		if err := s.orders.SaveTx(ctx, tx, order); err != nil {
 			return err
 		}
 
-		// Audit
-		actorUUID := actorID
-		if err := tx.Create(&model.OrderEvent{
+		if err := s.orders.CreateEventTx(ctx, tx, &model.OrderEvent{
 			ID:         uuid.New(),
 			OrderID:    orderID,
 			FromStatus: from,
 			ToStatus:   model.OrderCancelled,
-			ActorID:    actorUUID,
+			ActorID:    actorID,
 			ActorRole:  actorRole,
 			Note:       &reason,
-		}).Error; err != nil {
+		}); err != nil {
 			return err
 		}
 
 		// Refund engine
-		if err := s.ledger.ProcessCancellationRefund(ctx, tx, &order); err != nil {
+		if err := s.ledger.ProcessCancellationRefund(ctx, tx, order); err != nil {
 			return err
 		}
 
@@ -659,43 +719,26 @@ func (s *OrderService) Cancel(ctx context.Context, orderID, actorID uuid.UUID, a
 }
 
 // OrderStopOut is the API-facing view of a stop. Recipient fields are only
-// ever populated by GetStops when the caller is authorized to see them — the
-// encrypted columns never leave the service layer.
+// ever populated by GetStops when the caller is authorized to see them.
 type OrderStopOut struct {
-	ID             uuid.UUID  `json:"id"`
-	OrderID        uuid.UUID  `json:"orderId"`
-	Sequence       int        `json:"sequence"`
-	AddressID      uuid.UUID  `json:"addressId"`
-	RecipientName  *string    `json:"recipientName,omitempty"`
-	RecipientPhone *string    `json:"recipientPhone,omitempty"`
-	Notes          *string    `json:"notes,omitempty"`
-	Status         string     `json:"status"`
-	ConfirmedAt    *time.Time `json:"confirmedAt,omitempty"`
+	ID                  uuid.UUID  `json:"id"`
+	OrderID             uuid.UUID  `json:"orderId"`
+	Sequence            int        `json:"sequence"`
+	AddressID           uuid.UUID  `json:"addressId"`
+	RecipientName       *string    `json:"recipientName,omitempty"`
+	RecipientPhone      *string    `json:"recipientPhone,omitempty"`
+	Notes               *string    `json:"notes,omitempty"`
+	Status              string     `json:"status"`
+	ConfirmedAt         *time.Time `json:"confirmedAt,omitempty"`
+	EmptyCollected      bool       `json:"emptyCollected"`
+	EmptyCylinderSerial *string    `json:"emptyCylinderSerial,omitempty"`
 }
 
 // ListForCustomer returns the customer's order history with optional filtering.
 // Cursor is stable: uses (created_at, id) composite to prevent duplicates
 // when two orders share the same timestamp.
 func (s *OrderService) ListForCustomer(ctx context.Context, customerID uuid.UUID, vertical, status string, cursor *uuid.UUID, limit int) ([]model.Order, error) {
-	q := s.db.WithContext(ctx).
-		Preload("Items").
-		Where("customer_id = ?", customerID).
-		Order("created_at DESC, id DESC").
-		Limit(limit)
-	if vertical != "" {
-		q = q.Where("vertical = ?", vertical)
-	}
-	if status != "" {
-		q = q.Where("status = ?", status)
-	}
-	if cursor != nil {
-		var pivot model.Order
-		if err := s.db.WithContext(ctx).First(&pivot, cursor).Error; err == nil {
-			q = q.Where("(created_at, id) < (?, ?)", pivot.CreatedAt, pivot.ID)
-		}
-	}
-	var orders []model.Order
-	return orders, q.Find(&orders).Error
+	return s.orders.ListByCustomerFiltered(ctx, customerID, vertical, status, cursor, limit)
 }
 
 // ReceiptResponse is the full invoice view of a completed order.
@@ -719,29 +762,30 @@ type ReceiptResponse struct {
 
 // GetReceipt returns the full invoice for an order the caller owns.
 func (s *OrderService) GetReceipt(ctx context.Context, orderID, customerID uuid.UUID) (*ReceiptResponse, error) {
-	var order model.Order
-	if err := s.db.WithContext(ctx).Preload("Items").First(&order, orderID).Error; err != nil {
+	order, err := s.orders.FindByIDWithItems(ctx, orderID)
+	if err != nil {
 		return nil, err
 	}
 	if order.CustomerID != customerID {
 		return nil, fmt.Errorf("forbidden")
 	}
 
-	var merchant model.Merchant
-	s.db.WithContext(ctx).First(&merchant, order.MerchantID)
+	merchant, _ := s.orders.FindMerchant(ctx, order.MerchantID)
+	merchantName := ""
+	if merchant != nil {
+		merchantName = merchant.BusinessName
+	}
 
 	driverName := ""
 	if order.DriverID != nil {
-		var u model.User
-		if err := s.db.WithContext(ctx).First(&u, order.DriverID).Error; err == nil {
+		if u, err := s.users.FindByID(ctx, *order.DriverID); err == nil {
 			driverName = u.FirstName + " " + u.LastName
 		}
 	}
 
-	var review model.OrderReview
 	var reviewPtr *model.OrderReview
-	if err := s.db.WithContext(ctx).Where("order_id = ? AND reviewer_id = ?", orderID, customerID).First(&review).Error; err == nil {
-		reviewPtr = &review
+	if rev, err := s.orders.FindReviewByOrderAndReviewer(ctx, orderID, customerID); err == nil {
+		reviewPtr = rev
 	}
 
 	var deliveredAt *string
@@ -761,7 +805,7 @@ func (s *OrderService) GetReceipt(ctx context.Context, orderID, customerID uuid.
 		ServiceKobo:   order.ServiceKobo,
 		TipKobo:       order.TipKobo,
 		TotalKobo:     order.TotalKobo,
-		MerchantName:  merchant.BusinessName,
+		MerchantName:  merchantName,
 		DriverName:    driverName,
 		CreatedAt:     order.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		DeliveredAt:   deliveredAt,
@@ -781,8 +825,8 @@ func (s *OrderService) SubmitReview(ctx context.Context, orderID, customerID uui
 		return fmt.Errorf("revieweeType must be driver or merchant")
 	}
 
-	var order model.Order
-	if err := s.db.WithContext(ctx).First(&order, orderID).Error; err != nil {
+	order, err := s.orders.FindByID(ctx, orderID)
+	if err != nil {
 		return fmt.Errorf("order not found")
 	}
 	if order.CustomerID != customerID {
@@ -805,7 +849,7 @@ func (s *OrderService) SubmitReview(ctx context.Context, orderID, customerID uui
 		revieweeID = order.MerchantID
 	}
 
-	review := model.OrderReview{
+	review := &model.OrderReview{
 		ID:           uuid.New(),
 		OrderID:      orderID,
 		ReviewerID:   customerID,
@@ -814,7 +858,7 @@ func (s *OrderService) SubmitReview(ctx context.Context, orderID, customerID uui
 		Rating:       rating,
 		Comment:      comment,
 	}
-	if err := s.db.WithContext(ctx).Create(&review).Error; err != nil {
+	if err := s.orders.CreateReview(ctx, review); err != nil {
 		return fmt.Errorf("review already submitted or DB error: %w", err)
 	}
 
@@ -834,24 +878,14 @@ func (s *OrderService) SubmitReview(ctx context.Context, orderID, customerID uui
 // UpdateAggregateRating recalculates and persists the reviewee's average
 // rating. Called from the worker so failures retry and surface.
 func (s *OrderService) UpdateAggregateRating(ctx context.Context, revieweeID uuid.UUID, revieweeType string) error {
-	var avg float64
-	if err := s.db.WithContext(ctx).
-		Model(&model.OrderReview{}).
-		Where("reviewee_id = ? AND reviewee_type = ?", revieweeID, revieweeType).
-		Select("COALESCE(AVG(rating), 5.0)").
-		Scan(&avg).Error; err != nil {
+	avg, err := s.orders.AverageRating(ctx, revieweeID, revieweeType)
+	if err != nil {
 		return fmt.Errorf("aggregate rating: %w", err)
 	}
-	// Drivers key on user_id (dispatch selects dp.user_id AS driver_id);
-	// merchants key on their own business-entity ID.
 	if revieweeType == "driver" {
-		return s.db.WithContext(ctx).Model(&model.DriverProfile{}).
-			Where("user_id = ?", revieweeID).
-			Update("rating", avg).Error
+		return s.orders.UpdateDriverRating(ctx, revieweeID, avg)
 	}
-	return s.db.WithContext(ctx).Model(&model.Merchant{}).
-		Where("id = ?", revieweeID).
-		Update("rating", avg).Error
+	return s.orders.UpdateMerchantRating(ctx, revieweeID, avg)
 }
 
 // Thresholds for the top_rated badge.
@@ -872,59 +906,38 @@ var badgeMilestones = []struct {
 }
 
 func (s *OrderService) AwardBadgeIfEligible(ctx context.Context, driverID uuid.UUID) error {
-	var count int64
-	if err := s.db.WithContext(ctx).Model(&model.Order{}).
-		Where("driver_id = ? AND status = ?", driverID, model.OrderDelivered).
-		Count(&count).Error; err != nil {
+	count, err := s.orders.CountDeliveredByDriver(ctx, driverID)
+	if err != nil {
 		return fmt.Errorf("badge: count deliveries: %w", err)
 	}
 
 	for _, m := range badgeMilestones {
 		if int(count) >= m.Count {
-			badge := model.DriverBadge{
+			badge := &model.DriverBadge{
 				ID:                uuid.New(),
 				DriverID:          driverID,
 				BadgeType:         m.Type,
 				OrderCountAtAward: int(count),
 				AwardedAt:         time.Now(),
 			}
-			// Insert-if-absent against the unique (driver_id, badge_type)
-			// index. FirstOrCreate is wrong here: badge carries a fresh
-			// primary key, which GORM folds into the lookup conditions, so
-			// it never matches an existing row and the insert then dies on
-			// the constraint — breaking worker retries.
-			if err := s.db.WithContext(ctx).
-				Clauses(clause.OnConflict{
-					Columns:   []clause.Column{{Name: "driver_id"}, {Name: "badge_type"}},
-					DoNothing: true,
-				}).
-				Create(&badge).Error; err != nil {
+			if err := s.orders.UpsertBadge(ctx, badge); err != nil {
 				return fmt.Errorf("badge %s: %w", m.Type, err)
 			}
 		}
 	}
 
 	// top_rated: avg rating >= 4.8 with >= 20 reviews
-	var reviewCount int64
-	var avgRating float64
-	if err := s.db.WithContext(ctx).Model(&model.OrderReview{}).
-		Where("reviewee_id = ? AND reviewee_type = 'driver'", driverID).
-		Count(&reviewCount).Error; err != nil {
+	reviewCount, err := s.orders.CountReviews(ctx, driverID, "driver")
+	if err != nil {
 		return fmt.Errorf("badge: count reviews: %w", err)
 	}
-	if err := s.db.WithContext(ctx).Model(&model.OrderReview{}).
-		Where("reviewee_id = ? AND reviewee_type = 'driver'", driverID).
-		Select("COALESCE(AVG(rating), 0)").Scan(&avgRating).Error; err != nil {
+	avgRating, err := s.orders.AverageRating(ctx, driverID, "driver")
+	if err != nil {
 		return fmt.Errorf("badge: avg rating: %w", err)
 	}
 	if reviewCount >= topRatedMinReviews && avgRating >= topRatedMinAvg {
-		badge := model.DriverBadge{ID: uuid.New(), DriverID: driverID, BadgeType: "top_rated", OrderCountAtAward: int(count), AwardedAt: time.Now()}
-		if err := s.db.WithContext(ctx).
-			Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "driver_id"}, {Name: "badge_type"}},
-				DoNothing: true,
-			}).
-			Create(&badge).Error; err != nil {
+		badge := &model.DriverBadge{ID: uuid.New(), DriverID: driverID, BadgeType: "top_rated", OrderCountAtAward: int(count), AwardedAt: time.Now()}
+		if err := s.orders.UpsertBadge(ctx, badge); err != nil {
 			return fmt.Errorf("badge top_rated: %w", err)
 		}
 	}
@@ -933,9 +946,7 @@ func (s *OrderService) AwardBadgeIfEligible(ctx context.Context, driverID uuid.U
 
 // GetDriverBadges returns all badges for a driver.
 func (s *OrderService) GetDriverBadges(ctx context.Context, driverID uuid.UUID) ([]model.DriverBadge, error) {
-	var badges []model.DriverBadge
-	err := s.db.WithContext(ctx).Where("driver_id = ?", driverID).Order("awarded_at ASC").Find(&badges).Error
-	return badges, err
+	return s.orders.FindDriverBadges(ctx, driverID)
 }
 
 // ListForMerchant returns the merchant's order queue, newest first, optionally
@@ -943,23 +954,7 @@ func (s *OrderService) GetDriverBadges(ctx context.Context, driverID uuid.UUID) 
 // is the resolved model.Merchant.ID (business entity), not the login user ID.
 // Uses (created_at, id) composite cursor — consistent with ListForCustomer.
 func (s *OrderService) ListForMerchant(ctx context.Context, merchantID uuid.UUID, status string, cursor *uuid.UUID, limit int) ([]model.Order, error) {
-	q := s.db.WithContext(ctx).
-		Preload("Items").
-		Where("merchant_id = ?", merchantID).
-		Order("created_at DESC, id DESC").
-		Limit(limit)
-	if status != "" {
-		q = q.Where("status = ?", status)
-	}
-	if cursor != nil {
-		var pivot model.Order
-		if err := s.db.WithContext(ctx).First(&pivot, cursor).Error; err == nil {
-			q = q.Where("(created_at, id) < (?, ?)", pivot.CreatedAt, pivot.ID)
-		}
-	}
-	var orders []model.Order
-	err := q.Find(&orders).Error
-	return orders, err
+	return s.orders.ListByMerchantFiltered(ctx, merchantID, status, cursor, limit)
 }
 
 // GetStops returns all stops for a multi-drop package order, ordered by
@@ -971,16 +966,13 @@ func (s *OrderService) ListForMerchant(ctx context.Context, merchantID uuid.UUID
 //     never after delivery. This is the "only for the active stop" rule.
 //   - anyone else: recipient fields are omitted entirely.
 func (s *OrderService) GetStops(ctx context.Context, orderID, requesterID uuid.UUID, requesterRole string) ([]OrderStopOut, error) {
-	var order model.Order
-	if err := s.db.WithContext(ctx).First(&order, orderID).Error; err != nil {
+	order, err := s.orders.FindByID(ctx, orderID)
+	if err != nil {
 		return nil, err
 	}
 
-	var stops []model.OrderStop
-	if err := s.db.WithContext(ctx).
-		Where("order_id = ?", orderID).
-		Order("sequence ASC").
-		Find(&stops).Error; err != nil {
+	stops, err := s.orders.ListStops(ctx, orderID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -999,13 +991,15 @@ func (s *OrderService) GetStops(ctx context.Context, orderID, requesterID uuid.U
 	out := make([]OrderStopOut, 0, len(stops))
 	for _, st := range stops {
 		view := OrderStopOut{
-			ID:          st.ID,
-			OrderID:     st.OrderID,
-			Sequence:    st.Sequence,
-			AddressID:   st.AddressID,
-			Notes:       st.Notes,
-			Status:      st.Status,
-			ConfirmedAt: st.ConfirmedAt,
+			ID:                  st.ID,
+			OrderID:             st.OrderID,
+			Sequence:            st.Sequence,
+			AddressID:           st.AddressID,
+			Notes:               st.Notes,
+			Status:              st.Status,
+			ConfirmedAt:         st.ConfirmedAt,
+			EmptyCollected:      st.EmptyCollected,
+			EmptyCylinderSerial: st.EmptyCylinderSerial,
 		}
 
 		canSeeRecipient := isOwnerOrAdmin ||
@@ -1025,14 +1019,31 @@ func (s *OrderService) GetStops(ctx context.Context, orderID, requesterID uuid.U
 	return out, nil
 }
 
+// ConfirmStopInput carries the delivery code plus optional empty-cylinder
+// collection data for gas refill orders.
+type ConfirmStopInput struct {
+	Code                string
+	EmptyCollected      bool
+	EmptyCylinderSerial *string
+	CapturedLat         *float64
+	CapturedLng         *float64
+}
+
 // ConfirmStop marks a single stop as confirmed using the per-stop delivery code.
 // When all stops are confirmed the order transitions to delivered and escrow settles.
-func (s *OrderService) ConfirmStop(ctx context.Context, orderID, driverID uuid.UUID, sequence int, code string) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var order model.Order
-		if err := tx.Preload("Stops").First(&order, orderID).Error; err != nil {
+func (s *OrderService) ConfirmStop(ctx context.Context, orderID, driverID uuid.UUID, sequence int, in ConfirmStopInput) error {
+	return s.orders.Transaction(ctx, func(tx *gorm.DB) error {
+		order, err := s.orders.LockForUpdate(ctx, tx, orderID)
+		if err != nil {
 			return fmt.Errorf("order not found")
 		}
+		// Preload stops via tx so they're in the same transaction snapshot.
+		stops, err := s.orders.ListStops(ctx, orderID)
+		if err != nil {
+			return err
+		}
+		order.Stops = stops
+
 		if order.DriverID == nil || *order.DriverID != driverID {
 			return fmt.Errorf("not the assigned driver")
 		}
@@ -1054,9 +1065,9 @@ func (s *OrderService) ConfirmStop(ctx context.Context, orderID, driverID uuid.U
 			return fmt.Errorf("stop already confirmed")
 		}
 
-		// Verify delivery code — uses the shared DeliveryCodeService
+		// Verify delivery code
 		if s.deliveryCodes != nil {
-			if err := s.deliveryCodes.Verify(ctx, tx, orderID, code); err != nil {
+			if err := s.deliveryCodes.Verify(ctx, tx, orderID, in.Code); err != nil {
 				return err
 			}
 		}
@@ -1064,7 +1075,29 @@ func (s *OrderService) ConfirmStop(ctx context.Context, orderID, driverID uuid.U
 		now := time.Now()
 		stop.Status = "confirmed"
 		stop.ConfirmedAt = &now
-		if err := tx.Save(stop).Error; err != nil {
+
+		// Gas reverse logistics: record empty cylinder collection.
+		if order.Vertical == "gas" && in.EmptyCollected {
+			stop.EmptyCollected = true
+			stop.EmptyCylinderSerial = in.EmptyCylinderSerial
+			stopID := stop.ID
+			custodyEvent := &model.CylinderCustodyEvent{
+				ID:          uuid.New(),
+				OrderID:     orderID,
+				StopID:      &stopID,
+				Serial:      in.EmptyCylinderSerial,
+				EventType:   "collected",
+				ActorID:     driverID,
+				CapturedLat: in.CapturedLat,
+				CapturedLng: in.CapturedLng,
+				OccurredAt:  now,
+			}
+			if err := s.orders.CreateCustodyEventTx(ctx, tx, custodyEvent); err != nil {
+				return fmt.Errorf("custody event: %w", err)
+			}
+		}
+
+		if err := s.orders.SaveStopTx(ctx, tx, stop); err != nil {
 			return err
 		}
 
@@ -1081,25 +1114,110 @@ func (s *OrderService) ConfirmStop(ctx context.Context, orderID, driverID uuid.U
 		}
 
 		if allDone {
-			if err := s.ledger.Settle(ctx, tx, &order, uuid.New()); err != nil {
+			if err := s.ledger.Settle(ctx, tx, order, uuid.New()); err != nil {
 				return fmt.Errorf("settlement: %w", err)
 			}
 			order.Status = model.OrderDelivered
 			order.DeliveredAt = &now
-			if err := tx.Save(&order).Error; err != nil {
+			if err := s.orders.SaveTx(ctx, tx, order); err != nil {
 				return err
 			}
-			return tx.Create(&model.OrderEvent{
+			return s.orders.CreateEventTx(ctx, tx, &model.OrderEvent{
 				ID:         uuid.New(),
 				OrderID:    orderID,
 				FromStatus: model.OrderInTransit,
 				ToStatus:   model.OrderDelivered,
 				ActorID:    driverID,
 				ActorRole:  "driver",
-			}).Error
+			})
 		}
 		return nil
 	})
+}
+
+// RecertReminderResult is one cylinder approaching recertification expiry.
+type RecertReminderResult struct {
+	CylinderID      uuid.UUID
+	UserID          uuid.UUID
+	Serial          string
+	LastRecert      time.Time
+	DaysUntilExpiry int
+}
+
+// recertPeriodDays is the standard LPG cylinder recertification interval.
+// Nigeria's DPR standard is 5 years (1825 days); we warn at 60 days out.
+const (
+	recertPeriodDays  = 1825 // 5 years
+	recertWarningDays = 60
+)
+
+// RecertReminders returns cylinders whose recertification is due within
+// recertWarningDays. Called nightly by the worker to drive push notifications.
+func (s *OrderService) RecertReminders(ctx context.Context) ([]RecertReminderResult, error) {
+	cutoff := time.Now().AddDate(0, 0, recertWarningDays)
+	rows, err := s.orders.FindCylindersNearRecert(ctx, cutoff, recertPeriodDays)
+	if err != nil {
+		return nil, fmt.Errorf("recert reminders: %w", err)
+	}
+	out := make([]RecertReminderResult, 0, len(rows))
+	for _, r := range rows {
+		if r.LastRecertAt == nil {
+			continue
+		}
+		expiryDate := r.LastRecertAt.AddDate(0, 0, recertPeriodDays)
+		daysLeft := int(time.Until(expiryDate).Hours() / 24)
+		out = append(out, RecertReminderResult{
+			CylinderID:      r.ID,
+			UserID:          r.UserID,
+			Serial:          r.Serial,
+			LastRecert:      *r.LastRecertAt,
+			DaysUntilExpiry: daysLeft,
+		})
+	}
+	return out, nil
+}
+
+// minFillSamplesForJudgment is the minimum number of recent verified fills
+// before a merchant's fill_status can move off 'good'. A merchant with 1-2
+// fills shouldn't be flagged on noise — this is a floor on sample size, not
+// a grace period.
+const minFillSamplesForJudgment = 5
+
+// fillStatusFor derives a merchant's remediation state from their rolling
+// fill-accuracy average. Thresholds are deliberately staged so a merchant
+// gets warned before they're hidden, and hidden before they're blocked —
+// nobody goes from "good" to "delisted" on one nightly run.
+func fillStatusFor(avgAccuracy float64, sampleCount int) string {
+	if sampleCount < minFillSamplesForJudgment {
+		return "good"
+	}
+	switch {
+	case avgAccuracy >= 0.98:
+		return "good"
+	case avgAccuracy >= 0.95:
+		return "warned"
+	case avgAccuracy >= 0.90:
+		return "probation"
+	default:
+		return "delisted"
+	}
+}
+
+// RecomputeFillAccuracy recalculates fill_accuracy_pct, fill_sample_count and
+// fill_status for all gas merchants from a rolling window of their most
+// recent weight_photo proof rows. Called nightly.
+func (s *OrderService) RecomputeFillAccuracy(ctx context.Context) error {
+	rows, err := s.orders.GasFillAccuracyStats(ctx)
+	if err != nil {
+		return fmt.Errorf("recompute fill accuracy: %w", err)
+	}
+	for _, r := range rows {
+		status := fillStatusFor(r.AvgAccuracy, r.SampleCount)
+		if err := s.orders.UpdateMerchantFillAccuracy(ctx, r.MerchantID, r.AvgAccuracy, r.SampleCount, status); err != nil {
+			return fmt.Errorf("recompute fill accuracy: update merchant %s: %w", r.MerchantID, err)
+		}
+	}
+	return nil
 }
 
 // recipientPIIRetentionDays: recipient name/phone are third-party PII the
@@ -1115,16 +1233,7 @@ const recipientPIIRetentionDays = 30
 func (s *OrderService) PurgeStaleRecipientPII(ctx context.Context) (int64, error) {
 	cutoff := time.Now().AddDate(0, 0, -recipientPIIRetentionDays)
 
-	var orderIDs []uuid.UUID
-	err := s.db.WithContext(ctx).
-		Model(&model.Order{}).
-		Where("delivered_at IS NOT NULL AND delivered_at < ?", cutoff).
-		Where("recipient_name_enc IS NOT NULL OR recipient_phone_enc IS NOT NULL").
-		Where(`NOT EXISTS (
-			SELECT 1 FROM escrow_holds eh
-			WHERE eh.order_id = orders.id AND eh.status = ?
-		)`, model.EscrowFrozen).
-		Pluck("id", &orderIDs).Error
+	orderIDs, err := s.orders.FindStaleRecipientPIIOrders(ctx, cutoff, model.EscrowFrozen)
 	if err != nil {
 		return 0, fmt.Errorf("purge: find stale orders: %w", err)
 	}
@@ -1132,18 +1241,8 @@ func (s *OrderService) PurgeStaleRecipientPII(ctx context.Context) (int64, error
 		return 0, nil
 	}
 
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&model.Order{}).
-			Where("id IN ?", orderIDs).
-			Updates(map[string]interface{}{"recipient_name_enc": nil, "recipient_phone_enc": nil}).Error; err != nil {
-			return fmt.Errorf("purge orders: %w", err)
-		}
-		if err := tx.Model(&model.OrderStop{}).
-			Where("order_id IN ?", orderIDs).
-			Updates(map[string]interface{}{"recipient_name_enc": nil, "recipient_phone_enc": nil}).Error; err != nil {
-			return fmt.Errorf("purge stops: %w", err)
-		}
-		return nil
+	err = s.orders.Transaction(ctx, func(tx *gorm.DB) error {
+		return s.orders.PurgeRecipientPIITx(ctx, tx, orderIDs)
 	})
 	if err != nil {
 		return 0, err

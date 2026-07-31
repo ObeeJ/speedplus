@@ -5,10 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button, Input, Skeleton, SelectionCard } from '@speedplus/ui';
 import { FlowHeader } from '../../components/flow-header';
 import { usePackageFlowStore, type AddressOption, type StopInput } from '../../../lib/store/package-flow.store';
-import { apiClient } from '@speedplus/api-client';
-import type { ApiResponse } from '@speedplus/types';
-
-interface SavedAddress { id: string; label?: string; street: string; city: string; lat: number; lng: number; isDefault: boolean; }
+import { usersApi } from '@speedplus/api-client';
 
 function MapPinIcon({ size = 16 }: { size?: number }) {
   return (
@@ -74,9 +71,9 @@ export default function PackageWherePage() {
   const [editingStop, setEditingStop] = useState<Partial<StopInput> | null>(null);
 
   useEffect(() => {
-    apiClient.get<ApiResponse<{ addresses: SavedAddress[] }>>('/users/me/addresses')
-      .then(({ data }) => {
-        if (data.success) setSavedAddresses(data.data.addresses.map((a) => ({ id: a.id, label: a.label || a.street, street: a.street, city: a.city, lat: a.lat, lng: a.lng })));
+    usersApi.listAddresses()
+      .then((addresses) => {
+        setSavedAddresses(addresses.map((a) => ({ id: a.id, label: a.label || a.street, street: a.street, city: a.city, lat: a.lat, lng: a.lng })));
       })
       .catch(() => {})
       .finally(() => setLoadingAddresses(false));

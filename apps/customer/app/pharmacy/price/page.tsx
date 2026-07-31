@@ -18,20 +18,32 @@ export default function PharmacyPricePage() {
   const createOrder = useCreateOrder();
 
   function handleConfirm() {
+    if (!deliverTo) return;
+    if (tab === 'otc' && !otcItemId) return;
+    if (tab === 'rx' && !prescriptionId) return;
+
     createOrder.mutate(
       {
         merchantId: 'healthplus-lekki',
         vertical: 'pharmacy',
-        items: tab === 'otc' ? [{ productId: otcItemId ?? 'otc-item', quantity: 1 }] : [],
-        deliveryAddressId: deliverTo ?? 'demo-address',
+        items: tab === 'otc' ? [{ productId: otcItemId!, quantity: 1 }] : [],
+        deliveryAddressId: deliverTo,
         prescriptionId: tab === 'rx' ? (prescriptionId ?? undefined) : undefined,
       },
       {
-        onSuccess: (order) => setOrderId(order.id),
-        onSettled: () => router.push('/pharmacy/finding'),
+        onSuccess: (order) => {
+          setOrderId(order.id);
+          router.push('/pharmacy/finding');
+        },
+        // No onSettled navigate — only navigate on success.
       },
     );
   }
+
+  const canConfirm =
+    Boolean(deliverTo) &&
+    (tab === 'otc' ? Boolean(otcItemId) : Boolean(prescriptionId)) &&
+    !createOrder.isPending;
 
   return (
     <main className="min-h-screen bg-sand flex flex-col">
@@ -62,12 +74,22 @@ export default function PharmacyPricePage() {
           You pay {naira(total)} when it arrives — cash or card, your choice.
         </span>
 
-        <Button variant="primary" size="lg" isLoading={createOrder.isPending} onClick={handleConfirm} className="w-full min-[700px]:max-w-[380px]">
+        {createOrder.isError && (
+          <span className="text-xs text-red-600" role="alert">
+            {(createOrder.error as Error).message}
+          </span>
+        )}
+
+        <Button
+          variant="primary"
+          size="lg"
+          disabled={!canConfirm}
+          isLoading={createOrder.isPending}
+          onClick={handleConfirm}
+          className="w-full min-[700px]:max-w-[380px]"
+        >
           Confirm order
         </Button>
-        {createOrder.isError && (
-          <span className="text-xs text-mid">Couldn’t reach the server just now — continuing with your order locally.</span>
-        )}
       </div>
     </main>
   );

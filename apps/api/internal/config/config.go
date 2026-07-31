@@ -33,9 +33,10 @@ type Config struct {
 	PaystackWebhookHash  string
 	FlutterwaveSecretKey string
 	FlutterwaveHash      string
-	MonnifyAPIKey        string
-	MonnifySecretKey     string
-	MonnifyContractCode  string
+	MonnifyAPIKey               string
+	MonnifySecretKey            string
+	MonnifyContractCode         string
+	MonnifyWalletAccountNumber  string
 
 	BridgeAPIKey    string
 	BridgeEnabled   bool
@@ -50,6 +51,7 @@ type Config struct {
 	EncryptionKey string // 32-byte key (raw) for AES-GCM field encryption of recipient PII
 
 	PaycodeSecret string // 32+ byte key for signing QR paycodes and card payloads — separate from JWTSecret
+	QuoteSecret   string // 32+ byte key for signing quote hashes — separate from JWTSecret and PaycodeSecret
 
 	Environment string // "development" | "production"
 }
@@ -75,9 +77,10 @@ func Load() (*Config, error) {
 		PaystackWebhookHash: getEnv("PAYSTACK_WEBHOOK_HASH", ""),
 		FlutterwaveSecretKey: getEnv("FLUTTERWAVE_SECRET_KEY", ""),
 		FlutterwaveHash:    getEnv("FLUTTERWAVE_HASH", ""),
-		MonnifyAPIKey:      getEnv("MONNIFY_API_KEY", ""),
-		MonnifySecretKey:   getEnv("MONNIFY_SECRET_KEY", ""),
-		MonnifyContractCode: getEnv("MONNIFY_CONTRACT_CODE", ""),
+		MonnifyAPIKey:              getEnv("MONNIFY_API_KEY", ""),
+		MonnifySecretKey:           getEnv("MONNIFY_SECRET_KEY", ""),
+		MonnifyContractCode:        getEnv("MONNIFY_CONTRACT_CODE", ""),
+		MonnifyWalletAccountNumber: getEnv("MONNIFY_WALLET_ACCOUNT_NUMBER", ""),
 		BridgeAPIKey:       getEnv("BRIDGE_API_KEY", ""),
 		BridgeEnabled:      getEnv("BRIDGE_ENABLED", "false") == "true",
 		SendbyteAPIKey:     getEnv("SENDBYTE_API_KEY", ""),
@@ -86,6 +89,7 @@ func Load() (*Config, error) {
 		OSRMURL:            getEnv("OSRM_URL", "http://router.project-osrm.org"),
 		EncryptionKey:      getEnv("ENCRYPTION_KEY", ""),
 		PaycodeSecret:      getEnv("PAYCODE_SECRET", ""),
+		QuoteSecret:        getEnv("QUOTE_SECRET", ""),
 		Environment:        getEnv("ENVIRONMENT", "development"),
 	}
 
@@ -101,15 +105,22 @@ func Load() (*Config, error) {
 	if cfg.PaycodeSecret == cfg.JWTSecret {
 		return nil, fmt.Errorf("PAYCODE_SECRET must differ from JWT_SECRET")
 	}
+	if len(cfg.QuoteSecret) < 32 {
+		return nil, fmt.Errorf("QUOTE_SECRET must be at least 32 bytes (separate from JWT_SECRET)")
+	}
+	if cfg.QuoteSecret == cfg.JWTSecret || cfg.QuoteSecret == cfg.PaycodeSecret {
+		return nil, fmt.Errorf("QUOTE_SECRET must differ from JWT_SECRET and PAYCODE_SECRET")
+	}
 
 	// In production every payment provider key must be set.
 	// A missing key means every charge silently fails — fail fast at boot.
 	if cfg.Environment == "production" {
 		required := map[string]string{
-			"PAYSTACK_SECRET_KEY":   cfg.PaystackSecretKey,
-			"MONNIFY_API_KEY":       cfg.MonnifyAPIKey,
-			"MONNIFY_SECRET_KEY":    cfg.MonnifySecretKey,
-			"MONNIFY_CONTRACT_CODE": cfg.MonnifyContractCode,
+			"PAYSTACK_SECRET_KEY":            cfg.PaystackSecretKey,
+			"MONNIFY_API_KEY":                cfg.MonnifyAPIKey,
+			"MONNIFY_SECRET_KEY":             cfg.MonnifySecretKey,
+			"MONNIFY_CONTRACT_CODE":          cfg.MonnifyContractCode,
+			"MONNIFY_WALLET_ACCOUNT_NUMBER":  cfg.MonnifyWalletAccountNumber,
 		}
 		for k, v := range required {
 			if v == "" {

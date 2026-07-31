@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { merchantApi, type MerchantOrder, type MerchantProduct, type ProductInput, type MerchantPrescription } from '@speedplus/api-client';
+import { merchantApi, authApi, paycodesApi, type MerchantOrder, type MerchantProduct, type ProductInput, type MerchantPrescription } from '@speedplus/api-client';
 import { DashboardIcon, ReceiptIcon, PillIcon, BoxIcon, WalletIcon, ShieldCheckIcon, PowerIcon, type DuotoneIconProps } from '@speedplus/ui';
 import { useMerchantStore, type MerchantTab } from '../lib/store/merchant.store';
 import { useMerchantAuthStore } from '../lib/store/auth.store';
@@ -25,13 +25,30 @@ const ORDER_STAGE_META: Record<
   cancelled: { status: 'CANCELLED', chipC: '#B4231F', chipB: '#FEF2F2', dot: '#DC2626', actLabel: null, next: null, doneLabel: 'Cancelled' },
 };
 
-const NAV_ITEMS: { id: MerchantTab; label: string; Icon: (props: DuotoneIconProps) => React.JSX.Element }[] = [
-  { id: 'dash', label: 'Dashboard', Icon: DashboardIcon },
-  { id: 'orders', label: 'Orders', Icon: ReceiptIcon },
-  { id: 'rx', label: 'Prescriptions', Icon: PillIcon },
-  { id: 'prod', label: 'Products', Icon: BoxIcon },
-  { id: 'earn', label: 'Earnings', Icon: WalletIcon },
-  { id: 'set', label: 'Verification', Icon: ShieldCheckIcon },
+function FlameIcon({ active }: { active?: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" opacity={active ? 1 : 0.7}>
+      <path d="M12 2c0 0-4 4-4 8a4 4 0 008 0c0-1.5-.5-3-1.5-4.5C14 7 14 9 12 10c0 0 1-2 0-4-1 2-3 3-3 5a3 3 0 006 0c0-3-3-9-3-9z" />
+    </svg>
+  );
+}
+
+function PayIcon({ active }: { active?: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" opacity={active ? 1 : 0.7}>
+      <rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" />
+    </svg>
+  );
+}
+
+const NAV_ITEMS: { id: MerchantTab; label: string; Icon: (props: DuotoneIconProps) => React.JSX.Element; gasOnly?: boolean }[] = [
+  { id: 'dash',   label: 'Dashboard',    Icon: DashboardIcon },
+  { id: 'orders', label: 'Orders',       Icon: ReceiptIcon },
+  { id: 'rx',     label: 'Prescriptions',Icon: PillIcon },
+  { id: 'prod',   label: 'Products',     Icon: BoxIcon },
+  { id: 'earn',   label: 'Earnings',     Icon: WalletIcon },
+  { id: 'set',    label: 'Verification', Icon: ShieldCheckIcon },
+  { id: 'pay',    label: 'Payments',     Icon: PayIcon as unknown as (props: DuotoneIconProps) => React.JSX.Element },
 ];
 
 const EMPTY_PRODUCT: ProductInput = { name: '', description: undefined, priceKobo: 0, category: '', isAvailable: true };
@@ -140,6 +157,24 @@ export default function MerchantPortalPage() {
   });
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectNote, setRejectNote] = useState('');
+
+  // Paycode / payment tab state
+  const [paycodeOrderId, setPaycodeOrderId] = useState('');
+  const [generatedPaycode, setGeneratedPaycode] = useState<{ id: string; payload: string } | null>(null);
+  const [scanCardPayload, setScanCardPayload] = useState('');
+  const [scanCardPin, setScanCardPin] = useState('');
+  const [scanResult, setScanResult] = useState<string | null>(null);
+
+  const generatePaycode = useMutation({
+    mutationFn: (orderId: string) => paycodesApi.generate(orderId),
+    onSuccess: (data) => setGeneratedPaycode({ id: data.id, payload: data.payload }),
+  });
+
+  const scanCard = useMutation({
+    mutationFn: () => paycodesApi.scanCard(scanCardPayload.trim(), scanCardPin),
+    onSuccess: () => { setScanResult('Payment confirmed'); setScanCardPayload(''); setScanCardPin(''); },
+    onError: (e: Error) => setScanResult(e.message),
+  });
   const reviewMutation = useMutation({
     mutationFn: ({ id, approve, note }: { id: string; approve: boolean; note?: string }) =>
       merchantApi.reviewPrescription(id, approve, note),
@@ -206,6 +241,27 @@ export default function MerchantPortalPage() {
               </button>
             );
           })}
+          {/* Gas operations tab — only shown for gas merchants */}
+          {profileQuery.data?.vertical === 'gas' && (
+            <button
+              onClick={() => setTab('gas')}
+              className={`flex items-center gap-2.5 rounded-xl px-4 py-2.5 text-[13.5px] font-medium transition-colors ${
+                tab === 'gas' ? 'bg-lime/[.14] text-lime font-semibold' : 'text-sand/70 hover:bg-sand/[.08] hover:text-sand'
+              }`}
+            >
+              <FlameIcon active={tab === 'gas'} />
+              Gas ops
+            </button>
+          )}
+          <button
+            onClick={() => setTab('pay')}
+            className={`flex items-center gap-2.5 rounded-xl px-4 py-2.5 text-[13.5px] font-medium transition-colors ${
+              tab === 'pay' ? 'bg-lime/[.14] text-lime font-semibold' : 'text-sand/70 hover:bg-sand/[.08] hover:text-sand'
+            }`}
+          >
+            <PayIcon active={tab === 'pay'} />
+            Payments
+          </button>
         </nav>
 
         <div className="mt-auto flex items-center gap-2.5 bg-sand/[.06] rounded-[13px] p-2.75">
@@ -218,7 +274,7 @@ export default function MerchantPortalPage() {
               {profileQuery.data?.kycStatus === 'approved' ? 'Verified ✓' : profileQuery.data?.kycStatus.replace('_', ' ') ?? '—'}
             </span>
           </span>
-          <button onClick={clearAuth} className="text-sand/40 hover:text-sand/70" aria-label="Sign out">
+          <button onClick={async () => { await authApi.logout().catch(() => {}); clearAuth(); }} className="text-sand/40 hover:text-sand/70" aria-label="Sign out">
             <PowerIcon color="currentColor" />
           </button>
         </div>
@@ -250,6 +306,40 @@ export default function MerchantPortalPage() {
                 <span className="font-display text-2xl font-bold text-ink">★ {profileQuery.data?.rating.toFixed(1) ?? '—'}</span>
               </div>
             </div>
+
+            {/* Fill accuracy — gas merchants only */}
+            {profileQuery.data?.vertical === 'gas' && (
+              <div className="grid grid-cols-2 gap-3.5">
+                <div className="bg-white border border-line rounded-2xl p-4 flex flex-col gap-1">
+                  <span className="text-[10.5px] font-semibold text-mid tracking-[.5px]">FILL ACCURACY</span>
+                  {profileQuery.data.fillAccuracyPct != null ? (
+                    <>
+                      <span
+                        className="font-display text-2xl font-bold"
+                        style={{ color: profileQuery.data.fillAccuracyPct >= 0.98 ? '#0A3D2C' : profileQuery.data.fillAccuracyPct >= 0.95 ? '#8A6A1B' : '#B4231F' }}
+                      >
+                        {(profileQuery.data.fillAccuracyPct * 100).toFixed(1)}%
+                      </span>
+                      <span className="text-[11px] text-mid">{profileQuery.data.fillSampleCount ?? 0} verified fills</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-display text-2xl font-bold text-mid">—</span>
+                      <span className="text-[11px] text-mid">No verified fills yet</span>
+                    </>
+                  )}
+                </div>
+                <div className="bg-white border border-line rounded-2xl p-4 flex flex-col gap-1">
+                  <span className="text-[10.5px] font-semibold text-mid tracking-[.5px]">GAS ORDERS TODAY</span>
+                  <span className="font-display text-2xl font-bold text-ink">
+                    {orders.filter((o) => o.vertical === 'gas').length}
+                  </span>
+                  <span className="text-[11px] text-mid">
+                    {orders.filter((o) => o.vertical === 'gas' && o.status === 'delivered').length} delivered
+                  </span>
+                </div>
+              </div>
+            )}
 
             {newCount > 0 && (
               <div className="bg-white border border-line rounded-2xl p-4.5 flex flex-col gap-3">
@@ -645,6 +735,214 @@ export default function MerchantPortalPage() {
               </span>
             </div>
           </>
+        )}
+
+        {/* ── Gas operations tab ─────────────────────────────────────────── */}
+        {tab === 'gas' && (
+          <>
+            <h1 className="font-display font-semibold text-[26px] tracking-tight">Gas operations</h1>
+
+            {/* Fill accuracy score */}
+            <section className="flex flex-col gap-2">
+              <span className="text-[11px] font-semibold text-mid tracking-[.6px]">FILL ACCURACY SCORE</span>
+              <div className="bg-white border border-line rounded-2xl p-5 flex items-start gap-6">
+                <div className="flex flex-col gap-0.5">
+                  {profileQuery.data?.fillAccuracyPct != null ? (
+                    <>
+                      <span
+                        className="font-display text-[42px] font-bold leading-none"
+                        style={{ color: profileQuery.data.fillAccuracyPct >= 0.98 ? '#0A3D2C' : profileQuery.data.fillAccuracyPct >= 0.95 ? '#8A6A1B' : '#B4231F' }}
+                      >
+                        {(profileQuery.data.fillAccuracyPct * 100).toFixed(1)}%
+                      </span>
+                      <span className="text-[12px] text-mid mt-1">{profileQuery.data.fillSampleCount ?? 0} verified fills</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-display text-[42px] font-bold leading-none text-mid">—</span>
+                      <span className="text-[12px] text-mid mt-1">No verified fills yet</span>
+                    </>
+                  )}
+                </div>
+                <div className="flex-1 flex flex-col gap-1.5 text-[12px] text-mid" style={{ maxWidth: 340 }}>
+                  <span className="font-semibold text-ink text-[13px]">How this works</span>
+                  <span>Every gas delivery is weighed at the customer's door. The scale photo is recorded and ordered vs measured weight is compared automatically.</span>
+                  <span>Short by more than 2%? The difference is refunded from your settlement before the rider leaves.</span>
+                  <span
+                    className="font-semibold"
+                    style={{ color: profileQuery.data?.fillAccuracyPct != null && profileQuery.data.fillAccuracyPct < 0.95 ? '#B4231F' : '#0A3D2C' }}
+                  >
+                    {profileQuery.data?.fillAccuracyPct != null && profileQuery.data.fillAccuracyPct < 0.95
+                      ? '⚠️ Below 95% — risk of delisting. Improve fill accuracy to stay on the platform.'
+                      : '✓ Good standing'}
+                  </span>
+                </div>
+              </div>
+            </section>
+
+            {/* Cylinder float stock */}
+            <section className="flex flex-col gap-2">
+              <span className="text-[11px] font-semibold text-mid tracking-[.6px]">CYLINDER FLOAT STOCK</span>
+              <div className="bg-white border border-line rounded-2xl overflow-hidden">
+                {(() => {
+                  const cylinderProducts = products.filter((p) => p.name.toLowerCase().includes('kg'));
+                  if (cylinderProducts.length === 0) {
+                    return <p className="p-5 text-[13px] text-mid">No cylinder products found. Add them in the Products tab.</p>;
+                  }
+                  return (
+                    <div className="grid divide-x divide-line" style={{ gridTemplateColumns: `repeat(${cylinderProducts.length}, 1fr)` }}>
+                      {cylinderProducts.map((p) => (
+                        <div key={p.id} className="p-4 flex flex-col gap-2">
+                          <span className="text-[11px] font-semibold text-mid tracking-[.5px]">
+                            {p.name.replace(' LPG cylinder', '').replace(' cylinder', '').toUpperCase()}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full" style={{ background: p.isAvailable ? '#C6F24E' : '#D5D2C8' }} />
+                            <span className="text-[13px] font-semibold">{p.isAvailable ? 'In stock' : 'Out of stock'}</span>
+                          </div>
+                          <span className="text-[11px] text-mid">₦{naira(p.priceKobo)}</span>
+                          <button
+                            onClick={() => toggleProductMutation.mutate({ id: p.id, available: !p.isAvailable })}
+                            disabled={toggleProductMutation.isPending}
+                            className="text-[11px] font-semibold rounded-lg px-2.5 py-1.5 transition-colors disabled:opacity-50"
+                            style={p.isAvailable
+                              ? { color: '#B4231F', border: '1.5px solid #E5B5B3' }
+                              : { color: '#0A3D2C', border: '1.5px solid #C6F24E', background: '#E9F3D8' }}
+                          >
+                            {p.isAvailable ? 'Mark out of stock' : 'Mark in stock'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            </section>
+
+            {/* Gas order queue */}
+            <section className="flex flex-col gap-2">
+              <span className="text-[11px] font-semibold text-mid tracking-[.6px]">GAS ORDER QUEUE</span>
+              {ordersQuery.isLoading && <p className="text-sm text-mid">Loading…</p>}
+              {(() => {
+                const gasOrders = orders.filter((o) => o.vertical === 'gas');
+                if (!ordersQuery.isLoading && gasOrders.length === 0) {
+                  return <p className="text-[13px] text-mid">No gas orders yet.</p>;
+                }
+                const GAS_LABEL: Record<string, { label: string; chipC: string; chipB: string }> = {
+                  pending:          { label: 'NEW',             chipC: '#0A3D2C', chipB: '#C6F24E' },
+                  confirmed:        { label: 'CONFIRMED',       chipC: '#0A3D2C', chipB: '#C6F24E' },
+                  preparing:        { label: 'PREPARING',       chipC: '#8A6A1B', chipB: '#FFF3D6' },
+                  ready_for_pickup: { label: 'AWAITING RIDER',  chipC: '#0A3D2C', chipB: '#E9F3D8' },
+                  driver_assigned:  { label: 'RIDER ASSIGNED',  chipC: '#0A3D2C', chipB: '#E9F3D8' },
+                  in_transit:       { label: 'OUT FOR DELIVERY', chipC: '#0A3D2C', chipB: '#E9F3D8' },
+                  delivered:        { label: 'DELIVERED',        chipC: '#63636E', chipB: '#EFECE3' },
+                  cancelled:        { label: 'CANCELLED',        chipC: '#B4231F', chipB: '#FEF2F2' },
+                };
+                return (
+                  <div className="flex flex-col gap-2">
+                    {gasOrders.map((o) => {
+                      const meta = GAS_LABEL[o.status] ?? GAS_LABEL['pending']!;
+                      const cylinderName = o.items[0]?.name ?? 'Gas cylinder';
+                      return (
+                        <div key={o.id} className="bg-white border border-line rounded-2xl px-4.5 py-3.5 flex items-center gap-3.5">
+                          <FlameIcon />
+                          <span className="flex-1 flex flex-col min-w-0">
+                            <span className="text-[13.5px] font-semibold truncate">{cylinderName}</span>
+                            <span className="text-[11px] text-mid">#{o.id.slice(0, 8)} · {o.paymentMethod}</span>
+                          </span>
+                          <span className="text-[11px] font-bold rounded-full px-2.75 py-1" style={{ color: meta.chipC, background: meta.chipB }}>
+                            {meta.label}
+                          </span>
+                          <b className="font-display text-[15px] text-emerald w-[90px] text-right">₦{naira(o.total.amount)}</b>
+                          {o.status === 'pending' && (
+                            <button
+                              onClick={() => transitionMutation.mutate({ id: o.id, to: 'confirmed' })}
+                              disabled={transitionMutation.isPending}
+                              className="w-[140px] font-display text-xs font-semibold text-emerald bg-lime rounded-[10px] py-2 hover:bg-lime-600 transition-colors disabled:opacity-50"
+                            >
+                              Confirm order
+                            </button>
+                          )}
+                          {o.status === 'confirmed' && (
+                            <button
+                              onClick={() => transitionMutation.mutate({ id: o.id, to: 'ready_for_pickup' })}
+                              disabled={transitionMutation.isPending}
+                              className="w-[140px] font-display text-xs font-semibold text-emerald bg-lime rounded-[10px] py-2 hover:bg-lime-600 transition-colors disabled:opacity-50"
+                            >
+                              Ready for rider
+                            </button>
+                          )}
+                          {!['pending', 'confirmed'].includes(o.status) && (
+                            <span className="w-[140px] text-center text-[11.5px] text-mid">{meta.label.toLowerCase()}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </section>
+          </>
+        )}
+        {tab === 'pay' && (
+          <div className="flex-1 px-4 py-4 flex flex-col gap-4 overflow-y-auto">
+            <p className="text-[11px] font-semibold text-mid tracking-[.5px] uppercase">Generate paycode</p>
+            <div className="bg-white border border-line rounded-2xl p-4 flex flex-col gap-3">
+              <p className="text-[13px] text-ink">Enter an order ID to generate a 6-digit delivery code for the rider.</p>
+              <input
+                value={paycodeOrderId}
+                onChange={(e) => { setPaycodeOrderId(e.target.value); setGeneratedPaycode(null); }}
+                placeholder="Order UUID"
+                className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] font-mono text-ink placeholder-mid focus:outline-none focus:border-emerald"
+              />
+              {generatePaycode.isError && <p className="text-xs text-red-500">{(generatePaycode.error as Error).message}</p>}
+              {generatedPaycode && (
+                <div className="bg-[#E9F3D8] rounded-xl px-4 py-3 flex flex-col items-center gap-1">
+                  <p className="text-[10px] font-semibold text-mid uppercase tracking-[.5px]">Paycode payload</p>
+                  <p className="font-mono text-[13px] font-bold text-emerald break-all text-center">{generatedPaycode.payload}</p>
+                </div>
+              )}
+              <button
+                onClick={() => { if (paycodeOrderId.trim()) generatePaycode.mutate(paycodeOrderId.trim()); }}
+                disabled={!paycodeOrderId.trim() || generatePaycode.isPending}
+                className="w-full bg-emerald text-lime font-display font-semibold text-[13px] rounded-xl py-2.5 hover:bg-emerald/90 transition-colors disabled:opacity-50"
+              >
+                {generatePaycode.isPending ? 'Generating…' : 'Generate'}
+              </button>
+            </div>
+
+            <p className="text-[11px] font-semibold text-mid tracking-[.5px] uppercase">Scan SpeedPlus card</p>
+            <div className="bg-white border border-line rounded-2xl p-4 flex flex-col gap-3">
+              <p className="text-[13px] text-ink">Scan a customer's SpeedPlus card QR payload to confirm payment.</p>
+              <input
+                value={scanCardPayload}
+                onChange={(e) => { setScanCardPayload(e.target.value); setScanResult(null); }}
+                placeholder="Card QR payload"
+                className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] font-mono text-ink placeholder-mid focus:outline-none focus:border-emerald"
+              />
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={scanCardPin}
+                onChange={(e) => setScanCardPin(e.target.value.replace(/\D/g, ''))}
+                placeholder="Customer PIN"
+                className="w-full border border-line rounded-xl px-3 py-2.5 text-[20px] text-ink placeholder-mid tracking-widest focus:outline-none focus:border-emerald"
+              />
+              {scanResult && (
+                <p className={`text-[13px] font-semibold ${scanResult === 'Payment confirmed' ? 'text-emerald' : 'text-red-500'}`} role="status">
+                  {scanResult === 'Payment confirmed' ? '✓ ' : '✗ '}{scanResult}
+                </p>
+              )}
+              <button
+                onClick={() => scanCard.mutate()}
+                disabled={!scanCardPayload.trim() || scanCardPin.length < 4 || scanCard.isPending}
+                className="w-full bg-emerald text-lime font-display font-semibold text-[13px] rounded-xl py-2.5 hover:bg-emerald/90 transition-colors disabled:opacity-50"
+              >
+                {scanCard.isPending ? 'Confirming…' : 'Confirm payment'}
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </main>

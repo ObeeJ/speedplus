@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
+	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
 )
 
@@ -81,7 +82,7 @@ func TestSubmitReview_DerivesRevieweeFromOrder(t *testing.T) {
 		bystander := &model.User{ID: uuid.New(), Role: model.RoleDriver, FirstName: "By", LastName: "Stander", Phone: "+2348290" + uuid.NewString()[:6], PasswordHash: "x"}
 		mustCreate(t, tx, bystander)
 
-		svc := &OrderService{db: tx}
+		svc := &OrderService{orders: repo.NewOrderRepo(tx)}
 		comment := "great rider"
 		if err := svc.SubmitReview(context.Background(), f.order.ID, f.customer.ID, "driver", 5, &comment); err != nil {
 			t.Fatalf("SubmitReview: %v", err)
@@ -122,7 +123,7 @@ func TestSubmitReview_RejectsNonOwner(t *testing.T) {
 		f := seedDeliveredOrder(t, tx, model.OrderDelivered)
 		stranger := uuid.New()
 
-		svc := &OrderService{db: tx}
+		svc := &OrderService{orders: repo.NewOrderRepo(tx)}
 		if err := svc.SubmitReview(context.Background(), f.order.ID, stranger, "driver", 5, nil); err == nil {
 			t.Fatal("a non-owner must not be able to review someone else's order")
 		}
@@ -141,7 +142,7 @@ func TestSubmitReview_RequiresDelivered(t *testing.T) {
 	withTx(t, gdb, func(tx *gorm.DB) {
 		f := seedDeliveredOrder(t, tx, model.OrderInTransit)
 
-		svc := &OrderService{db: tx}
+		svc := &OrderService{orders: repo.NewOrderRepo(tx)}
 		if err := svc.SubmitReview(context.Background(), f.order.ID, f.customer.ID, "driver", 5, nil); err == nil {
 			t.Fatal("an in-transit order must not be reviewable")
 		}
@@ -154,7 +155,7 @@ func TestSubmitReview_RejectsBadInput(t *testing.T) {
 	gdb := testDB(t)
 	withTx(t, gdb, func(tx *gorm.DB) {
 		f := seedDeliveredOrder(t, tx, model.OrderDelivered)
-		svc := &OrderService{db: tx}
+		svc := &OrderService{orders: repo.NewOrderRepo(tx)}
 
 		for _, tc := range []struct {
 			name         string
@@ -182,7 +183,7 @@ func TestSubmitReview_OnePerRolePerOrder(t *testing.T) {
 	gdb := testDB(t)
 	withTx(t, gdb, func(tx *gorm.DB) {
 		f := seedDeliveredOrder(t, tx, model.OrderDelivered)
-		svc := &OrderService{db: tx}
+		svc := &OrderService{orders: repo.NewOrderRepo(tx)}
 
 		if err := svc.SubmitReview(context.Background(), f.order.ID, f.customer.ID, "driver", 5, nil); err != nil {
 			t.Fatalf("first review: %v", err)
@@ -222,7 +223,7 @@ func TestSubmitReview_EnqueuesAggregate(t *testing.T) {
 		}
 		var calls []enqueued
 
-		svc := &OrderService{db: tx}
+		svc := &OrderService{orders: repo.NewOrderRepo(tx)}
 		svc.InjectReviewQueue(func(revieweeID, revieweeType string) error {
 			calls = append(calls, enqueued{revieweeID, revieweeType})
 			return nil
@@ -252,7 +253,7 @@ func TestSubmitReview_EnqueueFailureDoesNotLoseReview(t *testing.T) {
 	withTx(t, gdb, func(tx *gorm.DB) {
 		f := seedDeliveredOrder(t, tx, model.OrderDelivered)
 
-		svc := &OrderService{db: tx}
+		svc := &OrderService{orders: repo.NewOrderRepo(tx)}
 		svc.InjectReviewQueue(func(string, string) error {
 			return context.DeadlineExceeded // simulate Redis down
 		})
@@ -290,7 +291,7 @@ func TestUpdateAggregateRating_Driver(t *testing.T) {
 			})
 		}
 
-		svc := &OrderService{db: tx}
+		svc := &OrderService{orders: repo.NewOrderRepo(tx)}
 		if err := svc.UpdateAggregateRating(context.Background(), f.driverUser.ID, "driver"); err != nil {
 			t.Fatalf("UpdateAggregateRating: %v", err)
 		}
@@ -312,7 +313,7 @@ func TestAwardBadgeIfEligible_MilestonesAndIdempotency(t *testing.T) {
 	gdb := testDB(t)
 	withTx(t, gdb, func(tx *gorm.DB) {
 		f := seedDeliveredOrder(t, tx, model.OrderDelivered)
-		svc := &OrderService{db: tx}
+		svc := &OrderService{orders: repo.NewOrderRepo(tx)}
 
 		// Exactly one delivered order exists -> first_delivery only.
 		if err := svc.AwardBadgeIfEligible(context.Background(), f.driverUser.ID); err != nil {
@@ -344,7 +345,7 @@ func TestAwardBadgeIfEligible_TopRatedThreshold(t *testing.T) {
 	gdb := testDB(t)
 	withTx(t, gdb, func(tx *gorm.DB) {
 		f := seedDeliveredOrder(t, tx, model.OrderDelivered)
-		svc := &OrderService{db: tx}
+		svc := &OrderService{orders: repo.NewOrderRepo(tx)}
 
 		first := seedDeliveredOrder(t, tx, model.OrderDelivered)
 		mustCreate(t, tx, &model.OrderReview{

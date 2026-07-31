@@ -1,39 +1,61 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@speedplus/ui';
 import { FlowHeader } from '../../components/flow-header';
-import { SelectTile } from '../../components/select-tile';
 import { usePharmacyFlowStore } from '../../../lib/store/pharmacy-flow.store';
+import { usersApi, type SavedAddress } from '@speedplus/api-client';
 
-const DELIVER_SHORTCUTS = [
-  { label: '🏠 My home', value: 'Home — 14 Admiralty Way, Lekki Phase 1' },
-  { label: '📍 Where I am now', value: 'Current location' },
-  { label: 'Office', value: 'Office — 22 Adeola Odeku, Victoria Island' },
-];
-
+// Previously three hardcoded shortcuts with a free-text `value` passed
+// straight into deliveryAddressId (where the backend expects a real address
+// ID). This now mirrors gas/deliver's real-address pattern.
 export default function PharmacyDeliverPage() {
   const router = useRouter();
-  const { deliverTo, setDeliverTo } = usePharmacyFlowStore();
-  const canContinue = Boolean(deliverTo);
+  const { deliverToId, setDeliverTo } = usePharmacyFlowStore();
+  const [addresses, setAddresses] = useState<SavedAddress[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    usersApi.listAddresses()
+      .then(setAddresses)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const selected = addresses.find((a) => a.id === deliverToId);
 
   return (
     <main className="min-h-screen bg-sand flex flex-col">
-      <FlowHeader title="Where should we bring it?" step={2} backHref="/pharmacy/items" />
+      <FlowHeader title="Where should we bring it?" step={3} totalSteps={4} backHref="/pharmacy/items" />
 
       <div className="flex-1 px-5 py-5 flex flex-col gap-6 min-[700px]:max-w-[860px] min-[700px]:mx-auto min-[700px]:px-8 min-[700px]:py-10 min-[700px]:w-full">
         <section className="flex flex-col gap-2.5">
           <span className="text-[13px] font-semibold text-mid">Delivery address</span>
-          <div className="flex flex-col gap-2">
-            {DELIVER_SHORTCUTS.map((s) => (
-              <SelectTile key={s.value} label={s.label} selected={deliverTo === s.value} onClick={() => setDeliverTo(s.value)} />
-            ))}
-          </div>
+          {loading ? (
+            <span className="text-[13px] text-mid">Loading addresses…</span>
+          ) : addresses.length === 0 ? (
+            <span className="text-[13px] text-mid">No saved addresses. Add one in your profile first.</span>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {addresses.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => setDeliverTo(a)}
+                  className={`w-full text-left rounded-2xl border-2 px-4 py-3.5 transition-all ${deliverToId === a.id ? 'border-emerald bg-emerald/10' : 'border-line bg-white hover:border-emerald/40'}`}
+                >
+                  <p className="text-[13px] font-semibold text-ink">{a.label || a.street}</p>
+                  <p className="text-[11px] text-mid">{a.street}, {a.city}</p>
+                </button>
+              ))}
+            </div>
+          )}
         </section>
 
-        {canContinue && (
+        {selected && (
           <span className="text-[13px] text-mid">
-            ✓ Delivering to <b className="text-emerald">{deliverTo}</b>. Next: see the price.
+            ✓ Delivering to <b className="text-emerald">{selected.label || selected.street}</b>. Next: see the price.
           </span>
         )}
 
@@ -42,7 +64,7 @@ export default function PharmacyDeliverPage() {
         <Button
           variant="primary"
           size="lg"
-          disabled={!canContinue}
+          disabled={!deliverToId}
           onClick={() => router.push('/pharmacy/price')}
           className="w-full min-[700px]:max-w-[380px]"
         >

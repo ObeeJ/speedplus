@@ -66,6 +66,7 @@ func (h *ProofMediaHandler) ConfirmUpload(c *gin.Context) {
 		Key         string   `json:"key" binding:"required"`
 		SHA256      string   `json:"sha256" binding:"required"`
 		SealSerial  *string  `json:"sealSerial"`
+		MeasuredKg  *float64 `json:"measuredKg"`
 		CapturedLat *float64 `json:"capturedLat"`
 		CapturedLng *float64 `json:"capturedLng"`
 	}
@@ -86,7 +87,8 @@ func (h *ProofMediaHandler) ConfirmUpload(c *gin.Context) {
 	driverID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
 	media, err := h.media.ConfirmUpload(c.Request.Context(), driverID, service.ConfirmUploadInput{
 		OrderID: orderID, StopID: stopID, Kind: req.Kind, Key: req.Key, SHA256: req.SHA256,
-		SealSerial: req.SealSerial, CapturedLat: req.CapturedLat, CapturedLng: req.CapturedLng,
+		SealSerial: req.SealSerial, MeasuredKg: req.MeasuredKg,
+		CapturedLat: req.CapturedLat, CapturedLng: req.CapturedLng,
 	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))

@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
+	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
 )
 
@@ -29,13 +30,13 @@ type cachedFees struct {
 // FeeConfigService serves per-vertical pricing from the append-only
 // fee_configs table, falling back to DefaultFeeTable when no row exists.
 type FeeConfigService struct {
-	db    *gorm.DB
+	repo  repo.FeeConfigRepo
 	mu    sync.RWMutex
 	cache map[string]cachedFees
 }
 
-func NewFeeConfigService(db *gorm.DB) *FeeConfigService {
-	return &FeeConfigService{db: db, cache: make(map[string]cachedFees)}
+func NewFeeConfigService(r repo.FeeConfigRepo) *FeeConfigService {
+	return &FeeConfigService{repo: r, cache: make(map[string]cachedFees)}
 }
 
 func toFees(r *model.FeeConfig) FeeConfig {
@@ -80,26 +81,17 @@ func (s *FeeConfigService) GetFees(ctx context.Context, vertical string) FeeConf
 // settlement to pin the split to the rates in force when the order was
 // created, so mid-flight admin changes never reallocate money. Uncached.
 func (s *FeeConfigService) GetFeesAt(ctx context.Context, vertical string, at time.Time) FeeConfig {
-	var row model.FeeConfig
-	err := s.db.WithContext(ctx).
-		Where("vertical = ? AND effective_at <= ?", vertical, at).
-		Order("effective_at DESC").
-		First(&row).Error
+	row, err := s.repo.FindLatestByVertical(ctx, vertical, at)
 	if err != nil {
 		return defaultFees(vertical)
 	}
-	return toFees(&row)
+	return toFees(row)
 }
 
 // List returns the latest config row per vertical. Verticals with no DB row
 // are synthesised from DefaultFeeTable (zero ID marks them as defaults).
 func (s *FeeConfigService) List(ctx context.Context) ([]model.FeeConfig, error) {
-	var rows []model.FeeConfig
-	err := s.db.WithContext(ctx).
-		Raw(`SELECT DISTINCT ON (vertical) * FROM fee_configs
-		     WHERE effective_at <= NOW()
-		     ORDER BY vertical, effective_at DESC`).
-		Scan(&rows).Error
+	rows, err := s.repo.ListLatestPerVertical(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -182,12 +174,8 @@ func (s *FeeConfigService) Upsert(ctx context.Context, adminID uuid.UUID, in Fee
 	}
 
 	var prev *model.FeeConfig
-	var p model.FeeConfig
-	if err := s.db.WithContext(ctx).
-		Where("vertical = ? AND effective_at <= NOW()", in.Vertical).
-		Order("effective_at DESC").
-		First(&p).Error; err == nil {
-		prev = &p
+	if p, err := s.repo.FindLatestByVertical(ctx, in.Vertical, time.Now()); err == nil {
+		prev = p
 	}
 
 	row := &model.FeeConfig{
@@ -208,11 +196,11 @@ func (s *FeeConfigService) Upsert(ctx context.Context, adminID uuid.UUID, in Fee
 		CreatedAt:        time.Now(),
 	}
 
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(row).Error; err != nil {
+	err := s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		if err := s.repo.CreateTx(ctx, tx, row); err != nil {
 			return err
 		}
-		return tx.Create(&model.AdminAuditLog{
+		return s.repo.CreateAuditLogTx(ctx, tx, &model.AdminAuditLog{
 			ID:         uuid.New(),
 			AdminID:    adminID,
 			Action:     "fee_config_change",
@@ -220,7 +208,7 @@ func (s *FeeConfigService) Upsert(ctx context.Context, adminID uuid.UUID, in Fee
 			TargetID:   row.ID,
 			Reason:     in.Reason,
 			CreatedAt:  time.Now(),
-		}).Error
+		})
 	})
 	if err != nil {
 		return nil, nil, err

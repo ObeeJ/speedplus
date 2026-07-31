@@ -150,6 +150,7 @@ type DriverProfile struct {
 	Rating           float64      `gorm:"default:5.0"`
 	TotalDeliveries  int          `gorm:"default:0"`
 	IsOnline         bool         `gorm:"default:false"`
+	HazmatCertified  bool         `gorm:"not null;default:false"` // required for 25kg+ gas runs
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }

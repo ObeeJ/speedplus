@@ -7,25 +7,41 @@ import (
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type DispatchRepo interface {
 	UpsertDriverLocation(ctx context.Context, driverID uuid.UUID, lat, lng, heading float64) error
 	CreateOffer(ctx context.Context, offer *model.DeliveryOffer) error
-	// AtomicAcceptOffer sets driver_id WHERE driver_id IS NULL — race-safe.
 	AtomicAcceptOffer(ctx context.Context, offerID, driverID uuid.UUID) (bool, error)
 	ExpireStaleOffers(ctx context.Context) error
 	AssignDriverToOrder(ctx context.Context, tx *gorm.DB, orderID, driverID uuid.UUID) error
-
-	// NearbyDrivers returns candidates within radiusMetres ordered by distance.
 	NearbyDrivers(ctx context.Context, lat, lng, radiusMetres float64, vehicleFilter string, limit int) ([]NearbyDriver, error)
 
-	// KYC admin queue
+	// KYC
 	CreateKYCCheck(ctx context.Context, check *model.KYCCheck) error
 	FindKYCCheck(ctx context.Context, id uuid.UUID) (*model.KYCCheck, error)
 	SaveKYCCheck(ctx context.Context, check *model.KYCCheck) error
 	ListPendingKYCChecks(ctx context.Context, offset, limit int) ([]model.KYCCheck, error)
 	CreateKYCDocument(ctx context.Context, doc *model.KYCDocument) error
+
+	// KYC tx helpers (used inside AdminApprove transaction)
+	Transaction(ctx context.Context, fn func(tx *gorm.DB) error) error
+	FindKYCCheckTx(ctx context.Context, tx *gorm.DB, id uuid.UUID) (*model.KYCCheck, error)
+	SaveKYCCheckTx(ctx context.Context, tx *gorm.DB, check *model.KYCCheck) error
+	FindUserTx(ctx context.Context, tx *gorm.DB, userID uuid.UUID) (*model.User, error)
+	FindDriverProfileTx(ctx context.Context, tx *gorm.DB, userID uuid.UUID) (*model.DriverProfile, error)
+	SaveDriverProfileTx(ctx context.Context, tx *gorm.DB, dp *model.DriverProfile) error
+	FindMerchantProfileTx(ctx context.Context, tx *gorm.DB, userID uuid.UUID) (*model.MerchantProfile, error)
+	SaveMerchantProfileTx(ctx context.Context, tx *gorm.DB, mp *model.MerchantProfile) error
+
+	// Dispatch tx helpers
+	AcceptOfferTx(ctx context.Context, tx *gorm.DB, offerID, driverID uuid.UUID) (int64, error)
+	FindOfferTx(ctx context.Context, tx *gorm.DB, offerID uuid.UUID) (*model.DeliveryOffer, error)
+	SetDriverID(ctx context.Context, tx *gorm.DB, orderID, driverID uuid.UUID) error
+	UpdateOfferStatus(ctx context.Context, offerID uuid.UUID, status string) error
+	LockOrderTx(ctx context.Context, tx *gorm.DB, orderID uuid.UUID) (*model.Order, error)
+	SaveOrderTx(ctx context.Context, tx *gorm.DB, o *model.Order) error
 }
 
 type NearbyDriver struct {
@@ -138,4 +154,82 @@ func (r *dispatchRepo) ListPendingKYCChecks(ctx context.Context, offset, limit i
 
 func (r *dispatchRepo) CreateKYCDocument(ctx context.Context, doc *model.KYCDocument) error {
 	return r.db.WithContext(ctx).Create(doc).Error
+}
+
+func (r *dispatchRepo) Transaction(ctx context.Context, fn func(tx *gorm.DB) error) error {
+	return r.db.WithContext(ctx).Transaction(fn)
+}
+
+func (r *dispatchRepo) FindKYCCheckTx(ctx context.Context, tx *gorm.DB, id uuid.UUID) (*model.KYCCheck, error) {
+	var c model.KYCCheck
+	err := tx.WithContext(ctx).First(&c, id).Error
+	return &c, err
+}
+
+func (r *dispatchRepo) SaveKYCCheckTx(ctx context.Context, tx *gorm.DB, check *model.KYCCheck) error {
+	return tx.WithContext(ctx).Save(check).Error
+}
+
+func (r *dispatchRepo) FindUserTx(ctx context.Context, tx *gorm.DB, userID uuid.UUID) (*model.User, error) {
+	var u model.User
+	err := tx.WithContext(ctx).First(&u, userID).Error
+	return &u, err
+}
+
+func (r *dispatchRepo) FindDriverProfileTx(ctx context.Context, tx *gorm.DB, userID uuid.UUID) (*model.DriverProfile, error) {
+	var dp model.DriverProfile
+	err := tx.WithContext(ctx).Where("user_id = ?", userID).First(&dp).Error
+	return &dp, err
+}
+
+func (r *dispatchRepo) SaveDriverProfileTx(ctx context.Context, tx *gorm.DB, dp *model.DriverProfile) error {
+	return tx.WithContext(ctx).Save(dp).Error
+}
+
+func (r *dispatchRepo) FindMerchantProfileTx(ctx context.Context, tx *gorm.DB, userID uuid.UUID) (*model.MerchantProfile, error) {
+	var mp model.MerchantProfile
+	err := tx.WithContext(ctx).Where("user_id = ?", userID).First(&mp).Error
+	return &mp, err
+}
+
+func (r *dispatchRepo) SaveMerchantProfileTx(ctx context.Context, tx *gorm.DB, mp *model.MerchantProfile) error {
+	return tx.WithContext(ctx).Save(mp).Error
+}
+
+func (r *dispatchRepo) AcceptOfferTx(ctx context.Context, tx *gorm.DB, offerID, driverID uuid.UUID) (int64, error) {
+	result := tx.WithContext(ctx).Model(&model.DeliveryOffer{}).
+		Where("id = ? AND driver_id = ? AND status = 'pending' AND expires_at > NOW()", offerID, driverID).
+		Update("status", "accepted")
+	return result.RowsAffected, result.Error
+}
+
+func (r *dispatchRepo) FindOfferTx(ctx context.Context, tx *gorm.DB, offerID uuid.UUID) (*model.DeliveryOffer, error) {
+	var o model.DeliveryOffer
+	err := tx.WithContext(ctx).First(&o, offerID).Error
+	return &o, err
+}
+
+// SetDriverID sets driver_id on an order without touching status.
+// Used by AcceptOffer so the ownership check in transitionTx can pass.
+func (r *dispatchRepo) SetDriverID(ctx context.Context, tx *gorm.DB, orderID, driverID uuid.UUID) error {
+	return tx.WithContext(ctx).
+		Model(&model.Order{}).
+		Where("id = ? AND driver_id IS NULL", orderID).
+		Update("driver_id", driverID).Error
+}
+
+func (r *dispatchRepo) UpdateOfferStatus(ctx context.Context, offerID uuid.UUID, status string) error {
+	return r.db.WithContext(ctx).Model(&model.DeliveryOffer{}).
+		Where("id = ? AND status = 'pending'", offerID).
+		Update("status", status).Error
+}
+
+func (r *dispatchRepo) LockOrderTx(ctx context.Context, tx *gorm.DB, orderID uuid.UUID) (*model.Order, error) {
+	var o model.Order
+	err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).First(&o, orderID).Error
+	return &o, err
+}
+
+func (r *dispatchRepo) SaveOrderTx(ctx context.Context, tx *gorm.DB, o *model.Order) error {
+	return tx.WithContext(ctx).Save(o).Error
 }

@@ -28,8 +28,26 @@ export const authApi = {
     setRefreshToken(null);
   },
 
-  async verifyOtp(phone: string, otp: string): Promise<{ verified: boolean }> {
-    const { data } = await apiClient.post<ApiResponse<{ verified: boolean }>>('/auth/verify-otp', { phone, otp });
+  async setPin(pin: string): Promise<void> {
+    const { data } = await apiClient.post<ApiResponse<{ message: string }>>('/auth/pin/set', { pin });
+    if (!data.success) throw new Error(data.error.message);
+  },
+
+  async verifyPin(pin: string): Promise<{ verified: boolean }> {
+    const { data } = await apiClient.post<ApiResponse<{ verified: boolean }>>('/auth/pin/verify', { pin });
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
+  // purpose scopes the OTP lookup on the backend (e.g. "phone_verification") —
+  // request and verify must pass the same purpose or verification will 422.
+  async requestOtp(phone: string, purpose: string): Promise<void> {
+    const { data } = await apiClient.post<ApiResponse<{ message: string }>>('/otp/request', { phone, purpose });
+    if (!data.success) throw new Error(data.error.message);
+  },
+
+  async verifyOtpCode(phone: string, otp: string, purpose: string): Promise<{ verified: boolean }> {
+    const { data } = await apiClient.post<ApiResponse<{ verified: boolean }>>('/otp/verify', { phone, otp, purpose });
     if (!data.success) throw new Error(data.error.message);
     return data.data;
   },

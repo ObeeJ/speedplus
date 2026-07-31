@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
+	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
 )
 
@@ -66,7 +67,7 @@ func TestProofMediaService_PresignFailsClosedWithoutR2(t *testing.T) {
 		}
 		mustCreate(t, tx, order)
 
-		svc := NewProofMediaService(tx, nil) // no R2 client configured
+		svc := NewProofMediaService(repo.NewProofMediaRepo(tx), repo.NewOrderRepo(tx), nil) // no R2 client configured
 		if _, _, err := svc.PresignUpload(context.Background(), order.ID, nil, "pickup_photo", driver.ID, "image/jpeg"); err == nil {
 			t.Fatal("PresignUpload must fail closed when R2 is not configured, not silently skip evidence")
 		}
@@ -98,7 +99,7 @@ func TestProofMediaService_OnlyAssignedDriverCanCapture(t *testing.T) {
 		}
 		mustCreate(t, tx, order)
 
-		svc := NewProofMediaService(tx, nil)
+		svc := NewProofMediaService(repo.NewProofMediaRepo(tx), repo.NewOrderRepo(tx), nil)
 		_, err := svc.ConfirmUpload(context.Background(), otherDriver.ID, ConfirmUploadInput{
 			OrderID: order.ID, Kind: "pickup_photo", Key: "proof/x", SHA256: "deadbeef",
 		})
@@ -137,7 +138,7 @@ func TestProofMediaService_GetMediaForOrder_ExposureControl(t *testing.T) {
 			CapturedAt: time.Now(), CapturedBy: driver.ID,
 		})
 
-		svc := NewProofMediaService(tx, nil)
+		svc := NewProofMediaService(repo.NewProofMediaRepo(tx), repo.NewOrderRepo(tx), nil)
 
 		if _, err := svc.GetMediaForOrder(context.Background(), order.ID, otherCustomer.ID, "customer"); err == nil {
 			t.Fatal("a different customer must not be able to view this order's proof media")
