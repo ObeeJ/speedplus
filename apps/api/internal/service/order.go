@@ -180,7 +180,9 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 		return existing, nil
 	}
 
-	// Validate quote
+	// Validate quote — fast-fail before opening a transaction for the common
+	// cases (expired, tampered, wrong subtotal). The real race-safe check
+	// happens inside the transaction via LockQuoteTx below.
 	var subtotal int64
 	for _, item := range in.Items {
 		subtotal += item.UnitPriceKobo * int64(item.Quantity)
@@ -356,7 +358,15 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 			}
 		}
 
-		// Mark quote used
+		// Mark quote used — lock first so two concurrent order-creations
+		// cannot both pass the UsedAt == nil check on the same quote.
+		quote, err := s.orders.LockQuoteTx(ctx, tx, in.QuoteID)
+		if err != nil {
+			return fmt.Errorf("%w: quote lock failed", ErrQuoteInvalid)
+		}
+		if quote.UsedAt != nil {
+			return fmt.Errorf("%w: quote already used", ErrQuoteInvalid)
+		}
 		if err := s.pricing.MarkQuoteUsed(ctx, in.QuoteID); err != nil {
 			return err
 		}

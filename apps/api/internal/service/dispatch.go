@@ -1,4 +1,4 @@
-x`package service
+package service
 
 import (
 	"container/heap"
@@ -43,11 +43,18 @@ func vehicleClassFor(vertical string, totalKg float64) model.VehicleType {
 }
 
 type DispatchService struct {
-	repo repo.DispatchRepo
+	repo   repo.DispatchRepo
+	orders *OrderService
 }
 
 func NewDispatchService(r repo.DispatchRepo) *DispatchService {
 	return &DispatchService{repo: r}
+}
+
+// InjectOrders wires the OrderService after both services are constructed
+// (breaks the circular dependency at construction time).
+func (s *DispatchService) InjectOrders(orders *OrderService) {
+	s.orders = orders
 }
 
 type driverCandidate struct {

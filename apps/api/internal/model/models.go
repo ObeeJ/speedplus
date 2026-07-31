@@ -655,6 +655,8 @@ type AdminAuditLog struct {
 	TargetType string    `gorm:"not null"` // merchant_profile|driver_profile|escrow_hold|fee_config
 	TargetID   uuid.UUID `gorm:"type:uuid;not null"`
 	Reason     string    `gorm:"not null"`
+	IP         string    `gorm:"type:text"`
+	UserAgent  string    `gorm:"type:text"`
 	CreatedAt  time.Time `gorm:"index"`
 }
 

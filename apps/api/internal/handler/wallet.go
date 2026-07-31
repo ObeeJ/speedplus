@@ -89,7 +89,7 @@ func (h *WalletHandler) Fund(c *gin.Context) {
 	}
 
 	var req struct {
-		AmountKobo  int64  `json:"amountKobo" binding:"required,min=100"`
+		AmountKobo  int64  `json:"amountKobo" binding:"required,min=10000"`
 		Email       string `json:"email" binding:"required,email"`
 		CallbackURL string `json:"callbackUrl" binding:"required"`
 	}
@@ -126,7 +126,7 @@ func (h *WalletHandler) FundCrypto(c *gin.Context) {
 	}
 
 	var req struct {
-		AmountKobo  int64  `json:"amountKobo"  binding:"required,min=100"`
+		AmountKobo  int64  `json:"amountKobo"  binding:"required,min=10000"`
 		Email       string `json:"email"       binding:"required,email"`
 		FullName    string `json:"fullName"    binding:"required"`
 		CallbackURL string `json:"callbackUrl" binding:"required"`
@@ -165,7 +165,7 @@ func (h *WalletHandler) Transfer(c *gin.Context) {
 		RecipientID string `json:"recipientId"`
 		Username    string `json:"username"`
 		Phone       string `json:"phone"`
-		AmountKobo  int64  `json:"amountKobo" binding:"required,min=100"`
+		AmountKobo  int64  `json:"amountKobo" binding:"required,min=10000"`
 		PIN         string `json:"pin"        binding:"required,len=4"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -226,7 +226,7 @@ func (h *WalletHandler) EWACashout(c *gin.Context) {
 	}
 
 	var req struct {
-		AmountKobo int64 `json:"amountKobo" binding:"required,min=100"`
+		AmountKobo int64 `json:"amountKobo" binding:"required,min=10000"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		validationError(c, err)

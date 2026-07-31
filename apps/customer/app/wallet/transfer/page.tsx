@@ -109,7 +109,7 @@ export default function TransferPage() {
             <input
               type="password"
               inputMode="numeric"
-              maxLength={6}
+              maxLength={4}
               required
               value={pin}
               onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}

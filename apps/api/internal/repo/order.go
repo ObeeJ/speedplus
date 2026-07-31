@@ -42,6 +42,7 @@ type OrderRepo interface {
 	FindAddress(ctx context.Context, id uuid.UUID) (*model.Address, error)
 	FindDriverProfile(ctx context.Context, driverID uuid.UUID) (*model.DriverProfile, error)
 	FindQuote(ctx context.Context, id uuid.UUID) (*model.PricingQuote, error)
+	LockQuoteTx(ctx context.Context, tx *gorm.DB, id uuid.UUID) (*model.PricingQuote, error)
 
 	// ── list reads ──────────────────────────────────────────────────────────
 	ListByCustomer(ctx context.Context, customerID uuid.UUID, cursor *uuid.UUID, limit int) ([]model.Order, error)
@@ -171,6 +172,16 @@ func (r *orderRepo) FindDriverProfile(ctx context.Context, driverID uuid.UUID) (
 func (r *orderRepo) FindQuote(ctx context.Context, id uuid.UUID) (*model.PricingQuote, error) {
 	var q model.PricingQuote
 	err := r.db.WithContext(ctx).First(&q, id).Error
+	return &q, err
+}
+
+// LockQuoteTx fetches a quote with SELECT FOR UPDATE inside an open transaction.
+// Use this instead of FindQuote when the caller will subsequently mark the quote
+// used — the lock prevents two concurrent order-creations from both passing the
+// UsedAt == nil check on the same quote.
+func (r *orderRepo) LockQuoteTx(ctx context.Context, tx *gorm.DB, id uuid.UUID) (*model.PricingQuote, error) {
+	var q model.PricingQuote
+	err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).First(&q, id).Error
 	return &q, err
 }
 
