@@ -11,20 +11,23 @@ import (
 
 // RateLimit returns a fixed-window limiter: `limit` requests per `window`.
 // Key is scoped to IP + routeKey so /auth/* and /otp/* can have tighter limits.
-//
-// The window's expiry is set only on the first request of the window (when
-// the counter goes 0→1). Setting it unconditionally on every increment would
-// keep extending the TTL on each request, so a client sending requests faster
-// than the window never gets the key to expire — turning a fixed window into
-// an effectively permanent lockout under sustained traffic.
-func RateLimit(rdb *redis.Client, routeKey string, limit int, window time.Duration) gin.HandlerFunc {
+// failClosed: when true, a Redis error returns 503 instead of allowing the request.
+// Set failClosed=true for auth/OTP endpoints to prevent brute-force during Redis outages.
+func RateLimit(rdb *redis.Client, routeKey string, limit int, window time.Duration, failClosed ...bool) gin.HandlerFunc {
+	closed := len(failClosed) > 0 && failClosed[0]
 	return func(c *gin.Context) {
 		key := fmt.Sprintf("rl:%s:%s", routeKey, c.ClientIP())
 		ctx := c.Request.Context()
 
 		count, err := rdb.Incr(ctx, key).Result()
 		if err != nil {
-			// fail open — don't block on Redis errors
+			if closed {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+					"error": gin.H{"code": "SERVICE_UNAVAILABLE", "message": "Service temporarily unavailable. Please try again shortly."},
+				})
+				return
+			}
+			// fail open for non-critical endpoints
 			c.Next()
 			return
 		}

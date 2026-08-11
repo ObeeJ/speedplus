@@ -3,7 +3,7 @@
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { runsApi } from '@speedplus/api-client';
-import { Skeleton } from '@speedplus/ui';
+import { Skeleton, ListCard } from '@speedplus/ui';
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; label: string }> = {
   assembling:  { bg: '#FEF3C7', text: '#92400E', label: 'Assembling' },
@@ -50,9 +50,9 @@ export default function RunPage() {
 
       <div className="flex-1 px-5 py-5 max-w-[600px] mx-auto w-full flex flex-col gap-4">
         {!runId && (
-          <div className="bg-white rounded-2xl border border-[#E4E0D6] px-5 py-10 text-center">
+          <ListCard className="px-5 py-10 text-center">
             <p className="text-[13px] text-[#63636E]">No run ID provided.</p>
-          </div>
+          </ListCard>
         )}
 
         {isLoading && (
@@ -62,9 +62,9 @@ export default function RunPage() {
         )}
 
         {isError && (
-          <div className="bg-white rounded-2xl border border-[#E4E0D6] px-5 py-10 text-center">
+          <ListCard className="px-5 py-10 text-center">
             <p className="text-[13px] text-red-600">Run not found.</p>
-          </div>
+          </ListCard>
         )}
 
         {run && (
@@ -75,17 +75,17 @@ export default function RunPage() {
                 { label: 'Distance', value: `${run.totalDistanceKm.toFixed(1)} km` },
                 { label: 'Window', value: `${fmt(run.windowStart)}–${fmt(run.windowEnd)}` },
               ].map((s) => (
-                <div key={s.label} className="bg-white rounded-2xl border border-[#E4E0D6] p-3.5 flex flex-col gap-1">
+                <ListCard key={s.label} className="p-3.5 flex flex-col gap-1">
                   <p className="text-[10px] font-semibold text-[#9A968D] uppercase tracking-[0.5px]">{s.label}</p>
                   <p className="font-display font-bold text-[16px] text-[#121216]">{s.value}</p>
-                </div>
+                </ListCard>
               ))}
             </div>
 
             <p className="text-[11px] font-semibold text-[#9A968D] tracking-[0.7px] uppercase">Run ID</p>
-            <div className="bg-white rounded-2xl border border-[#E4E0D6] px-4 py-3">
+            <ListCard className="px-4 py-3">
               <p className="font-mono text-[12px] text-[#63636E] break-all">{run.id}</p>
-            </div>
+            </ListCard>
           </>
         )}
       </div>

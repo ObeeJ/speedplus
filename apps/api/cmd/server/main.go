@@ -26,6 +26,7 @@ import (
 	"github.com/speedplus/api/internal/repo"
 	"github.com/speedplus/api/internal/service"
 	"github.com/speedplus/api/internal/storage"
+	"github.com/speedplus/api/internal/whatsapp"
 	"github.com/speedplus/api/internal/worker"
 	"github.com/speedplus/api/internal/ws"
 )
@@ -59,7 +60,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	rdbOpts, _ := redis.ParseURL(cfg.RedisURL)
+	rdbOpts, err := redis.ParseURL(cfg.RedisURL)
+	if err != nil {
+		slog.Error("invalid REDIS_URL", "error", err)
+		os.Exit(1)
+	}
 	rdb := redis.NewClient(rdbOpts)
 
 	// ── Repos ──────────────────────────────────────────────────────────────────
@@ -91,15 +96,22 @@ func main() {
 	authSvc := service.NewAuthService(userRepo, cfg, onboardingSvc, emailClient)
 	kycProvider := kyc.NewPrembly(cfg.PremblyAPIKey, cfg.PremblyBaseURL, cfg.PremblyAppID)
 	kycSvc := service.NewKYCService(dispatchRepo, kycProvider)
+	kycSvc.InjectEmail(emailClient)
 	feeConfigRepo := repo.NewFeeConfigRepo(gormDB)
 	feeConfigSvc := service.NewFeeConfigService(feeConfigRepo)
+	platformSettingRepo := repo.NewPlatformSettingRepo(gormDB)
+	weatherSurchargeSvc := service.NewWeatherSurchargeService(platformSettingRepo, feeConfigRepo)
 	pricingSvc := service.NewPricingService(orderRepo, cfg, cfg.OSRMURL, feeConfigSvc)
+	pricingSvc.InjectWeatherSurcharge(weatherSurchargeSvc)
 	ledgerSvc := service.NewLedgerService(ledgerRepo, pricingSvc)
 	ledgerSvc.InjectFeeConfigs(feeConfigSvc)
 	tierSvc := service.NewTierService(tierRepo)
 	orderSvc := service.NewOrderService(orderRepo, pricingSvc, ledgerSvc, tierSvc)
 	walletRepo := repo.NewWalletRepo(gormDB)
+	velocityRepo := repo.NewVelocityRepo(gormDB)
+	velocitySvc := service.NewVelocityService(velocityRepo)
 	walletSvc := service.NewWalletService(walletRepo, ledgerSvc, authSvc, paystackProvider, emailClient, userRepo)
+	walletSvc.InjectVelocity(velocitySvc, tierSvc)
 	deliveryCodeSvc := service.NewDeliveryCodeService(deliveryCodeRepo)
 	// R2 is optional at boot — proof-media endpoints fail closed (clear error,
 	// not silent no-op) rather than block the whole API from starting when
@@ -117,17 +129,26 @@ func main() {
 	proofMediaSvc := service.NewProofMediaService(proofMediaRepo, orderRepo, r2Client)
 	orderSvc.InjectDeliveryCodes(deliveryCodeSvc)
 	orderSvc.InjectEmail(emailClient, userRepo)
+	waSvc := whatsapp.New(cfg.WhatsAppPhoneNumberID, cfg.WhatsAppToken)
+	orderSvc.InjectWhatsApp(waSvc)
+	authSvc.InjectWhatsApp(waSvc)
+	if cfg.WhatsAppPhoneNumberID == "" {
+		slog.Warn("WHATSAPP_PHONE_NUMBER_ID not set — WhatsApp notifications disabled")
+	}
 	if len(cfg.EncryptionKey) == 32 {
 		if recipientCipher, err := crypto.NewCipher([]byte(cfg.EncryptionKey)); err == nil {
 			orderSvc.InjectRecipientCipher(recipientCipher)
 		} else {
 			slog.Error("recipient cipher init failed — package orders with recipient PII will error", "error", err)
 		}
-	} else if cfg.Environment != "production" {
+	} else if cfg.Environment == "production" {
+		slog.Error("ENCRYPTION_KEY must be exactly 32 bytes in production — exiting")
+		os.Exit(1)
+	} else {
 		slog.Warn("ENCRYPTION_KEY not set (or not 32 bytes) — recipient PII encryption disabled; package orders with recipient data will fail")
 	}
 	loyaltyRepo := repo.NewLoyaltyRepo(gormDB)
-	loyaltySvc := service.NewLoyaltyService(loyaltyRepo)
+	loyaltySvc := service.NewLoyaltyService(loyaltyRepo, ledgerSvc)
 	referralRepo := repo.NewReferralRepo(gormDB)
 	referralSvc := service.NewReferralService(referralRepo, userRepo, ledgerSvc, loyaltySvc)
 	authSvc.InjectReferrals(referralSvc)
@@ -139,6 +160,7 @@ func main() {
 	ussdSvc := service.NewUSSDService(ussdRepo, monnifyProvider)
 	giftCardRepo := repo.NewGiftCardRepo(gormDB)
 	giftCardSvc := service.NewGiftCardService(giftCardRepo, ledgerSvc)
+	giftCardSvc.InjectVelocity(velocitySvc, tierSvc)
 	subscriptionRepo := repo.NewSubscriptionRepo(gormDB)
 	subscriptionSvc := service.NewSubscriptionService(subscriptionRepo, orderRepo, orderSvc, ledgerSvc)
 	dispatchSvc := service.NewDispatchService(dispatchRepo)
@@ -146,6 +168,7 @@ func main() {
 	runSvc := service.NewRunService(runRepo, orderRepo, pricingSvc, dispatchSvc)
 	gasSvc := service.NewGasService(orderRepo)
 	catalogSvc := service.NewCatalogService(catalogRepo, r2Client)
+	catalogSvc.InjectWhatsApp(waSvc, userRepo)
 	merchantSvc := service.NewMerchantService(merchantRepo)
 	adminRepo := repo.NewAdminRepo(gormDB)
 	adminSvc := service.NewAdminService(adminRepo, ledgerSvc)
@@ -168,6 +191,9 @@ func main() {
 	workerHandlers.InjectDB(gormDB)
 	workerHandlers.InjectOrders(orderSvc)
 	workerHandlers.InjectRuns(runSvc)
+	reconciliationRepo := service.NewReconciliationRepo(gormDB)
+	reconciliationSvc := service.NewReconciliationService(reconciliationRepo, paystackProvider, flutterwaveProvider, monnifyProvider)
+	workerHandlers.InjectReconciliation(reconciliationSvc)
 	asynqServer := worker.NewServer(cfg.RedisURL)
 	asynqMux := asynq.NewServeMux()
 	workerHandlers.Register(asynqMux)
@@ -192,6 +218,8 @@ func main() {
 	orderSvc.InjectDispatch(dispatchSvc, hub)
 	// Wire order service into dispatch for state-machine-safe ManualAssign.
 	dispatchSvc.InjectOrders(orderSvc)
+	// Wire order ownership checker into hub — gates order channel subscriptions.
+	hub.InjectOrderChecker(orderSvc)
 
 	// ── Handlers ───────────────────────────────────────────────────────────────
 	healthH := handler.NewHealthHandler(gormDB, rdb)
@@ -217,8 +245,11 @@ func main() {
 	catalogH := handler.NewCatalogHandler(catalogSvc)
 	merchantH := handler.NewMerchantHandler(merchantSvc, orderSvc, catalogSvc, walletSvc)
 	adminH := handler.NewAdminHandler(adminSvc, ledgerSvc, feeConfigSvc)
+	adminH.InjectWeatherSurcharge(weatherSurchargeSvc)
+	adminH.InjectVelocity(velocitySvc)
 	affordabilityH := handler.NewAffordabilityHandler(affordabilitySvc)
 	pricingH := handler.NewPricingHandler(pricingSvc)
+	driverBankH := handler.NewDriverBankHandler(walletSvc, paystackProvider)
 
 	// ── Router ─────────────────────────────────────────────────────────────────
 	if cfg.Environment == "production" {
@@ -264,25 +295,26 @@ func main() {
 	v1 := r.Group("/api/v1")
 
 	authGroup := v1.Group("/auth")
-	authGroup.Use(middleware.RateLimit(rdb, "auth", 10, time.Minute))
+	authGroup.Use(middleware.RateLimit(rdb, "auth", 10, time.Minute, true))
 	{
 		authGroup.POST("/register", authH.Register)
 		authGroup.POST("/login", authH.Login)
 		authGroup.POST("/logout", authH.Logout)
 		authGroup.POST("/refresh", authH.Refresh)
+		authGroup.POST("/reset-password", authH.ResetPassword)
 		authGroup.POST("/pin/set", middleware.Auth(authSvc), authH.SetPIN)
 		authGroup.POST("/pin/verify", middleware.Auth(authSvc), authH.VerifyPIN)
 	}
 
 	otpGroup := v1.Group("/otp")
-	otpGroup.Use(middleware.RateLimit(rdb, "otp", 3, 5*time.Minute))
+	otpGroup.Use(middleware.RateLimit(rdb, "otp", 3, 5*time.Minute, true))
 	{
 		otpGroup.POST("/request", authH.RequestOTP)
 		otpGroup.POST("/verify", authH.VerifyOTP)
 	}
 
 	authed := v1.Group("")
-	authed.Use(middleware.Auth(authSvc))
+	authed.Use(middleware.Auth(authSvc), middleware.RequireActiveUser(userRepo))
 
 	// Users
 	authed.GET("/users/me", usersH.Me)
@@ -314,6 +346,7 @@ func main() {
 	kyc := authed.Group("/kyc")
 	{
 		kyc.POST("/check", kycH.SubmitCheck)
+		kyc.GET("/status", kycH.MyKYCStatus)
 	}
 
 	// Quotes
@@ -346,22 +379,22 @@ func main() {
 		wallet.GET("", walletH.GetBalance)
 		wallet.GET("/transactions", walletH.GetTransactions)
 		wallet.GET("/affordability", affordabilityH.GetAffordability)
-		wallet.POST("/fund", middleware.RequireVerified(), middleware.Idempotency(rdb, 24*time.Hour), walletH.Fund)
-		wallet.POST("/fund/crypto", middleware.RequireVerified(), middleware.Idempotency(rdb, 24*time.Hour), walletH.FundCrypto)
+		wallet.POST("/fund", middleware.RequireVerified(), middleware.Idempotency(rdb, 24*time.Hour, true), walletH.Fund)
+		wallet.POST("/fund/crypto", middleware.RequireVerified(), middleware.Idempotency(rdb, 24*time.Hour, true), walletH.FundCrypto)
 		// Rate-limited: /transfer resolves recipients by phone/username before
 		// moving money, which is an enumeration surface (does this
 		// phone/username have an account). The recipient-name reveal itself
 		// is intentional anti-misdirected-payment UX (confirm you're paying
 		// the right person, same pattern PayPal/Venmo use) — throttling the
 		// lookup rate is the actual mitigation, not hiding the name.
-		wallet.POST("/transfer", middleware.RequireVerified(), middleware.RateLimit(rdb, "wallet-transfer", 10, time.Minute), middleware.Idempotency(rdb, 24*time.Hour), walletH.Transfer)
+		wallet.POST("/transfer", middleware.RequireVerified(), middleware.RateLimit(rdb, "wallet-transfer", 10, time.Minute), middleware.Idempotency(rdb, 24*time.Hour, true), walletH.Transfer)
 	}
 
 	// EWA
 	earnings := authed.Group("/earnings")
 	earnings.Use(middleware.RequireRole("driver"))
 	{
-		earnings.POST("/cashout", middleware.Idempotency(rdb, 24*time.Hour), walletH.EWACashout)
+		earnings.POST("/cashout", middleware.Idempotency(rdb, 24*time.Hour, true), walletH.EWACashout)
 	}
 
 	// Paycodes
@@ -408,13 +441,14 @@ func main() {
 	// Gift cards
 	giftCards := authed.Group("/gift-cards")
 	{
-		giftCards.POST("", giftCardH.Issue)
-		giftCards.POST("/redeem", giftCardH.Redeem)
+		giftCards.POST("", middleware.Idempotency(rdb, 24*time.Hour, true), giftCardH.Issue)
+		giftCards.POST("/redeem", middleware.Idempotency(rdb, 24*time.Hour, true), giftCardH.Redeem)
 	}
 
 	// Subscriptions
 	subs := authed.Group("/subscriptions")
 	{
+		subs.GET("", subscriptionH.List)
 		subs.POST("", subscriptionH.Create)
 		subs.POST("/:id/pause", subscriptionH.Pause)
 		subs.POST("/:id/cancel", subscriptionH.Cancel)
@@ -451,7 +485,7 @@ func main() {
 		merchantGroup.GET("/wallet/transactions", walletH.GetTransactions)
 		merchantGroup.GET("/bank-account", merchantH.GetBankAccount)
 		merchantGroup.POST("/bank-account", merchantH.SaveBankAccount)
-		merchantGroup.POST("/withdraw", middleware.Idempotency(rdb, 24*time.Hour), merchantH.Withdraw)
+		merchantGroup.POST("/withdraw", middleware.Idempotency(rdb, 24*time.Hour, true), merchantH.Withdraw)
 		merchantGroup.GET("/prescriptions", merchantH.ListPrescriptions)
 		merchantGroup.POST("/prescriptions/:id/review", middleware.Idempotency(rdb, 24*time.Hour), merchantH.ReviewPrescription)
 	}
@@ -463,7 +497,13 @@ func main() {
 		drivers.POST("/location", dispatchH.UpdateLocation)
 		drivers.POST("/offers/:id/accept", dispatchH.AcceptOffer)
 		drivers.POST("/offers/:id/reject", dispatchH.RejectOffer)
+		// Bank account — resolve (rate-limited) then save
+		drivers.POST("/bank-account/resolve", middleware.RateLimit(rdb, "bank-resolve", 5, time.Minute, true), driverBankH.ResolveAccount)
+		drivers.POST("/bank-account", driverBankH.SaveAccount)
+		drivers.GET("/bank-account", driverBankH.GetAccount)
 	}
+	// Bank list — public, no auth, cached by client (changes rarely)
+	v1.GET("/banks", driverBankH.ListBanks)
 
 	// WebSocket
 	authed.GET("/ws", hub.Handler())
@@ -482,6 +522,7 @@ func main() {
 		admin.GET("/kyc/queue", kycH.AdminQueue)
 		admin.POST("/kyc/:id/approve", kycH.Approve)
 		admin.POST("/kyc/:id/reject", kycH.Reject)
+		admin.GET("/users/:id/kyc", kycH.AdminGetUserKYC)
 
 		// Dispatch
 		admin.POST("/dispatch/:orderId/assign", dispatchH.AdminAssign)
@@ -493,6 +534,8 @@ func main() {
 		// Drivers
 		admin.GET("/drivers", adminH.ListDrivers)
 		admin.POST("/drivers/:id/status", adminH.SetDriverStatus)
+
+		admin.POST("/users/:id/active", adminH.SetUserActive)
 
 		// Orders
 		admin.GET("/orders", adminH.SearchOrders)
@@ -510,6 +553,8 @@ func main() {
 		// Fee configs (pricing engine) — append-only, no DELETE
 		admin.GET("/settings/fees", adminH.ListFeeConfigs)
 		admin.PUT("/settings/fees", adminH.UpsertFeeConfig)
+		admin.GET("/settings/weather", adminH.GetWeatherSurcharge)
+		admin.PUT("/settings/weather", adminH.SetWeatherSurcharge)
 
 		// LPG price index
 		admin.POST("/gas/price-index", subscriptionH.RecordLPGPrice)
@@ -524,6 +569,22 @@ func main() {
 
 		// Ledger viewer
 		admin.GET("/ledger", adminH.GetLedger)
+
+		// Operational metrics
+		admin.GET("/metrics", adminH.GetMetrics)
+
+		// Admin console listings — these back the /users, /runs, /subscriptions
+		// and /pharmacy pages, which were calling these paths before the routes
+		// existed and 404'd on load.
+		admin.GET("/users", adminH.ListUsers)
+		admin.GET("/runs", adminH.ListRuns)
+		admin.GET("/subscriptions", adminH.ListSubscriptions)
+		admin.GET("/prescriptions", adminH.ListPrescriptions)
+
+		// Velocity limits + AML flags
+		admin.GET("/velocity/limits", adminH.ListVelocityLimits)
+		admin.PUT("/velocity/limits", adminH.UpsertVelocityLimit)
+		admin.GET("/velocity/suspicious", adminH.ListSuspiciousActivity)
 	}
 
 	// ── Server ─────────────────────────────────────────────────────────────────

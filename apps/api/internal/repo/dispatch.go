@@ -2,9 +2,11 @@ package repo
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/speedplus/api/internal/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -16,13 +18,14 @@ type DispatchRepo interface {
 	AtomicAcceptOffer(ctx context.Context, offerID, driverID uuid.UUID) (bool, error)
 	ExpireStaleOffers(ctx context.Context) error
 	AssignDriverToOrder(ctx context.Context, tx *gorm.DB, orderID, driverID uuid.UUID) error
-	NearbyDrivers(ctx context.Context, lat, lng, radiusMetres float64, vehicleFilter string, limit int) ([]NearbyDriver, error)
+	NearbyDrivers(ctx context.Context, lat, lng, radiusMetres float64, minVehicle model.VehicleType, requireHazmat bool, limit int) ([]NearbyDriver, error)
 
 	// KYC
 	CreateKYCCheck(ctx context.Context, check *model.KYCCheck) error
 	FindKYCCheck(ctx context.Context, id uuid.UUID) (*model.KYCCheck, error)
 	SaveKYCCheck(ctx context.Context, check *model.KYCCheck) error
 	ListPendingKYCChecks(ctx context.Context, offset, limit int) ([]model.KYCCheck, error)
+	ListKYCChecksByUser(ctx context.Context, userID uuid.UUID) ([]model.KYCCheck, error)
 	CreateKYCDocument(ctx context.Context, doc *model.KYCDocument) error
 
 	// KYC tx helpers (used inside AdminApprove transaction)
@@ -39,7 +42,7 @@ type DispatchRepo interface {
 	AcceptOfferTx(ctx context.Context, tx *gorm.DB, offerID, driverID uuid.UUID) (int64, error)
 	FindOfferTx(ctx context.Context, tx *gorm.DB, offerID uuid.UUID) (*model.DeliveryOffer, error)
 	SetDriverID(ctx context.Context, tx *gorm.DB, orderID, driverID uuid.UUID) error
-	UpdateOfferStatus(ctx context.Context, offerID uuid.UUID, status string) error
+	UpdateOfferStatus(ctx context.Context, offerID, driverID uuid.UUID, status string) error
 	LockOrderTx(ctx context.Context, tx *gorm.DB, orderID uuid.UUID) (*model.Order, error)
 	SaveOrderTx(ctx context.Context, tx *gorm.DB, o *model.Order) error
 }
@@ -88,21 +91,44 @@ func (r *dispatchRepo) ExpireStaleOffers(ctx context.Context) error {
 }
 
 func (r *dispatchRepo) AssignDriverToOrder(ctx context.Context, tx *gorm.DB, orderID, driverID uuid.UUID) error {
-	return tx.WithContext(ctx).
+	result := tx.WithContext(ctx).
 		Model(&model.Order{}).
 		Where("id = ? AND driver_id IS NULL", orderID).
 		Updates(map[string]interface{}{
 			"driver_id": driverID,
 			"status":    string(model.OrderDriverAssigned),
-		}).Error
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("order already assigned or not found")
+	}
+	return nil
 }
 
-func (r *dispatchRepo) NearbyDrivers(ctx context.Context, lat, lng, radiusMetres float64, vehicleFilter string, limit int) ([]NearbyDriver, error) {
+func (r *dispatchRepo) NearbyDrivers(ctx context.Context, lat, lng, radiusMetres float64, minVehicle model.VehicleType, requireHazmat bool, limit int) ([]NearbyDriver, error) {
 	type row struct {
 		DriverID   uuid.UUID `gorm:"column:driver_id"`
 		DistanceKm float64   `gorm:"column:distance_km"`
 		Rating     float64   `gorm:"column:rating"`
 	}
+
+	var vehicleTypes []string
+	switch minVehicle {
+	case model.VehicleVan:
+		vehicleTypes = []string{"van"}
+	case model.VehicleCar:
+		vehicleTypes = []string{"car", "van"}
+	default:
+		vehicleTypes = []string{"motorcycle", "car", "van"}
+	}
+
+	hazmatClause := ""
+	if requireHazmat {
+		hazmatClause = "AND dp.hazmat_certified = true"
+	}
+
 	var rows []row
 	err := r.db.WithContext(ctx).Raw(`
 		SELECT dp.user_id AS driver_id,
@@ -112,12 +138,13 @@ func (r *dispatchRepo) NearbyDrivers(ctx context.Context, lat, lng, radiusMetres
 		JOIN driver_profiles dp ON dp.user_id = dl.driver_id
 		WHERE dp.is_online = true
 		  AND dp.status = 'approved'
-		  AND `+vehicleFilter+`
+		  AND dp.vehicle_type = ANY(?)
+		  `+hazmatClause+`
 		  AND ST_DWithin(dl.location::geography, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography, ?)
 		  AND dl.updated_at > NOW() - INTERVAL '30 seconds'
 		ORDER BY distance_km ASC
 		LIMIT ?
-	`, lng, lat, lng, lat, radiusMetres, limit).Scan(&rows).Error
+	`, lng, lat, pq.Array(vehicleTypes), lng, lat, radiusMetres, limit).Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -152,6 +179,15 @@ func (r *dispatchRepo) ListPendingKYCChecks(ctx context.Context, offset, limit i
 	return checks, err
 }
 
+func (r *dispatchRepo) ListKYCChecksByUser(ctx context.Context, userID uuid.UUID) ([]model.KYCCheck, error) {
+	var checks []model.KYCCheck
+	err := r.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Order("created_at DESC").
+		Find(&checks).Error
+	return checks, err
+}
+
 func (r *dispatchRepo) CreateKYCDocument(ctx context.Context, doc *model.KYCDocument) error {
 	return r.db.WithContext(ctx).Create(doc).Error
 }
@@ -171,8 +207,12 @@ func (r *dispatchRepo) SaveKYCCheckTx(ctx context.Context, tx *gorm.DB, check *m
 }
 
 func (r *dispatchRepo) FindUserTx(ctx context.Context, tx *gorm.DB, userID uuid.UUID) (*model.User, error) {
+	db := r.db
+	if tx != nil {
+		db = tx
+	}
 	var u model.User
-	err := tx.WithContext(ctx).First(&u, userID).Error
+	err := db.WithContext(ctx).First(&u, userID).Error
 	return &u, err
 }
 
@@ -218,9 +258,9 @@ func (r *dispatchRepo) SetDriverID(ctx context.Context, tx *gorm.DB, orderID, dr
 		Update("driver_id", driverID).Error
 }
 
-func (r *dispatchRepo) UpdateOfferStatus(ctx context.Context, offerID uuid.UUID, status string) error {
+func (r *dispatchRepo) UpdateOfferStatus(ctx context.Context, offerID, driverID uuid.UUID, status string) error {
 	return r.db.WithContext(ctx).Model(&model.DeliveryOffer{}).
-		Where("id = ? AND status = 'pending'", offerID).
+		Where("id = ? AND driver_id = ? AND status = 'pending'", offerID, driverID).
 		Update("status", status).Error
 }
 

@@ -6,13 +6,28 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/redis/go-redis/v9"
 	"github.com/speedplus/api/internal/middleware"
+)
+
+// OrderChecker verifies whether a user is a participant (customer or driver) of an order.
+// Injected into Hub to enforce ownership on order channel subscriptions.
+type OrderChecker interface {
+	IsOrderParticipant(ctx context.Context, orderID uuid.UUID, userID string) bool
+}
+
+const (
+	writeWait      = 10 * time.Second
+	pongWait       = 60 * time.Second
+	pingPeriod     = (pongWait * 9) / 10
+	maxMessageSize = 512
 )
 
 var upgrader = websocket.Upgrader{
@@ -40,12 +55,14 @@ type client struct {
 	conn     *websocket.Conn
 	send     chan []byte
 	channels map[string]struct{}
+	ctx      context.Context // request context for ownership checks
 }
 
 type Hub struct {
 	mu      sync.RWMutex
 	clients map[string]map[*client]struct{} // channel → clients
 	rdb     *redis.Client
+	orders  OrderChecker // nil = order channel subscriptions denied
 }
 
 func NewHub(rdb *redis.Client) *Hub {
@@ -54,6 +71,9 @@ func NewHub(rdb *redis.Client) *Hub {
 		rdb:     rdb,
 	}
 }
+
+// InjectOrderChecker wires the ownership checker after construction to avoid import cycles.
+func (h *Hub) InjectOrderChecker(c OrderChecker) { h.orders = c }
 
 // Start subscribes to Redis pub/sub and fans out to local clients.
 func (h *Hub) Start(ctx context.Context) {
@@ -122,6 +142,10 @@ func (h *Hub) Handler() gin.HandlerFunc {
 			conn:     conn,
 			send:     make(chan []byte, 256),
 			channels: make(map[string]struct{}),
+			// ctx is valid for the connection lifetime: readPump blocks the handler
+			// goroutine until the WS closes, so the request context is not cancelled
+			// prematurely. If readPump is ever made async, switch to context.WithoutCancel.
+			ctx: c.Request.Context(),
 		}
 
 		// Subscribe to role-appropriate channels
@@ -137,49 +161,92 @@ func (h *Hub) Handler() gin.HandlerFunc {
 
 		go cl.writePump()
 		cl.readPump(h, userID)
-		h.unsubscribe(cl)
-		conn.Close()
 	}
 }
 
 func (c *client) writePump() {
-	for msg := range c.send {
-		if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-			return
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+
+	for {
+		select {
+		case msg, ok := <-c.send:
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			w, err := c.conn.NextWriter(websocket.TextMessage)
+			if err != nil {
+				return
+			}
+			_, _ = w.Write(msg)
+			n := len(c.send)
+			for i := 0; i < n; i++ {
+				_, _ = w.Write([]byte{'\n'})
+				_, _ = w.Write(<-c.send)
+			}
+			if err := w.Close(); err != nil {
+				return
+			}
+		case <-ticker.C:
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
 }
 
 func (c *client) readPump(h *Hub, userID string) {
+	defer func() {
+		h.unsubscribe(c)
+		c.conn.Close()
+	}()
+
+	c.conn.SetReadLimit(maxMessageSize)
+	_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error {
+		_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
 	for {
 		_, msg, err := c.conn.ReadMessage()
 		if err != nil {
-			return
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				slog.Error("ws read error", "user_id", userID, "error", err)
+			}
+			break
 		}
-		// Client can subscribe to specific order channels
 		var req struct {
 			Action  string `json:"action"`
 			Channel string `json:"channel"`
 		}
 		if json.Unmarshal(msg, &req) == nil && req.Action == "subscribe" {
-			// Validate: customer can only subscribe to their own order channels
-			if isAllowedChannel(req.Channel, userID) {
+			if h.isAllowedChannel(c.ctx, req.Channel, userID) {
 				h.subscribe(c, req.Channel)
 			}
 		}
 	}
 }
 
-func isAllowedChannel(channel, userID string) bool {
-	// Allow order:{uuid} channels — ownership validated at order creation
-	// Allow user:{userID} only for own ID
-	if len(channel) > 5 && channel[:5] == "user:" {
-		return channel[5:] == userID
+func (h *Hub) isAllowedChannel(ctx context.Context, channel, userID string) bool {
+	if strings.HasPrefix(channel, "user:") {
+		return strings.TrimPrefix(channel, "user:") == userID
 	}
-	if len(channel) > 6 && channel[:6] == "order:" {
-		if _, err := uuid.Parse(channel[6:]); err == nil {
-			return true // order ownership enforced at DB level
+	if strings.HasPrefix(channel, "order:") {
+		orderID, err := uuid.Parse(strings.TrimPrefix(channel, "order:"))
+		if err != nil {
+			return false
 		}
+		if h.orders == nil {
+			return false
+		}
+		return h.orders.IsOrderParticipant(ctx, orderID, userID)
 	}
 	return false
 }

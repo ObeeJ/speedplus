@@ -51,7 +51,7 @@ export default function CancellationRulesPage() {
   }
 
   return (
-    <div className="px-8 py-7 flex flex-col gap-6">
+    <div className="px-4 sm:px-8 py-6 sm:py-7 flex flex-col gap-6">
       <h1 className="font-display font-semibold text-[26px] tracking-tight">Cancellation Rules</h1>
       {error && <p className="text-sm text-red-600">{error}</p>}
 
@@ -64,6 +64,7 @@ export default function CancellationRulesPage() {
               <label className="text-[11px] font-semibold text-mid uppercase tracking-wide">{k}</label>
               <input
                 value={form[k]}
+                aria-label={k}
                 onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))}
                 className="border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
               />
@@ -75,6 +76,7 @@ export default function CancellationRulesPage() {
               <input
                 type="number"
                 value={form[k]}
+                aria-label={k}
                 onChange={(e) => setForm((f) => ({ ...f, [k]: Number(e.target.value) }))}
                 className="border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
               />

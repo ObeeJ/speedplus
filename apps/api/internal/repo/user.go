@@ -31,6 +31,11 @@ type UserRepo interface {
 
 	UpsertPIN(ctx context.Context, userID uuid.UUID, pinHash string) error
 	FindPIN(ctx context.Context, userID uuid.UUID) (*model.PIN, error)
+	IncrementPINFailure(ctx context.Context, userID uuid.UUID, lockUntil *time.Time) error
+	ResetPINFailures(ctx context.Context, userID uuid.UUID) error
+
+	FindDriverBankAccount(ctx context.Context, driverID uuid.UUID) (*model.DriverBankAccount, error)
+	UpsertDriverBankAccount(ctx context.Context, acct *model.DriverBankAccount) error
 
 	CreateAddress(ctx context.Context, a *model.Address) error
 	ListAddresses(ctx context.Context, userID uuid.UUID) ([]model.Address, error)
@@ -142,7 +147,7 @@ func (r *userRepo) MarkOTPUsed(ctx context.Context, id uuid.UUID, at time.Time) 
 func (r *userRepo) UpsertPIN(ctx context.Context, userID uuid.UUID, pinHash string) error {
 	return r.db.WithContext(ctx).
 		Where(model.PIN{UserID: userID}).
-		Assign(model.PIN{PINHash: pinHash}).
+		Assign(model.PIN{PINHash: pinHash, FailedAttempts: 0, LockedUntil: nil}).
 		FirstOrCreate(&model.PIN{}).Error
 }
 
@@ -150,6 +155,34 @@ func (r *userRepo) FindPIN(ctx context.Context, userID uuid.UUID) (*model.PIN, e
 	var p model.PIN
 	err := r.db.WithContext(ctx).Where("user_id = ?", userID).First(&p).Error
 	return &p, err
+}
+
+func (r *userRepo) IncrementPINFailure(ctx context.Context, userID uuid.UUID, lockUntil *time.Time) error {
+	return r.db.WithContext(ctx).Model(&model.PIN{}).
+		Where("user_id = ?", userID).
+		Updates(map[string]interface{}{
+			"failed_attempts": gorm.Expr("failed_attempts + 1"),
+			"locked_until":    lockUntil,
+		}).Error
+}
+
+func (r *userRepo) ResetPINFailures(ctx context.Context, userID uuid.UUID) error {
+	return r.db.WithContext(ctx).Model(&model.PIN{}).
+		Where("user_id = ?", userID).
+		Updates(map[string]interface{}{"failed_attempts": 0, "locked_until": nil}).Error
+}
+
+func (r *userRepo) FindDriverBankAccount(ctx context.Context, driverID uuid.UUID) (*model.DriverBankAccount, error) {
+	var acct model.DriverBankAccount
+	err := r.db.WithContext(ctx).Where("driver_id = ? AND is_verified = true", driverID).First(&acct).Error
+	return &acct, err
+}
+
+func (r *userRepo) UpsertDriverBankAccount(ctx context.Context, acct *model.DriverBankAccount) error {
+	return r.db.WithContext(ctx).
+		Where("driver_id = ?", acct.DriverID).
+		Assign(acct).
+		FirstOrCreate(acct).Error
 }
 
 func (r *userRepo) CreateAddress(ctx context.Context, a *model.Address) error {

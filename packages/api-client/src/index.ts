@@ -14,7 +14,7 @@ export type { MerchantSummary, ProductSummary, PrescriptionRecord } from './endp
 
 // Orders & dispatch
 export { ordersApi } from './endpoints/orders';
-export type { OrderStop, ConfirmStopInput } from './endpoints/orders';
+export type { OrderStop, ConfirmStopInput, OrderReceipt } from './endpoints/orders';
 export { quotesApi } from './endpoints/quotes';
 export type { QuoteResult, QuotePayload, MultiStopQuotePayload } from './endpoints/quotes';
 export { dispatchApi } from './endpoints/dispatch';
@@ -67,6 +67,7 @@ export type {
   ZoneRow,
   FillStatus,
   LaunchStatus,
+  OperationalMetrics,
 } from './endpoints/admin';
 
 // Gas vertical

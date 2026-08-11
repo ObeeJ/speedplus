@@ -27,9 +27,8 @@ export default function GasMerchantsPage() {
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
-    setError('');
     adminApi.listGasMerchants(filter || undefined)
-      .then((d) => setMerchants(d.merchants))
+      .then((d) => { setError(''); setMerchants(d.merchants); })
       .catch((e: Error) => setError(e.message));
   }, [filter]);
 
@@ -53,7 +52,7 @@ export default function GasMerchantsPage() {
   }
 
   return (
-    <div className="px-8 py-7 flex flex-col gap-4">
+    <div className="px-4 sm:px-8 py-6 sm:py-7 flex flex-col gap-4">
       <h1 className="font-display font-semibold text-[26px] tracking-tight">Gas Merchants — Fill Accuracy</h1>
 
       <div className="flex gap-2 flex-wrap">

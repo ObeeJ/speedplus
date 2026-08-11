@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/speedplus/api/internal/middleware"
 	"github.com/speedplus/api/internal/service"
 )
 
@@ -18,7 +19,9 @@ func (h *RunHandler) GetRun(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Invalid run ID", "id"))
 		return
 	}
-	run, err := h.runs.GetRun(c.Request.Context(), id)
+	requesterID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	requesterRole := c.GetString(middleware.CtxUserRole)
+	run, err := h.runs.GetRun(c.Request.Context(), id, requesterID, requesterRole)
 	if err != nil {
 		c.JSON(http.StatusNotFound, errResp("NOT_FOUND", "Run not found", ""))
 		return

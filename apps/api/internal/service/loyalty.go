@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -18,11 +17,12 @@ const (
 )
 
 type LoyaltyService struct {
-	repo repo.LoyaltyRepo
+	repo   repo.LoyaltyRepo
+	ledger *LedgerService
 }
 
-func NewLoyaltyService(r repo.LoyaltyRepo) *LoyaltyService {
-	return &LoyaltyService{repo: r}
+func NewLoyaltyService(r repo.LoyaltyRepo, ledger *LedgerService) *LoyaltyService {
+	return &LoyaltyService{repo: r, ledger: ledger}
 }
 
 func (s *LoyaltyService) Award(ctx context.Context, tx *gorm.DB, userID uuid.UUID, eventType string, points int, refID *uuid.UUID) error {
@@ -57,13 +57,14 @@ func (s *LoyaltyService) Redeem(ctx context.Context, userID uuid.UUID, points in
 		if b.Points < points {
 			return fmt.Errorf("insufficient loyalty points")
 		}
-		return s.repo.DeductBalanceTx(ctx, tx, userID, points)
+		if err := s.repo.DeductBalanceTx(ctx, tx, userID, points); err != nil {
+			return err
+		}
+		amountKobo := int64(points) * 100
+		return s.ledger.CreditWallet(ctx, tx, userID, amountKobo, "loyalty_redemption", nil)
 	})
 }
 
 func (s *LoyaltyService) History(ctx context.Context, userID uuid.UUID, limit int) ([]model.LoyaltyEvent, error) {
 	return s.repo.ListEvents(ctx, userID, limit)
 }
-
-// ensure errors package used
-var _ = errors.New

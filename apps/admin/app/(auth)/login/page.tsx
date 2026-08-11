@@ -2,8 +2,18 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Input } from '@speedplus/ui';
-import { SpeedPlusLogo } from '@speedplus/ui';
+import { AuthShell, Button, Input, PasswordInput, AlertCircleIcon, type AuthShellChip } from '@speedplus/ui';
+
+const chips: [AuthShellChip, AuthShellChip] = [
+  {
+    icon: <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><rect x="1" y="1" width="4" height="4" rx="1" fill="#C6F24E" /><rect x="7" y="1" width="4" height="4" rx="1" fill="rgba(198,242,78,0.4)" /><rect x="1" y="7" width="4" height="4" rx="1" fill="rgba(198,242,78,0.4)" /><rect x="7" y="7" width="4" height="4" rx="1" fill="rgba(198,242,78,0.4)" /></svg>,
+    label: 'Ops dashboard live',
+  },
+  {
+    icon: <span className="relative flex h-2 w-2 flex-shrink-0"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-lime opacity-60" /><span className="relative inline-flex rounded-full h-2 w-2 bg-lime" /></span>,
+    label: 'All systems operational',
+  },
+];
 import { authApi } from '@speedplus/api-client';
 import { useAdminAuthStore } from '@/lib/store/auth.store';
 
@@ -36,56 +46,47 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-5 py-12" style={{ background: '#08301F' }}>
-      <div
-        className="w-full max-w-[380px] bg-sand rounded-2xl p-8 flex flex-col gap-6 shadow-[0_24px_60px_rgba(0,0,0,0.4)]"
-        style={{ animation: 'slideUp 0.35s cubic-bezier(0.16,1,0.3,1) both' }}
-      >
-        <div className="flex flex-col items-center gap-2">
-          <SpeedPlusLogo variant="full" theme="light" size="lg" />
-          <span className="text-xs font-semibold text-mid tracking-widest uppercase">Operations</span>
-        </div>
+    <AuthShell
+      headline={<>Operations<br /><span className="text-lime">Command.</span></>}
+      subtext="Internal access only. SpeedPlus operations staff."
+      heroImage="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1200&q=80"
+      portalLabel="Operations"
+      chips={chips}
+      formHeading="Sign in"
+    >
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
+        <Input
+          id="phone"
+          label="Phone number"
+          type="tel"
+          placeholder="08012345678"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          autoComplete="tel"
+          required
+        />
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <Input
-            id="phone"
-            label="Phone number"
-            type="tel"
-            placeholder="08012345678"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            autoComplete="tel"
-            required
-          />
-          <Input
-            id="password"
-            label="Password"
-            type="password"
-            placeholder="••••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            required
-          />
+        <PasswordInput
+          id="password"
+          label="Password"
+          placeholder="••••••••"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
+          required
+        />
 
-          {error && (
-            <p className="text-xs text-[#DC2626] bg-[#FEF2F2] border border-[#FECACA] rounded-xl px-3 py-2" role="alert">
-              {error}
-            </p>
-          )}
+        {error && (
+          <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl px-3.5 py-2.5" role="alert" aria-live="polite">
+            <AlertCircleIcon color="#DC2626" />
+            <p className="text-xs text-red-600">{error}</p>
+          </div>
+        )}
 
-          <Button type="submit" variant="primary" size="lg" isLoading={loading} className="w-full mt-1">
-            Sign in to Ops
-          </Button>
-        </form>
-      </div>
-
-      <style>{`
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(24px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
-    </main>
+        <Button type="submit" variant="primary" size="lg" isLoading={loading} className="w-full mt-1">
+          Sign in to Ops
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

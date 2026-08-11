@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 
 interface FlowHeaderProps {
   title: string;
-  step: 1 | 2 | 3;
+  step: number;
   totalSteps?: number;
   backHref: string;
   subtitle?: string;

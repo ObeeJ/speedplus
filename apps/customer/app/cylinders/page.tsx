@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button } from '@speedplus/ui';
+import { Button, Skeleton } from '@speedplus/ui';
 import { cylindersApi, gasApi, type RegisterCylinderInput } from '@speedplus/api-client';
 
 const BLANK: RegisterCylinderInput = { specId: '', serial: '', manufactureYear: new Date().getFullYear() };
@@ -75,7 +75,12 @@ export default function CylindersPage() {
           )}
         </div>
 
-        {isLoading && <span className="text-[13px] text-mid">Loading…</span>}
+        {isLoading && (
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-[58px] rounded-2xl" />
+            <Skeleton className="h-[58px] rounded-2xl" />
+          </div>
+        )}
 
         {!isLoading && cylinders.length === 0 && !adding && (
           <p className="text-[13px] text-mid">No cylinders registered. Register one to use refill mode.</p>
@@ -117,8 +122,7 @@ export default function CylindersPage() {
               required
               value={form.serial}
               onChange={(e) => setForm((f) => ({ ...f, serial: e.target.value }))}
-              className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald"
-            />
+              className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald" aria-label="Serial number *"/>
             <input
               placeholder="Manufacture year *"
               type="number"
@@ -127,15 +131,13 @@ export default function CylindersPage() {
               max={new Date().getFullYear()}
               value={form.manufactureYear}
               onChange={(e) => setForm((f) => ({ ...f, manufactureYear: parseInt(e.target.value) || 0 }))}
-              className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald"
-            />
+              className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald" aria-label="Manufacture year *"/>
             <input
               placeholder="Last recertification date (optional)"
               type="date"
               value={form.lastRecertAt ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, lastRecertAt: e.target.value || undefined }))}
-              className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink focus:outline-none focus:border-emerald"
-            />
+              className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink focus:outline-none focus:border-emerald" aria-label="Last recertification date (optional)"/>
             {formError && <p className="text-xs text-red-600" role="alert">{formError}</p>}
             <div className="flex gap-2">
               <Button type="submit" variant="primary" size="sm" isLoading={register.isPending} className="flex-1">

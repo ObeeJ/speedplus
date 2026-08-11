@@ -2,17 +2,23 @@
 
 import { useEffect, useState, useTransition } from 'react';
 import { adminApi, type KYCCheck } from '@speedplus/api-client';
-import { Badge } from '@speedplus/ui';
+import { Badge, Button, Modal, Skeleton, Input } from '@speedplus/ui';
 
 export default function KYCPage() {
   const [checks, setChecks] = useState<KYCCheck[]>([]);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
+
+  // Reject modal state
+  const [rejectTarget, setRejectTarget] = useState<string | null>(null);
+  const [rejectNote, setRejectNote] = useState('');
 
   useEffect(() => {
     adminApi.getKYCQueue()
       .then((d) => setChecks(d.checks))
-      .catch((e: Error) => setError(e.message));
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false));
   }, []);
 
   function handleApprove(id: string) {
@@ -26,9 +32,12 @@ export default function KYCPage() {
     });
   }
 
-  function handleReject(id: string) {
-    const note = window.prompt('Rejection reason (required):');
-    if (!note) return;
+  function handleRejectConfirm() {
+    if (!rejectTarget || !rejectNote.trim()) return;
+    const id = rejectTarget;
+    const note = rejectNote.trim();
+    setRejectTarget(null);
+    setRejectNote('');
     startTransition(async () => {
       try {
         await adminApi.rejectKYC(id, note);
@@ -40,10 +49,15 @@ export default function KYCPage() {
   }
 
   return (
-    <div className="px-8 py-7 flex flex-col gap-4">
+    <div className="px-4 sm:px-8 py-6 sm:py-7 flex flex-col gap-4">
       <h1 className="font-display font-semibold text-[26px] tracking-tight">KYC Queue</h1>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      {checks.length === 0 && !error && (
+      {loading && (
+        <div className="flex flex-col gap-3">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-[76px] rounded-2xl" />)}
+        </div>
+      )}
+      {!loading && checks.length === 0 && !error && (
         <p className="text-sm text-mid">No pending KYC submissions.</p>
       )}
       {checks.map((c) => (
@@ -55,24 +69,40 @@ export default function KYCPage() {
           </div>
           <Badge>{c.status}</Badge>
           <div className="flex gap-2">
-            <button
-              disabled={isPending}
-              onClick={() => handleApprove(c.id)}
-              className="font-display text-xs font-semibold text-emerald bg-lime rounded-[10px] px-4 py-2 hover:bg-lime-600 transition-colors disabled:opacity-50"
-            >
+            <Button variant="primary" size="sm" disabled={isPending} onClick={() => handleApprove(c.id)}>
               Approve
-            </button>
-            <button
-              disabled={isPending}
-              onClick={() => handleReject(c.id)}
-              className="font-display text-xs font-semibold rounded-[10px] px-4 py-2 border-[1.5px] transition-colors disabled:opacity-50"
-              style={{ color: '#B4231F', borderColor: '#E5B5B3' }}
-            >
+            </Button>
+            <Button variant="danger" size="sm" disabled={isPending} onClick={() => { setRejectTarget(c.id); setRejectNote(''); }}>
               Reject
-            </button>
+            </Button>
           </div>
         </div>
       ))}
+
+      <Modal
+        isOpen={!!rejectTarget}
+        onClose={() => { setRejectTarget(null); setRejectNote(''); }}
+        title="Reject KYC submission"
+        description="Provide a reason — this will be visible to the user."
+      >
+        <div className="flex flex-col gap-4">
+          <Input
+            label="Rejection reason"
+            placeholder="e.g. Document image is blurry"
+            value={rejectNote}
+            onChange={(e) => setRejectNote(e.target.value)}
+            autoFocus
+          />
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" size="sm" onClick={() => { setRejectTarget(null); setRejectNote(''); }}>
+              Cancel
+            </Button>
+            <Button variant="danger" size="sm" disabled={!rejectNote.trim()} onClick={handleRejectConfirm}>
+              Confirm rejection
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

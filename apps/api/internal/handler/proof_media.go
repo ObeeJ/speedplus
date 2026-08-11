@@ -31,7 +31,7 @@ func (h *ProofMediaHandler) PresignUpload(c *gin.Context) {
 		ContentType string  `json:"contentType" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 	var stopID *uuid.UUID
@@ -47,7 +47,7 @@ func (h *ProofMediaHandler) PresignUpload(c *gin.Context) {
 	driverID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
 	uploadURL, key, err := h.media.PresignUpload(c.Request.Context(), orderID, stopID, req.Kind, driverID, req.ContentType)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(gin.H{"uploadUrl": uploadURL, "key": key}))
@@ -71,7 +71,7 @@ func (h *ProofMediaHandler) ConfirmUpload(c *gin.Context) {
 		CapturedLng *float64 `json:"capturedLng"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 	var stopID *uuid.UUID
@@ -91,7 +91,7 @@ func (h *ProofMediaHandler) ConfirmUpload(c *gin.Context) {
 		CapturedLat: req.CapturedLat, CapturedLng: req.CapturedLng,
 	})
 	if err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 	c.JSON(http.StatusCreated, dto.OK(gin.H{"id": media.ID}))

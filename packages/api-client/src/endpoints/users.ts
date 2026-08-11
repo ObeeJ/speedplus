@@ -72,6 +72,14 @@ export const usersApi = {
     return data.data;
   },
 
+  /** Returns the merchant profile for the authenticated merchant user.
+   *  Distinct from `/merchant/profile` which returns the full merchant record. */
+  async getMerchantProfile(): Promise<{ userId: string; businessName: string; vertical: string; status: string; rating: number; isOpen: boolean }> {
+    const { data } = await apiClient.get<ApiResponse<{ userId: string; businessName: string; vertical: string; status: string; rating: number; isOpen: boolean }>>('/users/me/merchant-profile');
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
   async getDriverBadges(driverId: string): Promise<DriverBadge[]> {
     const { data } = await apiClient.get<ApiResponse<{ badges: DriverBadge[] }>>(`/drivers/${driverId}/badges`);
     if (!data.success) throw new Error(data.error.message);

@@ -90,12 +90,9 @@ func (s *DispatchService) Dispatch(ctx context.Context, order *model.Order, merc
 	}
 	minVehicle := vehicleClassFor(order.Vertical, totalKg)
 
-	hazmatClause := ""
-	if order.Vertical == "gas" && totalKg > 12.5 {
-		hazmatClause = " AND dp.hazmat_certified = true"
-	}
+	requireHazmat := order.Vertical == "gas" && totalKg > 12.5
 
-	nearby, err := s.repo.NearbyDrivers(ctx, merchantLat, merchantLng, offerRadiusKm*1000, vehicleFilter(minVehicle)+hazmatClause, maxOfferCascade*3)
+	nearby, err := s.repo.NearbyDrivers(ctx, merchantLat, merchantLng, offerRadiusKm*1000, minVehicle, requireHazmat, maxOfferCascade*3)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch query: %w", err)
 	}
@@ -148,23 +145,12 @@ func (s *DispatchService) UpdateLocation(ctx context.Context, driverID uuid.UUID
 	return s.repo.UpsertDriverLocation(ctx, driverID, lat, lng, heading)
 }
 
-func vehicleFilter(minType model.VehicleType) string {
-	switch minType {
-	case model.VehicleVan:
-		return "dp.vehicle_type = 'van'"
-	case model.VehicleCar:
-		return "dp.vehicle_type IN ('car', 'van')"
-	default:
-		return "dp.vehicle_type IN ('motorcycle', 'car', 'van')"
-	}
-}
-
 func (s *DispatchService) ExpireOffers(ctx context.Context) error {
 	return s.repo.ExpireStaleOffers(ctx)
 }
 
-func (s *DispatchService) RejectOffer(ctx context.Context, offerID uuid.UUID) error {
-	return s.repo.UpdateOfferStatus(ctx, offerID, "rejected")
+func (s *DispatchService) RejectOffer(ctx context.Context, offerID, driverID uuid.UUID) error {
+	return s.repo.UpdateOfferStatus(ctx, offerID, driverID, "rejected")
 }
 
 func (s *DispatchService) ManualAssign(ctx context.Context, orderID, driverID uuid.UUID) error {

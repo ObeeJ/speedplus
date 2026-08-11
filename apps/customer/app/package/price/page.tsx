@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Skeleton, SelectionCard } from '@speedplus/ui';
+import { Button, Skeleton, SelectionCard, ListCard } from '@speedplus/ui';
 import { FlowHeader } from '../../components/flow-header';
 import { usePackageFlowStore, type PaymentMethod } from '../../../lib/store/package-flow.store';
 import { useRequestQuote, useRequestMultiStopQuote, useCreateOrder, useWalletBalance } from '../../../lib/hooks/use-order-mutations';
@@ -48,13 +48,12 @@ export default function PackagePricePage() {
 
   useEffect(() => {
     if (!pickup || !size || !weight) return;
-    setQuoteError('');
     const mutate = isMultiDrop && stops.length > 0 ? requestMultiStopQuote : requestQuote;
     const payload = isMultiDrop && stops.length > 0
       ? { merchantId: PACKAGE_MERCHANT_ID, vertical: 'package', subtotalKobo: 1, originLat: pickup.lat, originLng: pickup.lng, stops: stops.map((s) => ({ lat: s.address.lat, lng: s.address.lng })), weightKg: WEIGHT_KG[weight] ?? 1.5, sizeCategory: size }
       : { merchantId: PACKAGE_MERCHANT_ID, vertical: 'package', subtotalKobo: 1, originLat: pickup.lat, originLng: pickup.lng, destLat: dropoff?.lat ?? 0, destLng: dropoff?.lng ?? 0, weightKg: WEIGHT_KG[weight] ?? 1.5, sizeCategory: size };
     (mutate as typeof requestQuote).mutate(payload as Parameters<typeof requestQuote.mutate>[0], {
-      onSuccess: (q) => setQuote(q),
+      onSuccess: (q) => { setQuoteError(''); setQuote(q); },
       onError: (err) => setQuoteError(err instanceof Error ? err.message : 'Could not get a price. Try again.'),
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -70,16 +69,19 @@ export default function PackagePricePage() {
     if (!quote || !dropoff) return;
     createOrder.mutate(
       {
-        merchantId: PACKAGE_MERCHANT_ID,
-        quoteId: quote.id,
-        vertical: 'package',
-        deliveryAddressId: isMultiDrop && stops.length > 0 ? stops[0]!.address.id : dropoff.id,
-        paymentMethod,
-        items: [{ productId: 'package-delivery', name: 'Package delivery', quantity: 1, unitPriceKobo: 0, weightKg: WEIGHT_KG[weight ?? 'light'], sizeCategory: size ?? 'small' }],
-        recipientName: !isMultiDrop ? recipientName || undefined : undefined,
-        recipientPhone: !isMultiDrop ? recipientPhone || undefined : undefined,
-        stops: isMultiDrop ? stops.map((s) => ({ sequence: s.sequence, addressId: s.address.id, recipientName: s.recipientName, recipientPhone: s.recipientPhone, notes: s.notes || undefined })) : undefined,
-      } as Parameters<typeof createOrder.mutate>[0],
+        payload: {
+          merchantId: PACKAGE_MERCHANT_ID,
+          quoteId: quote.id,
+          vertical: 'package',
+          deliveryAddressId: isMultiDrop && stops.length > 0 ? stops[0]!.address.id : dropoff.id,
+          paymentMethod,
+          items: [{ productId: 'package-delivery', name: 'Package delivery', quantity: 1, unitPriceKobo: 0, weightKg: WEIGHT_KG[weight ?? 'light'], sizeCategory: size ?? 'small' }],
+          recipientName: !isMultiDrop ? recipientName || undefined : undefined,
+          recipientPhone: !isMultiDrop ? recipientPhone || undefined : undefined,
+          stops: isMultiDrop ? stops.map((s) => ({ sequence: s.sequence, addressId: s.address.id, recipientName: s.recipientName, recipientPhone: s.recipientPhone, notes: s.notes || undefined })) : undefined,
+        },
+        idempotencyKey: crypto.randomUUID(),
+      },
       {
         onSuccess: (order) => { setOrderId(order.id); router.push('/package/finding'); },
         onError: (err) => setQuoteError(err instanceof Error ? err.message : 'Could not place order. Try again.'),
@@ -94,7 +96,7 @@ export default function PackagePricePage() {
       <div className="flex-1 px-5 py-6 flex flex-col gap-6 max-w-[600px] mx-auto w-full pb-36">
 
         {/* Price card */}
-        <div className="bg-white rounded-2xl border border-[#E4E0D6] overflow-hidden">
+        <ListCard noPadding>
           {isLoading ? (
             <div className="p-5 flex flex-col gap-3">
               <Skeleton className="h-4 w-3/4" />
@@ -107,6 +109,7 @@ export default function PackagePricePage() {
             <div className="p-5 flex flex-col gap-3">
               <LineItem label={`Delivery (${quote.distanceKm.toFixed(1)} km)`} value={naira(quote.deliveryKobo)} />
               {quote.serviceKobo > 0 && <LineItem label="Service fee" value={naira(quote.serviceKobo)} />}
+              {quote.weatherSurchargeKobo > 0 && <LineItem label="Weather surcharge" value={naira(quote.weatherSurchargeKobo)} />}
               <div className="h-px bg-[#E4E0D6]" />
               <LineItem label="Total" value={naira(quote.totalKobo)} bold />
               <div className="flex items-center gap-1.5 text-[11px] text-[#63636E] mt-1">
@@ -124,9 +127,7 @@ export default function PackagePricePage() {
               <p className="text-[13px] text-[#DC2626]">{quoteError}</p>
             </div>
           ) : null}
-        </div>
-
-        {/* Weather advisory */}
+        </ListCard>
         {quote?.weatherAdvisory && (
           <div className="flex items-start gap-3 bg-[#FFF7E6] border border-[#F0DFB4] rounded-2xl px-4 py-3.5">
             <svg className="flex-shrink-0 mt-0.5" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E8B14E" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">

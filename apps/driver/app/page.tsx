@@ -12,6 +12,13 @@ import {
   TrophyIcon,
   StarIcon,
   ShieldCheckIcon,
+  DashboardIcon,
+  RunIcon,
+  WalletIcon,
+  UsersIcon,
+  Badge,
+  StatusSteps,
+  iconColors,
   type DuotoneIconProps,
 } from '@speedplus/ui';
 import { ProofCapture } from './components/proof-capture';
@@ -35,53 +42,34 @@ type BadgeMeta = {
 };
 
 const BADGE_META: Record<string, BadgeMeta> = {
-  first_delivery:   { label: 'First delivery',  Icon: SparkIcon,       color: '#FFF7E6', accent: '#D9A408' },
-  '10_deliveries':  { label: '10 deliveries',   Icon: BoxStackIcon,    color: '#E9F3D8', accent: '#7BA05B' },
-  '50_deliveries':  { label: '50 deliveries',   Icon: RocketIcon,      color: '#E9F3D8', accent: '#7BA05B' },
-  '100_deliveries': { label: '100 deliveries',  Icon: TrophyIcon,      color: '#FFF7E6', accent: '#D9A408' },
-  top_rated:        { label: 'Top rated',       Icon: StarIcon,        color: '#FFF7E6', accent: '#D9A408' },
-  zero_complaints:  { label: 'Zero complaints', Icon: ShieldCheckIcon, color: '#E9F3D8', accent: '#7BA05B' },
+  first_delivery:   { label: 'First delivery',  Icon: SparkIcon,       color: iconColors.amberBg, accent: iconColors.amberAccent },
+  '10_deliveries':  { label: '10 deliveries',   Icon: BoxStackIcon,    color: iconColors.tile,    accent: iconColors.accent },
+  '50_deliveries':  { label: '50 deliveries',   Icon: RocketIcon,      color: iconColors.tile,    accent: iconColors.accent },
+  '100_deliveries': { label: '100 deliveries',  Icon: TrophyIcon,      color: iconColors.amberBg, accent: iconColors.amberAccent },
+  top_rated:        { label: 'Top rated',       Icon: StarIcon,        color: iconColors.amberBg, accent: iconColors.amberAccent },
+  zero_complaints:  { label: 'Zero complaints', Icon: ShieldCheckIcon, color: iconColors.tile,    accent: iconColors.accent },
 };
 
 // Unknown badge_type from a newer API build still renders something sane.
 const FALLBACK_BADGE = (badgeType: string): BadgeMeta => ({
   label: badgeType.replace(/_/g, ' '),
   Icon: SparkIcon,
-  color: '#F7F5EF',
-  accent: '#9A968D',
+  color: iconColors.sand,
+  accent: iconColors.mutedAccent,
 });
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
-function HomeIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 11l9-8 9 8v9a1 1 0 01-1 1h-5v-6h-6v6H4a1 1 0 01-1-1v-9z" />
-    </svg>
-  );
+function HomeIcon({ active = false }: { active?: boolean }) {
+  return <DashboardIcon size={18} active={active} color={active ? iconColors.lime : iconColors.stroke} accent={iconColors.accent} />;
 }
-function JobIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 21s-7-5.5-7-11a7 7 0 0114 0c0 5.5-7 11-7 11z" />
-      <circle cx="12" cy="10" r="2.5" />
-    </svg>
-  );
+function JobIcon({ active = false }: { active?: boolean }) {
+  return <RunIcon size={18} active={active} color={active ? iconColors.lime : iconColors.stroke} accent={iconColors.accent} />;
 }
-function EarnIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="6" width="18" height="13" rx="3" />
-      <path d="M3 10h18" />
-    </svg>
-  );
+function EarnIcon({ active = false }: { active?: boolean }) {
+  return <WalletIcon size={18} active={active} color={active ? iconColors.lime : iconColors.stroke} accent={iconColors.accent} />;
 }
-function MeIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="8" r="4" />
-      <path d="M4 21a8 8 0 0116 0" />
-    </svg>
-  );
+function MeIcon({ active = false }: { active?: boolean }) {
+  return <UsersIcon size={18} active={active} color={active ? iconColors.lime : iconColors.stroke} accent={iconColors.accent} />;
 }
 
 const STAGE_LABELS = ['Accepted — ride to pickup', 'Arrived at pickup', 'Package picked up', 'Arrived at drop-off', 'Delivered ✓'];
@@ -113,7 +101,25 @@ export default function DriverAppPage() {
     staleTime: 30_000,
   });
 
-  // Fetch driver badges for Me tab
+  const { data: bankAccount, refetch: refetchBank } = useQuery({
+    queryKey: ['driver-bank-account'],
+    queryFn: () => earningsApi.getBankAccount(),
+    enabled: tab === 'earn',
+    staleTime: Infinity,
+  });
+
+  const [showBankForm, setShowBankForm] = useState(false);
+  const { data: bankList } = useQuery({
+    queryKey: ['banks'],
+    queryFn: () => earningsApi.listBanks(),
+    enabled: showBankForm,
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+  const [bankDraft, setBankDraft] = useState({ bankCode: '', bankName: '', accountNumber: '' });
+  const [resolvedName, setResolvedName] = useState<string | null>(null);
+  const [bankError, setBankError] = useState('');
+
+  const [bankLoading, setBankLoading] = useState(false);
   const { data: badgesData } = useQuery({
     queryKey: ['driver-badges'],
     queryFn: async () => {
@@ -124,11 +130,17 @@ export default function DriverAppPage() {
     staleTime: 60_000,
   });
 
-  // Subscribe to active order WS for cancellation / status updates
+  // Subscribe to active order WS for cancellation / status updates.
+  //
+  // Keyed on the order id alone, not the activeJob object: the store hands back
+  // a new object identity on every unrelated field change, which would tear
+  // down and re-open the socket mid-delivery. Hoisting the primitive lets the
+  // dependency array be exhaustive and honest rather than suppressed.
+  const activeOrderId = activeJob?.orderId;
   useEffect(() => {
-    if (!activeJob) return;
+    if (!activeOrderId) return;
     const ws = new WebSocket(buildWsUrl(), buildWsProtocols());
-    ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', channel: `order:${activeJob.orderId}` }));
+    ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', channel: `order:${activeOrderId}` }));
     ws.onmessage = (evt) => {
       try {
         const msg = JSON.parse(evt.data as string) as { event: string };
@@ -139,7 +151,7 @@ export default function DriverAppPage() {
       } catch { /* ignore */ }
     };
     return () => ws.close();
-  }, [activeJob?.orderId, clearJob, setTab]);
+  }, [activeOrderId, clearJob, setTab]);
 
   // Location updates when online
   const sendLocation = useCallback(() => {
@@ -269,6 +281,38 @@ export default function DriverAppPage() {
     }
   }
 
+  async function handleResolveAccount() {
+    if (!bankDraft.bankCode || !bankDraft.accountNumber) return;
+    setBankLoading(true);
+    setBankError('');
+    setResolvedName(null);
+    try {
+      const result = await earningsApi.resolveAccount(bankDraft.bankCode, bankDraft.accountNumber);
+      setResolvedName(result.accountName);
+    } catch (e) {
+      setBankError(e instanceof Error ? e.message : 'Could not verify account');
+    } finally {
+      setBankLoading(false);
+    }
+  }
+
+  async function handleSaveBankAccount() {
+    if (!resolvedName) return;
+    setBankLoading(true);
+    setBankError('');
+    try {
+      await earningsApi.saveBankAccount(bankDraft);
+      await refetchBank();
+      setShowBankForm(false);
+      setResolvedName(null);
+      setBankDraft({ bankCode: '', bankName: '', accountNumber: '' });
+    } catch (e) {
+      setBankError(e instanceof Error ? e.message : 'Failed to save account');
+    } finally {
+      setBankLoading(false);
+    }
+  }
+
   async function handleToggleOnline() {
     const next = !online;
     setOnline(next);
@@ -294,7 +338,7 @@ export default function DriverAppPage() {
   const showPod = activeJob?.stage === 4;
 
   return (
-    <main className="min-h-screen flex justify-center p-3 min-[500px]:p-6" style={{ background: '#E9E6DD' }}>
+    <main className="min-h-screen flex justify-center p-3 min-[500px]:p-6 bg-sand">
       <div className="w-full max-w-[430px] bg-sand rounded-3xl overflow-hidden shadow-[0_24px_60px_rgba(10,61,44,.18)] flex flex-col min-h-[780px]">
 
         {/* Header */}
@@ -308,7 +352,7 @@ export default function DriverAppPage() {
             onClick={handleToggleOnline}
             className={`flex items-center gap-2 rounded-full px-3.5 py-1.5 transition-colors duration-200 ${online ? 'bg-lime' : 'bg-sand/[.14]'}`}
           >
-            <span className={`w-2 h-2 rounded-full ${online ? 'bg-emerald animate-pulse' : 'bg-[#9A968D]'}`} />
+            <span className={`w-2 h-2 rounded-full ${online ? 'bg-emerald animate-pulse' : 'bg-mid/60'}`} />
             <span className={`text-xs font-bold ${online ? 'text-emerald' : 'text-sand/70'}`}>
               {online ? 'Online' : 'Offline'}
             </span>
@@ -321,8 +365,7 @@ export default function DriverAppPage() {
             {/* Offer card */}
             {showOffer && pendingOffer && (
               <div
-                className="bg-emerald rounded-[18px] p-4 flex flex-col gap-3 shadow-[0_12px_30px_rgba(10,61,44,.3)]"
-                style={{ animation: 'slideDown 0.3s cubic-bezier(0.16,1,0.3,1) both' }}
+                className="animate-slide-down bg-emerald rounded-[18px] p-4 flex flex-col gap-3 shadow-[0_12px_30px_rgba(10,61,44,.3)]"
               >
                 <div className="flex items-center gap-2.5">
                   <span className="w-2 h-2 rounded-full bg-lime animate-pulse" />
@@ -371,7 +414,7 @@ export default function DriverAppPage() {
                       : 'Waiting for jobs…'
                     : 'You are offline'}
                 </span>
-                <span className="text-[11px] text-[#9A968D]">
+                <span className="text-[11px] text-mid">
                   {online
                     ? activeJob
                       ? 'Open the Delivery tab to continue.'
@@ -401,10 +444,10 @@ export default function DriverAppPage() {
               {activeJob.customerPhone && (
                 <a
                   href={`tel:${activeJob.customerPhone}`}
-                  className="w-[38px] h-[38px] rounded-[11px] bg-tile flex items-center justify-center hover:bg-[#DCEDC2] transition-colors"
+                  className="w-[38px] h-[38px] rounded-[11px] bg-tile flex items-center justify-center hover:bg-tile/70 transition-colors"
                   aria-label="Call customer"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0A3D2C" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={iconColors.emerald} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
                     <path d="M4 6c0 8 6 14 14 14l2.5-3-4-2-2 2c-2.5-1.2-4.3-3-5.5-5.5l2-2-2-4L6 4" />
                   </svg>
                 </a>
@@ -412,33 +455,16 @@ export default function DriverAppPage() {
             </div>
 
             {/* Stage progress */}
-            <div className="bg-white border border-line rounded-[14px] px-3.5 py-3.5 flex flex-col gap-2">
-              {STAGE_LABELS.map((label, i) => {
-                const done = activeJob.stage > i;
-                const current = activeJob.stage === i + 1;
-                return (
-                  <span key={label} className="flex items-center gap-2.5">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full border-[2.5px] transition-all duration-300"
-                      style={{
-                        background: done ? '#0A3D2C' : '#FFFFFF',
-                        borderColor: done ? '#C6F24E' : '#E4E0D6',
-                      }}
-                    />
-                    <span
-                      className="text-[12.5px] font-semibold transition-colors duration-300"
-                      style={{ color: current ? '#0A3D2C' : done ? '#121216' : '#9A968D' }}
-                    >
-                      {label}
-                    </span>
-                  </span>
-                );
-              })}
+            <div className="bg-white border border-line rounded-[14px] px-3.5 py-3.5">
+              <StatusSteps
+                steps={STAGE_LABELS.map((label) => ({ label }))}
+                currentIndex={activeJob.stage - 1}
+              />
             </div>
 
             {/* POD — delivery code entry */}
             {showPod && (
-              <div className="bg-[#FFF7E6] border border-[#F0DFB4] rounded-[14px] px-3.5 py-3 flex flex-col gap-2.5">
+              <div className="bg-amber/10 border border-amber/30 rounded-[14px] px-3.5 py-3 flex flex-col gap-2.5">
                 {activeJob.stops.length > 0 ? (
                   <>
                     <span className="text-[12.5px] font-bold">
@@ -491,8 +517,7 @@ export default function DriverAppPage() {
                         value={emptyCylinderSerial}
                         onChange={(e) => setEmptyCylinderSerial(e.target.value)}
                         placeholder="Empty cylinder serial (optional)"
-                        className="bg-white border border-line rounded-[10px] px-3 py-2.5 text-[12.5px] outline-none focus:border-emerald"
-                      />
+                        className="bg-white border border-line rounded-[10px] px-3 py-2.5 text-[12.5px] outline-none focus:border-emerald" aria-label="Empty cylinder serial (optional)"/>
                     )}
                   </>
                 ) : (
@@ -512,10 +537,9 @@ export default function DriverAppPage() {
                   placeholder="000000"
                   value={deliveryCode}
                   onChange={(e) => setDeliveryCode(e.target.value.replace(/\D/g, ''))}
-                  className="h-11 w-full rounded-[11px] border border-line bg-white px-4 text-center font-display text-xl font-bold tracking-[8px] text-emerald focus:outline-none focus:ring-2 focus:ring-emerald"
-                />
+                  className="h-11 w-full rounded-[11px] border border-line bg-white px-4 text-center font-display text-xl font-bold tracking-[8px] text-emerald focus:outline-none focus:ring-2 focus:ring-emerald" aria-label="000000"/>
                 {confirmError && (
-                  <p className="text-xs text-[#DC2626]" role="alert">{confirmError}</p>
+                  <p className="text-xs text-red-600" role="alert">{confirmError}</p>
                 )}
                 <button
                   onClick={handleConfirmDelivery}
@@ -551,12 +575,90 @@ export default function DriverAppPage() {
               </span>
               <button
                 onClick={handleCashout}
-                disabled={cashoutLoading || cashoutDone || !walletData?.balanceKobo}
+                disabled={cashoutLoading || cashoutDone || !walletData?.balanceKobo || !bankAccount}
                 className="mt-2.5 text-center font-display text-[13px] font-semibold text-emerald bg-lime rounded-xl py-3 hover:bg-lime-600 transition-colors disabled:opacity-50"
               >
-                {cashoutDone ? '✓ Sent to your bank' : cashoutLoading ? 'Processing…' : 'Cash out to bank'}
+                {cashoutDone ? '✓ Sent to your bank' : cashoutLoading ? 'Processing…' : !bankAccount ? 'Add bank account to cash out' : 'Cash out to bank'}
               </button>
             </div>
+
+            {/* Bank account */}
+            {bankAccount ? (
+              <div className="bg-white border border-line rounded-2xl px-4 py-3 flex items-center gap-3">
+                <span className="flex-1 flex flex-col">
+                  <span className="text-[13px] font-semibold">{bankAccount.accountName}</span>
+                  <span className="text-[11px] text-mid">{bankAccount.bankName} · ****{bankAccount.accountNumber.slice(-4)}</span>
+                </span>
+                <button onClick={() => setShowBankForm(true)} className="text-[11.5px] font-semibold text-emerald">Change</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowBankForm(true)}
+                className="w-full border-[1.5px] border-dashed border-line rounded-2xl px-4 py-3.5 text-[13px] font-semibold text-mid hover:border-emerald hover:text-emerald transition-colors"
+              >
+                + Add bank account to receive payouts
+              </button>
+            )}
+
+            {showBankForm && (
+              <div className="bg-white border border-line rounded-2xl p-4 flex flex-col gap-2.5">
+                <span className="text-[10.5px] font-semibold text-mid tracking-[.5px]">BANK ACCOUNT</span>
+                <select
+                  value={bankDraft.bankCode}
+                  onChange={(e) => {
+                    const selected = bankList?.find((b) => b.code === e.target.value);
+                    setBankDraft((d) => ({ ...d, bankCode: e.target.value, bankName: selected?.name ?? '' }));
+                    setResolvedName(null);
+                  }}
+                  className="border border-line rounded-xl px-3 py-2.5 text-[13px] bg-white focus:outline-none focus:border-emerald"
+                >
+                  <option value="">Select bank…</option>
+                  {(bankList ?? []).map((b) => (
+                    <option key={b.code} value={b.code}>{b.name}</option>
+                  ))}
+                </select>
+                <input
+                  placeholder="Account number"
+                  inputMode="numeric"
+                  maxLength={10}
+                  value={bankDraft.accountNumber}
+                  onChange={(e) => { setBankDraft((d) => ({ ...d, accountNumber: e.target.value.replace(/\D/g, '') })); setResolvedName(null); }}
+                  className="border border-line rounded-xl px-3 py-2.5 text-[13px] focus:outline-none focus:border-emerald" aria-label="Account number"/>
+                {resolvedName && (
+                  <div className="bg-tile rounded-xl px-3 py-2.5">
+                    <span className="text-[11px] font-semibold text-mid">Account name</span>
+                    <p className="text-[13px] font-bold text-emerald">{resolvedName}</p>
+                    <p className="text-[11px] text-mid mt-0.5">Confirm this is correct before saving.</p>
+                  </div>
+                )}
+                {bankError && <p className="text-[12px] text-red-600" role="alert">{bankError}</p>}
+                <div className="flex gap-2">
+                  {!resolvedName ? (
+                    <button
+                      onClick={handleResolveAccount}
+                      disabled={!bankDraft.bankCode || !bankDraft.accountNumber || bankLoading}
+                      className="flex-1 bg-emerald text-lime font-display font-semibold text-[13px] rounded-xl py-2.5 disabled:opacity-50"
+                    >
+                      {bankLoading ? 'Verifying…' : 'Verify account'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleSaveBankAccount}
+                      disabled={bankLoading}
+                      className="flex-1 bg-lime text-emerald font-display font-semibold text-[13px] rounded-xl py-2.5 disabled:opacity-50"
+                    >
+                      {bankLoading ? 'Saving…' : 'Save account'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { setShowBankForm(false); setResolvedName(null); setBankError(''); }}
+                    className="px-4 text-[13px] font-semibold text-mid"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -580,16 +682,17 @@ export default function DriverAppPage() {
                 <div className="flex flex-wrap gap-2">
                   {badgesData.map((b) => {
                     const meta = BADGE_META[b.badgeType] ?? FALLBACK_BADGE(b.badgeType);
-                    const { Icon, label, color, accent } = meta;
+                    const { Icon, label, accent } = meta;
+                    const isAmber = accent === iconColors.amberAccent;
                     return (
-                      <div
+                      <Badge
                         key={b.badgeType}
-                        className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold"
-                        style={{ background: color }}
+                        variant={isAmber ? 'warning' : 'success'}
+                        className="flex items-center gap-1.5"
                       >
                         <Icon size={15} accent={accent} />
                         <span>{label}</span>
-                      </div>
+                      </Badge>
                     );
                   })}
                 </div>
@@ -603,8 +706,7 @@ export default function DriverAppPage() {
                 value={resolvePayload}
                 onChange={(e) => { setResolvePayload(e.target.value); setResolveResult(null); }}
                 placeholder="Scan or paste QR payload"
-                className="w-full border border-line rounded-xl px-3 py-2 text-[12px] font-mono text-ink placeholder-mid focus:outline-none focus:border-emerald"
-              />
+                className="w-full border border-line rounded-xl px-3 py-2 text-[12px] font-mono text-ink placeholder-mid focus:outline-none focus:border-emerald" aria-label="Scan or paste QR payload"/>
               {resolveResult && (
                 <p className="text-[12px] font-semibold text-emerald" role="status">✓ {resolveResult}</p>
               )}
@@ -632,7 +734,7 @@ export default function DriverAppPage() {
                 clearAuth();
                 router.replace('/login');
               }}
-              className="text-sm font-semibold text-[#DC2626] text-left"
+              className="text-sm font-semibold text-red-600 text-left"
             >
               Sign out
             </button>
@@ -656,7 +758,7 @@ export default function DriverAppPage() {
                 onClick={() => setTab(id)}
                 className={`flex flex-col items-center gap-0.5 text-[9.5px] transition-colors duration-150 ${active ? 'font-bold text-emerald' : 'font-medium text-mid'}`}
               >
-                <Icon />
+                <Icon active={active} />
                 {label}
               </button>
             );
@@ -664,12 +766,7 @@ export default function DriverAppPage() {
         </div>
       </div>
 
-      <style>{`
-        @keyframes slideDown {
-          from { opacity: 0; transform: translateY(-12px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
+
     </main>
   );
 }

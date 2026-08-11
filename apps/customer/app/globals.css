@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@speedplus/config/tailwind/tokens.css";
+@source "../../../packages/ui/src";
 
 @layer base {
   *, *::before, *::after { box-sizing: border-box; }
@@ -11,4 +12,9 @@
     -webkit-font-smoothing: antialiased;
   }
   h1, h2, h3, h4, h5, h6 { font-family: var(--font-display); font-weight: 700; }
+}
+
+@layer utilities {
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+  .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
 }

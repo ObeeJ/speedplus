@@ -1,55 +1,56 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { QuoteResult } from '@/lib/store/package-flow.store';
 
-export interface Meal {
+export interface FoodAddress {
   id: string;
-  name: string;
-  kitchen: string;
-  prepTime: string;
-  price: number;
+  label?: string;
+  street: string;
+  city: string;
+  lat: number;
+  lng: number;
 }
 
-export const MEALS: Meal[] = [
-  { id: 'jollof', name: 'Jollof rice & chicken', kitchen: 'Kilimanjaro', prepTime: '15–20 min', price: 3500 },
-  { id: 'egusi', name: 'Egusi soup & pounded yam', kitchen: "Mama Nkechi's Kitchen", prepTime: '20–25 min', price: 4200 },
-  { id: 'suya', name: 'Beef suya platter', kitchen: 'Suya Spot Lekki', prepTime: '10–15 min', price: 2800 },
-  { id: 'friedrice', name: 'Fried rice & turkey', kitchen: 'Kilimanjaro', prepTime: '15–20 min', price: 3800 },
-];
-
-const BASE_FARE = 100;
-const PER_KM = 45;
-const DEMO_KM = 3.2;
-
 interface FoodFlowState {
-  mealId: string | null;
-  deliverTo: string | null;
+  // Merchant (kitchen) chosen from the list
+  merchantId: string | null;
+  merchantLat: number | null;
+  merchantLng: number | null;
+  // Single product selected from the merchant's menu
+  productId: string | null;
+  productPriceKobo: number | null;
+  // Delivery destination
+  deliverToId: string | null;
+  deliverToAddress: FoodAddress | null;
+  // Quote from server — set before navigating to price page
+  quote: QuoteResult | null;
   orderId: string | null;
-  setMealId: (v: string) => void;
-  setDeliverTo: (v: string) => void;
+  setMerchant: (id: string, lat: number, lng: number) => void;
+  setProduct: (id: string, priceKobo: number) => void;
+  setDeliverTo: (v: FoodAddress) => void;
+  setQuote: (v: QuoteResult) => void;
   setOrderId: (v: string | null) => void;
   reset: () => void;
-  km: () => number;
-  meal: () => Meal | null;
-  priceBreakdown: () => { base: number; distance: number; item: number; total: number };
 }
 
 export const useFoodFlowStore = create<FoodFlowState>()(
   persist(
-    (set, get) => ({
-      mealId: null,
-      deliverTo: null,
+    (set) => ({
+      merchantId: null,
+      merchantLat: null,
+      merchantLng: null,
+      productId: null,
+      productPriceKobo: null,
+      deliverToId: null,
+      deliverToAddress: null,
+      quote: null,
       orderId: null,
-      setMealId: (v) => set({ mealId: v }),
-      setDeliverTo: (v) => set({ deliverTo: v }),
+      setMerchant: (id, lat, lng) => set({ merchantId: id, merchantLat: lat, merchantLng: lng, productId: null, productPriceKobo: null, quote: null }),
+      setProduct: (id, priceKobo) => set({ productId: id, productPriceKobo: priceKobo, quote: null }),
+      setDeliverTo: (v) => set({ deliverToId: v.id, deliverToAddress: v, quote: null }),
+      setQuote: (v) => set({ quote: v }),
       setOrderId: (v) => set({ orderId: v }),
-      reset: () => set({ mealId: null, deliverTo: null, orderId: null }),
-      km: () => DEMO_KM,
-      meal: () => MEALS.find((m) => m.id === get().mealId) ?? null,
-      priceBreakdown: () => {
-        const distance = Math.round(get().km() * PER_KM);
-        const item = get().meal()?.price ?? 0;
-        return { base: BASE_FARE, distance, item, total: BASE_FARE + distance + item };
-      },
+      reset: () => set({ merchantId: null, merchantLat: null, merchantLng: null, productId: null, productPriceKobo: null, deliverToId: null, deliverToAddress: null, quote: null, orderId: null }),
     }),
     { name: 'speedplus-food-flow' },
   ),

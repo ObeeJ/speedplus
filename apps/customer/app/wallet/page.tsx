@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
+import { FEATURES } from '@/lib/features';
 import { walletApi, cardApi } from '@speedplus/api-client';
-import { Skeleton } from '@speedplus/ui';
+import { Skeleton, ListCard } from '@speedplus/ui';
 
 function naira(kobo: number) {
   return `₦${(kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 0 })}`;
@@ -54,7 +55,7 @@ export default function WalletPage() {
           {balLoading ? (
             <Skeleton className="h-12 w-40 bg-white/10" />
           ) : (
-            <p className="font-display font-bold text-[48px] text-[#C6F24E] leading-none" style={{ animation: 'fadeUp 0.3s cubic-bezier(0.16,1,0.3,1) both' }}>
+            <p className="font-display font-bold text-[48px] text-[#C6F24E] leading-none animate-fade-up">
               {naira(balance?.balanceKobo ?? 0)}
             </p>
           )}
@@ -74,6 +75,7 @@ export default function WalletPage() {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
               Send
             </button>
+            {FEATURES.ussdFunding && (
             <button
               onClick={() => router.push('/wallet/ussd')}
               className="flex items-center gap-2 bg-white/10 text-white font-semibold text-[13px] rounded-xl px-4 py-2.5 hover:bg-white/20 transition-colors"
@@ -81,6 +83,8 @@ export default function WalletPage() {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2" /><line x1="12" y1="18" x2="12.01" y2="18" /></svg>
               USSD
             </button>
+            )}
+            {FEATURES.paymentLinks && (
             <button
               onClick={() => router.push('/wallet/payment-links')}
               className="flex items-center gap-2 bg-white/10 text-white font-semibold text-[13px] rounded-xl px-4 py-2.5 hover:bg-white/20 transition-colors"
@@ -88,6 +92,7 @@ export default function WalletPage() {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" /></svg>
               Pay link
             </button>
+            )}
           </div>
         </div>
       </div>
@@ -96,7 +101,7 @@ export default function WalletPage() {
 
         {/* DVA */}
         {dva && (
-          <div className="bg-white rounded-2xl border border-[#E4E0D6] p-5 flex flex-col gap-3">
+          <ListCard className="flex flex-col gap-3">
             <p className="text-[11px] font-semibold text-[#9A968D] tracking-[0.7px] uppercase">Fund via bank transfer</p>
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -115,13 +120,13 @@ export default function WalletPage() {
               </button>
             </div>
             <p className="text-[11px] text-[#9A968D]">Transfer any amount — credited instantly to your wallet.</p>
-          </div>
+          </ListCard>
         )}
 
         {/* Transactions */}
         <div className="flex flex-col gap-3">
           <p className="text-[11px] font-semibold text-[#9A968D] tracking-[0.7px] uppercase">Transactions</p>
-          <div className="bg-white rounded-2xl border border-[#E4E0D6] overflow-hidden">
+          <ListCard noPadding>
             {txLoading && (
               <div className="p-4 flex flex-col gap-3">
                 {[1, 2, 3].map((i) => (
@@ -162,16 +167,11 @@ export default function WalletPage() {
                 </div>
               );
             })}
-          </div>
+          </ListCard>
         </div>
       </div>
 
-      <style>{`
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(8px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
+
     </main>
   );
 }

@@ -353,14 +353,27 @@ func (s *PaycodeService) ConfirmByCard(ctx context.Context, cardPayload string, 
 		return ErrPaycodeInvalid
 	}
 
-	// 2. Verify customer PIN
+	// 2. Verify customer PIN (with lockout — mirrors AuthService.VerifyPIN)
 	pinModel, err := s.users.FindPIN(ctx, customerID)
 	if err != nil {
 		return fmt.Errorf("pin not set")
 	}
+	if pinModel.LockedUntil != nil && time.Now().Before(*pinModel.LockedUntil) {
+		return errors.New("PIN temporarily locked. Try again later.")
+	}
 	if err := bcrypt.CompareHashAndPassword([]byte(pinModel.PINHash), []byte(pin)); err != nil {
+		var lockUntil *time.Time
+		if pinModel.FailedAttempts+1 >= pinMaxAttempts {
+			t := time.Now().Add(pinLockDuration)
+			lockUntil = &t
+		}
+		_ = s.users.IncrementPINFailure(ctx, customerID, lockUntil)
+		if lockUntil != nil {
+			return errors.New("PIN temporarily locked. Try again later.")
+		}
 		return fmt.Errorf("invalid pin")
 	}
+	_ = s.users.ResetPINFailures(ctx, customerID)
 
 	// 3. Find the active in_transit order for this customer
 	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {

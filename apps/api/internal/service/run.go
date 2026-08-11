@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
+	"github.com/speedplus/api/internal/observability"
 	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
 )
@@ -29,8 +31,19 @@ func NewRunService(r repo.RunRepo, orders repo.OrderRepo, pricing *PricingServic
 	return &RunService{repo: r, orders: orders, pricing: pricing, dispatch: dispatch}
 }
 
-func (s *RunService) GetRun(ctx context.Context, id uuid.UUID) (*model.DeliveryRun, error) {
-	return s.repo.FindRunWithOrders(ctx, id)
+func (s *RunService) GetRun(ctx context.Context, id, requesterID uuid.UUID, requesterRole string) (*model.DeliveryRun, error) {
+	run, err := s.repo.FindRunWithOrders(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	// Admins see all runs. Drivers only see runs assigned to them.
+	if requesterRole == "admin" {
+		return run, nil
+	}
+	if run.DriverID == nil || *run.DriverID != requesterID {
+		return nil, errors.New("forbidden")
+	}
+	return run, nil
 }
 
 // AssembleRun finds all pending scheduled gas orders whose delivery address
@@ -55,7 +68,10 @@ func (s *RunService) AssembleRun(ctx context.Context, zoneID uuid.UUID, windowSt
 		return nil, nil
 	}
 
-	merchantLat, merchantLng, _ := s.repo.FindGasMerchantLocation(ctx, uuid.MustParse("00000000-0000-0000-0000-000000000004"))
+	merchantLat, merchantLng, err := s.repo.FindGasMerchantLocation(ctx, rows[0].MerchantID)
+	if err != nil {
+		return nil, fmt.Errorf("assemble run: merchant location for %s: %w", rows[0].MerchantID, err)
+	}
 
 	waypoints := make([]LatLng, 0, len(rows)+1)
 	waypoints = append(waypoints, LatLng{Lat: merchantLat, Lng: merchantLng})
@@ -176,20 +192,26 @@ func (s *RunService) AssembleAllDueRuns(ctx context.Context) error {
 			continue
 		}
 
-		count, _ := s.repo.CountRunsForZoneWindow(ctx, zone.ID, wStart)
+		count, err := s.repo.CountRunsForZoneWindow(ctx, zone.ID, wStart)
+		if err != nil {
+			observability.CaptureError(ctx, err, "assemble runs: count check failed", "zone_id", zone.ID.String())
+			continue
+		}
 		if count > 0 {
 			continue
 		}
 
 		run, err := s.AssembleRun(ctx, zone.ID, wStart, wEnd)
 		if err != nil {
-			_ = err
+			observability.CaptureError(ctx, err, "assemble runs: AssembleRun failed", "zone_id", zone.ID.String())
 			continue
 		}
 		if run == nil {
 			continue
 		}
-		_ = s.DispatchRun(ctx, run.ID)
+		if err := s.DispatchRun(ctx, run.ID); err != nil {
+			observability.CaptureError(ctx, err, "assemble runs: DispatchRun failed", "run_id", run.ID.String())
+		}
 	}
 	return nil
 }

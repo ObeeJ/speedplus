@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { catalogApi } from '@speedplus/api-client';
+import { Skeleton } from '@speedplus/ui';
 import { FlowHeader } from '../components/flow-header';
 import { usePharmacyFlowStore } from '../../lib/store/pharmacy-flow.store';
 
@@ -30,11 +31,17 @@ export default function PharmacyPickerPage() {
       <FlowHeader title="Choose a pharmacy" step={1} totalSteps={4} backHref="/" />
 
       <div className="flex-1 px-5 py-5 flex flex-col gap-3 min-[700px]:max-w-[860px] min-[700px]:mx-auto min-[700px]:px-8 min-[700px]:py-10 min-[700px]:w-full">
-        {isLoading && <div className="text-[13px] text-mid px-1">Finding nearby pharmacies…</div>}
+        {isLoading && (
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-[62px] rounded-[13px]" />
+            <Skeleton className="h-[62px] rounded-[13px]" />
+            <Skeleton className="h-[62px] rounded-[13px]" />
+          </div>
+        )}
 
         {isError && (
           <div className="rounded-[13px] border-2 border-line bg-white px-4 py-4 text-[13px] text-mid">
-            Couldn't load pharmacies right now. Please try again.
+            Couldn&apos;t load pharmacies right now. Please try again.
           </div>
         )}
 

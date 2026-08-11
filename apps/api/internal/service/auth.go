@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"github.com/speedplus/api/internal/model"
 	"github.com/speedplus/api/internal/ports"
 	"github.com/speedplus/api/internal/repo"
+	"github.com/speedplus/api/internal/whatsapp"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -46,6 +48,7 @@ type AuthService struct {
 	cfg        *config.Config
 	onboarding ports.OnboardingRunner
 	email      emailSender
+	wa         ports.WhatsAppNotifier
 	queue      *asynq.Client
 	referrals  referralRecorder
 	enqueueJob func(userID string) error // injected by main.go to avoid import cycle
@@ -64,6 +67,11 @@ type emailSender interface {
 
 func NewAuthService(r repo.UserRepo, cfg *config.Config, onboarding ports.OnboardingRunner, email emailSender) *AuthService {
 	return &AuthService{repo: r, cfg: cfg, onboarding: onboarding, email: email}
+}
+
+// InjectWhatsApp wires the WhatsApp notifier for OTP delivery to phone-only users.
+func (s *AuthService) InjectWhatsApp(wa ports.WhatsAppNotifier) {
+	s.wa = wa
 }
 
 // InjectReferrals wires the ReferralService after construction to avoid import cycles.
@@ -172,7 +180,14 @@ func (s *AuthService) Register(ctx context.Context, in RegisterInput) (*model.Us
 	if s.enqueueJob != nil {
 		_ = s.enqueueJob(user.ID.String())
 	} else {
-		go func() { _ = s.onboarding.Run(context.Background(), user) }()
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("onboarding goroutine panic", "panic", r)
+				}
+			}()
+			_ = s.onboarding.Run(context.Background(), user)
+		}()
 	}
 
 	// Welcome email — best-effort, non-blocking.
@@ -229,7 +244,9 @@ func (s *AuthService) Refresh(ctx context.Context, rawRefresh string) (string, s
 	}
 
 	// Rotate: revoke the presented token, issue a new one in the same family
-	s.repo.RevokeRefreshToken(ctx, tokenHash, time.Now())
+	if err := s.repo.RevokeRefreshToken(ctx, tokenHash, time.Now()); err != nil {
+		return "", "", fmt.Errorf("refresh: revoke token: %w", err)
+	}
 
 	user, err := s.repo.FindByID(ctx, rt.UserID)
 	if err != nil {
@@ -266,7 +283,18 @@ func (s *AuthService) ValidateAccessToken(raw string) (*Claims, error) {
 
 // ── OTP ───────────────────────────────────────────────────────────────────────
 
+// validOTPPurpose returns true for the exhaustive set of allowed OTP purposes.
+// Kept as a function over a map so the set cannot be mutated at runtime.
+// purpose drives privilege changes (phone_verification marks user verified)
+// so it must never be free-text from the caller.
+func validOTPPurpose(purpose string) bool {
+	return purpose == "phone_verification" || purpose == "password_reset"
+}
+
 func (s *AuthService) RequestOTP(ctx context.Context, phone, purpose string) (string, error) {
+	if !validOTPPurpose(purpose) {
+		return "", ErrOTPInvalid
+	}
 	code, err := generateOTP()
 	if err != nil {
 		return "", err
@@ -289,31 +317,84 @@ func (s *AuthService) RequestOTP(ctx context.Context, phone, purpose string) (st
 	if err := s.repo.CreateOTP(ctx, &otp); err != nil {
 		return "", err
 	}
-	// OTP email — only when user has an email address on file.
-	// Phone-only users receive the code via SMS (SMS transport is a separate concern).
-	if u, err := s.repo.FindByPhone(ctx, phone); err == nil && u.Email != nil {
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					slog.Error("OTP email goroutine panic", "panic", r)
-				}
+	// OTP delivery: email when available, WhatsApp otherwise.
+	// Phone-only users (no email on file) receive the code via WhatsApp.
+	if u, err := s.repo.FindByPhone(ctx, phone); err == nil {
+		if u.Email != nil {
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("OTP email goroutine panic", "panic", r)
+					}
+				}()
+				s.email.SendOTP(context.Background(), *u.Email, u.FirstName, code, purpose)
 			}()
-			s.email.SendOTP(context.Background(), *u.Email, u.FirstName, code, purpose)
-		}()
+		} else if s.wa != nil {
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("OTP whatsapp goroutine panic", "panic", r)
+					}
+				}()
+				s.wa.SendOTP(whatsapp.NormalisePhone(u.Phone), code, purpose)
+			}()
+		}
 	}
 	return code, nil
 }
 
-func (s *AuthService) VerifyOTP(ctx context.Context, phone, code, purpose string) error {
+// VerifyOTP checks the code and, for purpose == "phone_verification", marks
+// the user verified and returns a fresh token pair. RequireVerified reads the
+// claim from the JWT at issue time (no DB hit), so a token issued before
+// verification would still read unverified — the caller must swap in these
+// tokens for verification to take effect immediately.
+func (s *AuthService) VerifyOTP(ctx context.Context, phone, code, purpose string) (string, string, error) {
 	otp, err := s.repo.FindActiveOTP(ctx, phone, purpose)
+	if err != nil {
+		return "", "", ErrOTPInvalid
+	}
+	if bcrypt.CompareHashAndPassword([]byte(otp.CodeHash), []byte(code)) != nil {
+		return "", "", ErrOTPInvalid
+	}
+	s.repo.MarkOTPUsed(ctx, otp.ID, time.Now())
+
+	user, err := s.repo.FindByPhone(ctx, phone)
+	if err != nil {
+		return "", "", ErrUserNotFound
+	}
+	if purpose == "phone_verification" && !user.IsVerified {
+		user.IsVerified = true
+		if err := s.repo.Update(ctx, user); err != nil {
+			return "", "", err
+		}
+	}
+	return s.issueTokenPair(ctx, user)
+}
+
+// ── Password reset ────────────────────────────────────────────────────────────
+
+// ResetPassword verifies a "password_reset" OTP then updates the user's
+// password hash. The OTP is consumed (marked used) on success.
+func (s *AuthService) ResetPassword(ctx context.Context, phone, otp, newPassword string) error {
+	otpRecord, err := s.repo.FindActiveOTP(ctx, phone, "password_reset")
 	if err != nil {
 		return ErrOTPInvalid
 	}
-	if bcrypt.CompareHashAndPassword([]byte(otp.CodeHash), []byte(code)) != nil {
+	if bcrypt.CompareHashAndPassword([]byte(otpRecord.CodeHash), []byte(otp)) != nil {
 		return ErrOTPInvalid
 	}
-	s.repo.MarkOTPUsed(ctx, otp.ID, time.Now())
-	return nil
+	s.repo.MarkOTPUsed(ctx, otpRecord.ID, time.Now())
+
+	user, err := s.repo.FindByPhone(ctx, phone)
+	if err != nil {
+		return ErrUserNotFound
+	}
+	hash, err := hashPassword(newPassword)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+	user.PasswordHash = hash
+	return s.repo.Update(ctx, user)
 }
 
 // ── PIN ───────────────────────────────────────────────────────────────────────
@@ -326,13 +407,34 @@ func (s *AuthService) SetPIN(ctx context.Context, userID uuid.UUID, pin string) 
 	return s.repo.UpsertPIN(ctx, userID, string(hash))
 }
 
+const pinMaxAttempts = 5
+const pinLockDuration = 30 * time.Minute
+
 func (s *AuthService) VerifyPIN(ctx context.Context, userID uuid.UUID, pin string) error {
 	p, err := s.repo.FindPIN(ctx, userID)
 	if err != nil {
 		return errors.New("pin not set")
 	}
+	if p.LockedUntil != nil && time.Now().Before(*p.LockedUntil) {
+		return errors.New("PIN temporarily locked. Try again later.")
+	}
 	if bcrypt.CompareHashAndPassword([]byte(p.PINHash), []byte(pin)) != nil {
+		var lockUntil *time.Time
+		if p.FailedAttempts+1 >= pinMaxAttempts {
+			t := time.Now().Add(pinLockDuration)
+			lockUntil = &t
+		}
+		if err := s.repo.IncrementPINFailure(ctx, userID, lockUntil); err != nil {
+			slog.ErrorContext(ctx, "IncrementPINFailure failed", "error", err, "user_id", userID)
+		}
+		if lockUntil != nil {
+			return errors.New("PIN temporarily locked. Try again later.")
+		}
 		return errors.New("invalid pin")
+	}
+	// Success: reset failure counter.
+	if err := s.repo.ResetPINFailures(ctx, userID); err != nil {
+		slog.ErrorContext(ctx, "ResetPINFailures failed", "error", err, "user_id", userID)
 	}
 	return nil
 }
@@ -409,15 +511,7 @@ func verifyPassword(password, encoded string) bool {
 	salt, _ := hex.DecodeString(saltHex)
 	expected, _ := hex.DecodeString(hashHex)
 	actual := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
-	// constant-time compare
-	if len(actual) != len(expected) {
-		return false
-	}
-	var diff byte
-	for i := range actual {
-		diff |= actual[i] ^ expected[i]
-	}
-	return diff == 0
+	return subtle.ConstantTimeCompare(actual, expected) == 1
 }
 
 func hashToken(raw string) string {

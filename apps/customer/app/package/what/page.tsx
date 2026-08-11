@@ -112,8 +112,7 @@ export default function PackageWhatPage() {
         {/* Summary */}
         {canContinue && selectedSize && selectedWeight && (
           <div
-            className="bg-[#0A3D2C] rounded-2xl px-5 py-4 flex items-center gap-3"
-            style={{ animation: 'fadeUp 0.25s cubic-bezier(0.16,1,0.3,1) both' }}
+            className="animate-fade-up bg-[#0A3D2C] rounded-2xl px-5 py-4 flex items-center gap-3"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C6F24E" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12" />
@@ -145,12 +144,7 @@ export default function PackageWhatPage() {
         </div>
       </div>
 
-      <style>{`
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(8px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
+
     </main>
   );
 }

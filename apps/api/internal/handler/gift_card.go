@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -49,7 +50,11 @@ func (h *GiftCardHandler) Redeem(c *gin.Context) {
 	}
 	userID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
 	if err := h.svc.Redeem(c.Request.Context(), userID, req.Code); err != nil {
-		c.JSON(http.StatusUnprocessableEntity, errResp("REDEEM_FAILED", err.Error(), "code"))
+		if errors.Is(err, service.ErrGiftCardNotFound) || errors.Is(err, service.ErrGiftCardExpired) {
+			c.JSON(http.StatusUnprocessableEntity, errResp("REDEEM_FAILED", err.Error(), "code"))
+			return
+		}
+		internalError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, successResp(gin.H{"message": "gift card redeemed"}))

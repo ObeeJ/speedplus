@@ -300,7 +300,7 @@ func (h *OrderHandler) Receipt(c *gin.Context) {
 	customerID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
 	receipt, err := h.orders.GetReceipt(c.Request.Context(), orderID, customerID)
 	if err != nil {
-		if err.Error() == "forbidden" {
+		if errors.Is(err, service.ErrOrderForbidden) {
 			c.JSON(http.StatusForbidden, errResp("FORBIDDEN", "Access denied", ""))
 			return
 		}

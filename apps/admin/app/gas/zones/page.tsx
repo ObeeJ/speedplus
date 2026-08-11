@@ -31,9 +31,8 @@ export default function GasZonesPage() {
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
-    setError('');
     adminApi.listZones(filter || undefined)
-      .then((d) => setZones(d.zones))
+      .then((d) => { setError(''); setZones(d.zones); })
       .catch((e: Error) => setError(e.message));
   }, [filter]);
 
@@ -57,7 +56,7 @@ export default function GasZonesPage() {
   }
 
   return (
-    <div className="px-8 py-7 flex flex-col gap-4">
+    <div className="px-4 sm:px-8 py-6 sm:py-7 flex flex-col gap-4">
       <h1 className="font-display font-semibold text-[26px] tracking-tight">Gas Zones — Launch Status</h1>
 
       <div className="flex gap-2 flex-wrap">

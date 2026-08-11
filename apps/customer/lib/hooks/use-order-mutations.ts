@@ -7,7 +7,8 @@ import type { CreateOrderPayload } from '@speedplus/types';
 
 export function useCreateOrder() {
   return useMutation({
-    mutationFn: (payload: CreateOrderPayload) => ordersApi.create(payload),
+    mutationFn: ({ payload, idempotencyKey }: { payload: CreateOrderPayload; idempotencyKey: string }) =>
+      ordersApi.create(payload, idempotencyKey),
   });
 }
 

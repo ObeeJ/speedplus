@@ -54,6 +54,9 @@ type Config struct {
 	QuoteSecret   string // 32+ byte key for signing quote hashes — separate from JWTSecret and PaycodeSecret
 
 	Environment string // "development" | "production"
+
+	WhatsAppPhoneNumberID string // Meta Cloud API phone number ID
+	WhatsAppToken         string // Meta Cloud API permanent access token
 }
 
 func Load() (*Config, error) {
@@ -90,7 +93,9 @@ func Load() (*Config, error) {
 		EncryptionKey:      getEnv("ENCRYPTION_KEY", ""),
 		PaycodeSecret:      getEnv("PAYCODE_SECRET", ""),
 		QuoteSecret:        getEnv("QUOTE_SECRET", ""),
-		Environment:        getEnv("ENVIRONMENT", "development"),
+		Environment:           getEnv("ENVIRONMENT", "development"),
+		WhatsAppPhoneNumberID: getEnv("WHATSAPP_PHONE_NUMBER_ID", ""),
+		WhatsAppToken:         getEnv("WHATSAPP_TOKEN", ""),
 	}
 
 	if len(cfg.JWTSecret) < 32 {

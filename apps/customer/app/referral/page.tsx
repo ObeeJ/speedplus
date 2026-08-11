@@ -45,8 +45,7 @@ export default function ReferralPage() {
 
         {/* Hero */}
         <div
-          className="w-full bg-emerald rounded-2xl px-6 py-8 flex flex-col items-center gap-3 text-center"
-          style={{ animation: 'fadeUp 0.35s cubic-bezier(0.16,1,0.3,1) both' }}
+          className="w-full bg-emerald rounded-2xl px-6 py-8 flex flex-col items-center gap-3 text-center animate-fade-up"
         >
           <span className="text-5xl">🎁</span>
           <span className="font-display font-bold text-2xl text-sand">Give ₦500, get ₦500</span>
@@ -99,12 +98,7 @@ export default function ReferralPage() {
         </div>
       </div>
 
-      <style>{`
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(16px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
+
     </main>
   );
 }

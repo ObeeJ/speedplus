@@ -15,6 +15,7 @@ type Provider interface {
 	VerifyBVN(ctx context.Context, bvn, firstName, lastName, dob string) (*Result, error)
 	VerifyDriversLicence(ctx context.Context, licenceNo, firstName, lastName, dob string) (*Result, error)
 	Liveness(ctx context.Context, imageBase64 string) (*Result, error)
+	VerifyCAC(ctx context.Context, rcNumber, companyName string) (*Result, error)
 }
 
 type Result struct {
@@ -86,6 +87,14 @@ func (p *PremblyProvider) VerifyDriversLicence(ctx context.Context, licenceNo, f
 func (p *PremblyProvider) Liveness(ctx context.Context, imageBase64 string) (*Result, error) {
 	body := map[string]string{"image": imageBase64}
 	return p.post(ctx, "/api/v2/biometrics/merchant/data/verification/liveness", body)
+}
+
+func (p *PremblyProvider) VerifyCAC(ctx context.Context, rcNumber, companyName string) (*Result, error) {
+	body := map[string]string{
+		"rc_number":    rcNumber,
+		"company_name": companyName,
+	}
+	return p.post(ctx, "/api/v2/biometrics/merchant/data/verification/cac", body)
 }
 
 func (p *PremblyProvider) post(ctx context.Context, path string, payload map[string]string) (*Result, error) {

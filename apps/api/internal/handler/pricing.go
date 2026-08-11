@@ -51,17 +51,18 @@ func (h *PricingHandler) Quote(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, dto.OK(dto.QuoteResponse{
-		ID:              quote.ID,
-		SubtotalKobo:    quote.SubtotalKobo,
-		DeliveryKobo:    quote.DeliveryKobo,
-		ServiceKobo:     quote.ServiceKobo,
-		TotalKobo:       quote.TotalKobo,
-		DistanceKm:      quote.DistanceKm,
-		ETAMinutes:      quote.ETAMinutes,
-		WeightKg:        quote.WeightKg,
-		SizeCategory:    quote.SizeCategory,
-		WeatherAdvisory: quote.WeatherAdvisory,
-		ExpiresAt:       quote.ExpiresAt,
+		ID:                   quote.ID,
+		SubtotalKobo:         quote.SubtotalKobo,
+		DeliveryKobo:         quote.DeliveryKobo,
+		ServiceKobo:          quote.ServiceKobo,
+		WeatherSurchargeKobo: quote.WeatherSurchargeKobo,
+		TotalKobo:            quote.TotalKobo,
+		DistanceKm:           quote.DistanceKm,
+		ETAMinutes:           quote.ETAMinutes,
+		WeightKg:             quote.WeightKg,
+		SizeCategory:         quote.SizeCategory,
+		WeatherAdvisory:      quote.WeatherAdvisory,
+		ExpiresAt:            quote.ExpiresAt,
 	}))
 }
 
@@ -103,17 +104,18 @@ func (h *PricingHandler) QuoteMultiStop(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, dto.OK(dto.QuoteResponse{
-		ID:              quote.ID,
-		SubtotalKobo:    quote.SubtotalKobo,
-		DeliveryKobo:    quote.DeliveryKobo,
-		ServiceKobo:     quote.ServiceKobo,
-		TotalKobo:       quote.TotalKobo,
-		DistanceKm:      quote.DistanceKm,
-		ETAMinutes:      quote.ETAMinutes,
-		StopCount:       quote.StopCount,
-		WeightKg:        quote.WeightKg,
-		SizeCategory:    quote.SizeCategory,
-		WeatherAdvisory: quote.WeatherAdvisory,
-		ExpiresAt:       quote.ExpiresAt,
+		ID:                   quote.ID,
+		SubtotalKobo:         quote.SubtotalKobo,
+		DeliveryKobo:         quote.DeliveryKobo,
+		ServiceKobo:          quote.ServiceKobo,
+		WeatherSurchargeKobo: quote.WeatherSurchargeKobo,
+		TotalKobo:            quote.TotalKobo,
+		DistanceKm:           quote.DistanceKm,
+		ETAMinutes:           quote.ETAMinutes,
+		StopCount:            quote.StopCount,
+		WeightKg:             quote.WeightKg,
+		SizeCategory:         quote.SizeCategory,
+		WeatherAdvisory:      quote.WeatherAdvisory,
+		ExpiresAt:            quote.ExpiresAt,
 	}))
 }

@@ -1,10 +1,13 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/speedplus/api/internal/model"
 	"github.com/speedplus/api/internal/service"
 )
 
@@ -80,7 +83,32 @@ func wsTokenFromSubprotocol(r *http.Request) string {
 	return ""
 }
 
-// RequireVerified blocks unverified users from money-moving endpoints.
+// RequireActiveUser checks users.is_active on every request.
+// This is a DB hit but necessary: access tokens are stateless JWTs (15 min TTL)
+// so revoking refresh tokens alone does not provide immediate lockout for AML/fraud cases.
+func RequireActiveUser(users userFinder) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID, err := uuid.Parse(c.GetString(CtxUserID))
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": gin.H{"code": "UNAUTHORIZED", "message": "Session expired. Please log in again."},
+			})
+			return
+		}
+		u, err := users.FindByID(c.Request.Context(), userID)
+		if err != nil || !u.IsActive {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": gin.H{"code": "ACCOUNT_INACTIVE", "message": "Your account has been deactivated. Please contact support."},
+			})
+			return
+		}
+		c.Next()
+	}
+}
+
+type userFinder interface {
+	FindByID(ctx context.Context, id uuid.UUID) (*model.User, error)
+}
 // IsVerified is baked into the JWT at issue time — no DB hit required.
 func RequireVerified() gin.HandlerFunc {
 	return func(c *gin.Context) {

@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "skipLibCheck": true,
+    "module": "commonjs",
+    "target": "ES2020",
+    "esModuleInterop": true,
+    "moduleResolution": "node",
+    "baseUrl": ".",
+    "paths": {
+      "@speedplus/types": ["packages/types/src/index.ts"],
+      "@speedplus/utils": ["packages/utils/src/index.ts"],
+      "@speedplus/api-client": ["packages/api-client/src/index.ts"],
+      "@/*": ["apps/customer/*"]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*",
+    "packages/config/**/*",
+    "apps/customer/lib/**/*",
+    "**/__tests__/**/*"
+  ]
+}

@@ -16,6 +16,12 @@ export interface Subscription {
 }
 
 export const subscriptionsApi = {
+  async list(): Promise<Subscription[]> {
+    const { data } = await apiClient.get<ApiResponse<{ subscriptions: Subscription[] }>>('/subscriptions');
+    if (!data.success) throw new Error(data.error.message);
+    return data.data.subscriptions;
+  },
+
   async create(payload: {
     merchantId: string;
     vertical: string;

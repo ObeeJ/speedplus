@@ -18,6 +18,12 @@ type LedgerRepo interface {
 
 	// Entries — append-only
 	CreateEntries(ctx context.Context, tx *gorm.DB, entries []model.LedgerEntry) error
+	FindEntriesByJournal(ctx context.Context, tx *gorm.DB, journalID uuid.UUID) ([]model.LedgerEntry, error)
+	// CountReversalsForJournal counts reversal entries already written against a
+	// journal. Reverse() uses it to stay idempotent: reversing the same journal
+	// twice would post two equal-and-opposite journals and silently double the
+	// correction, moving the balance the wrong way by the original amount.
+	CountReversalsForJournal(ctx context.Context, tx *gorm.DB, journalID uuid.UUID) (int64, error)
 
 	// Balances — always SELECT FOR UPDATE inside a tx
 	LockBalance(ctx context.Context, tx *gorm.DB, accountID uuid.UUID) (*model.WalletBalance, error)
@@ -29,6 +35,7 @@ type LedgerRepo interface {
 	CreateEscrowHold(ctx context.Context, tx *gorm.DB, hold *model.EscrowHold) error
 	LockEscrowHold(ctx context.Context, tx *gorm.DB, orderID uuid.UUID, status model.EscrowStatus) (*model.EscrowHold, error)
 	SaveEscrowHold(ctx context.Context, tx *gorm.DB, hold *model.EscrowHold) error
+	FindOverdueFrozenEscrows(ctx context.Context) ([]model.EscrowHold, error)
 
 	// Cancellation rules
 	FindCancellationRule(ctx context.Context, vertical, statusAtCancel string) (*model.CancellationRule, error)
@@ -123,6 +130,25 @@ func (r *ledgerRepo) CreateEntries(ctx context.Context, tx *gorm.DB, entries []m
 	return tx.WithContext(ctx).Create(&entries).Error
 }
 
+func (r *ledgerRepo) CountReversalsForJournal(ctx context.Context, tx *gorm.DB, journalID uuid.UUID) (int64, error) {
+	var count int64
+	db := r.db
+	if tx != nil {
+		db = tx
+	}
+	err := db.WithContext(ctx).
+		Model(&model.LedgerEntry{}).
+		Where("ref_type = ? AND ref_id = ?", "reversal", journalID).
+		Count(&count).Error
+	return count, err
+}
+
+func (r *ledgerRepo) FindEntriesByJournal(ctx context.Context, tx *gorm.DB, journalID uuid.UUID) ([]model.LedgerEntry, error) {
+	var entries []model.LedgerEntry
+	err := tx.WithContext(ctx).Where("journal_id = ?", journalID).Find(&entries).Error
+	return entries, err
+}
+
 func (r *ledgerRepo) LockBalance(ctx context.Context, tx *gorm.DB, accountID uuid.UUID) (*model.WalletBalance, error) {
 	var bal model.WalletBalance
 	err := tx.WithContext(ctx).
@@ -191,6 +217,14 @@ func (r *ledgerRepo) SaveEscrowHold(ctx context.Context, tx *gorm.DB, hold *mode
 	return tx.WithContext(ctx).Save(hold).Error
 }
 
+func (r *ledgerRepo) FindOverdueFrozenEscrows(ctx context.Context) ([]model.EscrowHold, error) {
+	var holds []model.EscrowHold
+	err := r.db.WithContext(ctx).
+		Where("status = ? AND frozen_sla_deadline IS NOT NULL AND frozen_sla_deadline < NOW()", model.EscrowFrozen).
+		Find(&holds).Error
+	return holds, err
+}
+
 func (r *ledgerRepo) FindCancellationRule(ctx context.Context, vertical, statusAtCancel string) (*model.CancellationRule, error) {
 	var rule model.CancellationRule
 	err := r.db.WithContext(ctx).
@@ -206,10 +240,10 @@ func (r *ledgerRepo) CreateDriverEarning(ctx context.Context, tx *gorm.DB, e *mo
 
 func (r *ledgerRepo) SumUnpaidEarnings(ctx context.Context, driverID uuid.UUID) (int64, error) {
 	var total int64
-	r.db.WithContext(ctx).Model(&model.DriverEarning{}).
+	err := r.db.WithContext(ctx).Model(&model.DriverEarning{}).
 		Where("driver_id = ? AND paid_out_at IS NULL", driverID).
-		Select("COALESCE(SUM(amount_kobo + tip_kobo), 0)").Scan(&total)
-	return total, nil
+		Select("COALESCE(SUM(amount_kobo + tip_kobo), 0)").Scan(&total).Error
+	return total, err
 }
 
 func (r *ledgerRepo) ListDriversWithUnpaidEarnings(ctx context.Context) ([]uuid.UUID, error) {

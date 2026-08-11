@@ -10,6 +10,7 @@ export interface User {
   phone: string;
   email?: string;
   avatarUrl?: string;
+  referralCode?: string;
   createdAt: string;
   isVerified: boolean;
 }

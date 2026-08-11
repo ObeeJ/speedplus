@@ -55,9 +55,10 @@ type PricingQuote struct {
 	SubtotalKobo    int64
 	DeliveryKobo    int64
 	ServiceKobo     int64
-	TotalKobo       int64
-	WeatherAdvisory string    `gorm:"type:text"`            // informational only, no fee
-	QuoteHash       string    `gorm:"uniqueIndex;not null"` // HMAC of fields — tamper-proof
+	TotalKobo              int64
+	WeatherSurchargeKobo   int64     `gorm:"not null;default:0"` // 0 when surcharge is off; baked into TotalKobo
+	WeatherAdvisory        string    `gorm:"type:text"`          // informational text; shown even when no fee
+	QuoteHash              string    `gorm:"uniqueIndex;not null"` // HMAC of fields — tamper-proof
 	ExpiresAt       time.Time `gorm:"not null"`
 	UsedAt          *time.Time
 	CreatedAt       time.Time
@@ -325,6 +326,7 @@ type AccountType string
 const (
 	AccountWallet           AccountType = "wallet"
 	AccountEscrow           AccountType = "escrow"
+	AccountDisputedEscrow   AccountType = "disputed_escrow" // funds frozen pending dispute resolution
 	AccountRevenue          AccountType = "revenue"
 	AccountEarnings         AccountType = "earnings"
 	AccountLiability        AccountType = "liability"         // gift cards, loyalty
@@ -429,6 +431,11 @@ type EscrowHold struct {
 	ReleasedBy   *uuid.UUID `gorm:"type:uuid"` // paycode confirm event ID
 	FrozenAt     *time.Time
 	FrozenReason *string
+	// SLA: set when frozen, alerts fire when now > FrozenSLADeadline
+	FrozenSLADeadline *time.Time
+	// Auto-adjudication result
+	AutoAdjudicated  bool   `gorm:"not null;default:false"`
+	PartialRefundKobo *int64
 	// Dual-admin approval for manual release
 	ApprovalOne *uuid.UUID `gorm:"type:uuid"`
 	ApprovalTwo *uuid.UUID `gorm:"type:uuid"`
@@ -723,4 +730,62 @@ type FeeConfig struct {
 	UpdatedBy        uuid.UUID `gorm:"type:uuid;not null"                            json:"updatedBy"`
 	Reason           string    `gorm:"not null;default:''"                           json:"reason"`
 	CreatedAt        time.Time `json:"createdAt"`
+}
+
+// PlatformSetting is an append-only key/value store for platform-level toggles.
+// The latest row per key is the live value. Insert-only — DB rules prevent UPDATE/DELETE.
+type PlatformSetting struct {
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	Key       string    `gorm:"not null;index"`
+	Value     string    `gorm:"not null"`
+	UpdatedBy uuid.UUID `gorm:"type:uuid;not null"`
+	Reason    string    `gorm:"not null;default:''"`
+	CreatedAt time.Time `gorm:"not null"`
+}
+
+// ── Velocity limits & AML ─────────────────────────────────────────────────────
+
+type VelocityLimit struct {
+	ID           uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	Tier         int       `gorm:"not null"`
+	Operation    string    `gorm:"not null"`
+	PerTxnKobo   int64     `gorm:"not null"`
+	DailyKobo    int64     `gorm:"not null"`
+	MonthlyKobo  int64     `gorm:"not null"`
+	CreatedAt    time.Time
+}
+
+type VelocityCounter struct {
+	ID          uuid.UUID     `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	UserID      uuid.UUID     `gorm:"type:uuid;not null;index"`
+	Operation   string        `gorm:"not null"`
+	WindowStart time.Time     `gorm:"not null"`
+	WindowSize  time.Duration `gorm:"not null"` // stored as nanoseconds (int8) by GORM; use interval in raw SQL
+	AmountKobo  int64         `gorm:"not null;default:0"`
+	TxnCount    int           `gorm:"not null;default:0"`
+	UpdatedAt   time.Time
+}
+
+type SuspiciousActivity struct {
+	ID          uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	UserID      uuid.UUID `gorm:"type:uuid;not null;index"`
+	Operation   string    `gorm:"not null"`
+	Reason      string    `gorm:"not null"`
+	AmountKobo  int64     `gorm:"not null"`
+	WindowKobo  int64     `gorm:"not null"`
+	CreatedAt   time.Time
+}
+
+// ── Provider reconciliation ───────────────────────────────────────────────────
+
+type ReconciliationRun struct {
+	ID             uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	Provider       string    `gorm:"not null"`
+	RunDate        time.Time `gorm:"type:date;not null"`
+	ProviderTotal  int64     `gorm:"not null"`
+	LedgerTotal    int64     `gorm:"not null"`
+	DriftKobo      int64     `gorm:"not null"`
+	Status         string    `gorm:"not null;default:'clean'"` // clean|drift_detected|error
+	ErrorDetail    *string
+	CreatedAt      time.Time
 }

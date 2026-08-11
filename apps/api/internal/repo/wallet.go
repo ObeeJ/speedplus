@@ -24,10 +24,15 @@ type WalletRepo interface {
 	FindCashoutByKey(ctx context.Context, key string) (*model.CashoutRequest, error)
 	CreateCashoutTx(ctx context.Context, tx *gorm.DB, c *model.CashoutRequest) error
 	SaveCashoutTx(ctx context.Context, tx *gorm.DB, c *model.CashoutRequest) error
+	// LockCashoutTx re-reads a cashout under SELECT ... FOR UPDATE so a reversal
+	// can prove it has not already been applied. ReverseCashout runs from a
+	// retrying asynq worker; without this guard a retry credits the wallet twice.
+	LockCashoutTx(ctx context.Context, tx *gorm.DB, id uuid.UUID) (*model.CashoutRequest, error)
 	FindIdempotencyCashoutTx(ctx context.Context, tx *gorm.DB, key string) (*model.CashoutRequest, error)
 	SumUnpaidEarnings(ctx context.Context, tx *gorm.DB, driverID uuid.UUID) (int64, error)
 	ListDriversWithUnpaidEarnings(ctx context.Context) ([]uuid.UUID, error)
 	FindMerchantBankAccountTx(ctx context.Context, tx *gorm.DB, merchantID uuid.UUID) (*model.MerchantBankAccount, error)
+	FindDriverBankAccountTx(ctx context.Context, tx *gorm.DB, driverID uuid.UUID) (*model.DriverBankAccount, error)
 }
 
 type walletRepo struct{ db *gorm.DB }
@@ -62,10 +67,17 @@ func (r *walletRepo) SaveWebhookEventTx(ctx context.Context, tx *gorm.DB, e *mod
 	return tx.WithContext(ctx).Save(e).Error
 }
 
+// LockPaymentIntentByRefTx locks the intent for a provider reference at ANY
+// status. It deliberately does not filter status='pending': the caller must be
+// able to distinguish "no intent exists yet" — a race against POST /wallet/fund,
+// which MUST be retried or the customer's money is stranded — from "intent
+// already settled", a genuine webhook replay that must be acked. Filtering on
+// status here collapses both cases into ErrRecordNotFound and makes them
+// indistinguishable. provider_ref is UNIQUE, so this still matches ≤1 row.
 func (r *walletRepo) LockPaymentIntentByRefTx(ctx context.Context, tx *gorm.DB, ref string) (*model.PaymentIntent, error) {
 	var i model.PaymentIntent
 	err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("provider_ref = ? AND status = 'pending'", ref).First(&i).Error
+		Where("provider_ref = ?", ref).First(&i).Error
 	return &i, err
 }
 
@@ -98,6 +110,15 @@ func (r *walletRepo) FindCashoutByKey(ctx context.Context, key string) (*model.C
 
 func (r *walletRepo) CreateCashoutTx(ctx context.Context, tx *gorm.DB, c *model.CashoutRequest) error {
 	return tx.WithContext(ctx).Create(c).Error
+}
+
+func (r *walletRepo) LockCashoutTx(ctx context.Context, tx *gorm.DB, id uuid.UUID) (*model.CashoutRequest, error) {
+	var c model.CashoutRequest
+	err := tx.WithContext(ctx).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("id = ?", id).
+		First(&c).Error
+	return &c, err
 }
 
 func (r *walletRepo) SaveCashoutTx(ctx context.Context, tx *gorm.DB, c *model.CashoutRequest) error {
@@ -136,5 +157,15 @@ func (r *walletRepo) ListDriversWithUnpaidEarnings(ctx context.Context) ([]uuid.
 func (r *walletRepo) FindMerchantBankAccountTx(ctx context.Context, tx *gorm.DB, merchantID uuid.UUID) (*model.MerchantBankAccount, error) {
 	var acct model.MerchantBankAccount
 	err := tx.WithContext(ctx).Where("merchant_id = ? AND is_verified = true", merchantID).First(&acct).Error
+	return &acct, err
+}
+
+func (r *walletRepo) FindDriverBankAccountTx(ctx context.Context, tx *gorm.DB, driverID uuid.UUID) (*model.DriverBankAccount, error) {
+	db := r.db.WithContext(ctx)
+	if tx != nil {
+		db = tx.WithContext(ctx)
+	}
+	var acct model.DriverBankAccount
+	err := db.Where("driver_id = ? AND is_verified = true", driverID).First(&acct).Error
 	return &acct, err
 }

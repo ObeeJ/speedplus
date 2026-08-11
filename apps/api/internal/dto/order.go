@@ -23,18 +23,19 @@ type QuoteRequest struct {
 }
 
 type QuoteResponse struct {
-	ID              uuid.UUID `json:"id"`
-	SubtotalKobo    int64     `json:"subtotalKobo"`
-	DeliveryKobo    int64     `json:"deliveryKobo"`
-	ServiceKobo     int64     `json:"serviceKobo"`
-	TotalKobo       int64     `json:"totalKobo"`
-	DistanceKm      float64   `json:"distanceKm"`
-	ETAMinutes      int       `json:"etaMinutes"`
-	StopCount       int       `json:"stopCount,omitempty"`
-	WeightKg        float64   `json:"weightKg,omitempty"`
-	SizeCategory    string    `json:"sizeCategory,omitempty"`
-	WeatherAdvisory string    `json:"weatherAdvisory,omitempty"` // informational only
-	ExpiresAt       time.Time `json:"expiresAt"`
+	ID                   uuid.UUID `json:"id"`
+	SubtotalKobo         int64     `json:"subtotalKobo"`
+	DeliveryKobo         int64     `json:"deliveryKobo"`
+	ServiceKobo          int64     `json:"serviceKobo"`
+	WeatherSurchargeKobo int64     `json:"weatherSurchargeKobo"` // 0 when surcharge is off
+	TotalKobo            int64     `json:"totalKobo"`
+	DistanceKm           float64   `json:"distanceKm"`
+	ETAMinutes           int       `json:"etaMinutes"`
+	StopCount            int       `json:"stopCount,omitempty"`
+	WeightKg             float64   `json:"weightKg,omitempty"`
+	SizeCategory         string    `json:"sizeCategory,omitempty"`
+	WeatherAdvisory      string    `json:"weatherAdvisory,omitempty"`
+	ExpiresAt            time.Time `json:"expiresAt"`
 }
 
 // MultiStopQuoteRequest prices a package order with one pickup + N dropoffs.

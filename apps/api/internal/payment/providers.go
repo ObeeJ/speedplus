@@ -206,6 +206,47 @@ func (p *PaystackProvider) VerifyWebhookSignature(payload []byte, signature stri
 	return hmac.Equal([]byte(expected), []byte(signature))
 }
 
+// ResolveAccount calls Paystack's /bank/resolve to verify an account number
+// and return the provider-authoritative account name.
+func (p *PaystackProvider) ResolveAccount(ctx context.Context, bankCode, accountNumber string) (string, error) {
+	var resp struct {
+		Status bool `json:"status"`
+		Data   struct {
+			AccountName string `json:"account_name"`
+		} `json:"data"`
+		Message string `json:"message"`
+	}
+	if err := p.get(ctx, "/bank/resolve?account_number="+accountNumber+"&bank_code="+bankCode, &resp); err != nil {
+		return "", err
+	}
+	if !resp.Status {
+		return "", fmt.Errorf("paystack resolve: %s", resp.Message)
+	}
+	return resp.Data.AccountName, nil
+}
+
+// ListBanks returns the list of Nigerian banks from Paystack.
+func (p *PaystackProvider) ListBanks(ctx context.Context) ([]struct {
+	Name string `json:"name"`
+	Code string `json:"code"`
+}, error) {
+	var resp struct {
+		Status bool `json:"status"`
+		Data   []struct {
+			Name string `json:"name"`
+			Code string `json:"code"`
+		} `json:"data"`
+		Message string `json:"message"`
+	}
+	if err := p.get(ctx, "/bank?currency=NGN&perPage=100", &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Status {
+		return nil, fmt.Errorf("paystack list banks: %s", resp.Message)
+	}
+	return resp.Data, nil
+}
+
 func (p *PaystackProvider) post(ctx context.Context, path string, body interface{}, out interface{}) error {
 	b, _ := json.Marshal(body)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+path, bytes.NewReader(b))
@@ -754,4 +795,71 @@ func (m *MonnifyProvider) InitiateUSSD(ctx context.Context, bankCode string, amo
 		USSDCode:    payResult.ResponseBody.UssdPayment,
 		ProviderRef: payResult.ResponseBody.TransactionReference,
 	}, nil
+}
+
+// ── SettlementProvider implementations ───────────────────────────────────────
+
+// FetchSettlements returns the total amount settled by Paystack on the given date.
+// Uses GET /settlement?from=YYYY-MM-DD&to=YYYY-MM-DD&perPage=250.
+func (p *PaystackProvider) FetchSettlements(ctx context.Context, date time.Time) (int64, error) {
+	dateStr := date.Format("2006-01-02")
+	var result struct {
+		Status bool `json:"status"`
+		Data   []struct {
+			TotalAmount float64 `json:"total_amount"`
+		} `json:"data"`
+	}
+	if err := p.get(ctx, "/settlement?from="+dateStr+"&to="+dateStr+"&perPage=250", &result); err != nil {
+		return 0, fmt.Errorf("paystack settlements: %w", err)
+	}
+	var total int64
+	for _, s := range result.Data {
+		total += int64(s.TotalAmount * 100) // Paystack returns NGN, convert to kobo
+	}
+	return total, nil
+}
+
+// FetchSettlements returns the total amount settled by Flutterwave on the given date.
+// Uses GET /settlements?from=YYYY-MM-DD&to=YYYY-MM-DD.
+func (f *FlutterwaveProvider) FetchSettlements(ctx context.Context, date time.Time) (int64, error) {
+	dateStr := date.Format("2006-01-02")
+	var result struct {
+		Status string `json:"status"`
+		Data   []struct {
+			GrossAmount float64 `json:"gross_amount"`
+		} `json:"data"`
+	}
+	if err := f.get(ctx, "/settlements?from="+dateStr+"&to="+dateStr, &result); err != nil {
+		return 0, fmt.Errorf("flutterwave settlements: %w", err)
+	}
+	var total int64
+	for _, s := range result.Data {
+		total += int64(s.GrossAmount * 100)
+	}
+	return total, nil
+}
+
+// FetchSettlements returns the total amount settled by Monnify on the given date.
+// Uses GET /api/v1/merchant/transactions/summary?from=YYYY-MM-DD&to=YYYY-MM-DD.
+func (m *MonnifyProvider) FetchSettlements(ctx context.Context, date time.Time) (int64, error) {
+	token, err := m.accessToken(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("monnify settlements: auth: %w", err)
+	}
+	dateStr := date.Format("2006-01-02")
+	var result struct {
+		RequestSuccessful bool `json:"requestSuccessful"`
+		ResponseBody      struct {
+			TotalAmount float64 `json:"totalAmount"`
+		} `json:"responseBody"`
+		ResponseMessage string `json:"responseMessage"`
+	}
+	path := "/api/v1/merchant/transactions/summary?from=" + dateStr + "&to=" + dateStr
+	if err := m.get(ctx, token, path, &result); err != nil {
+		return 0, fmt.Errorf("monnify settlements: %w", err)
+	}
+	if !result.RequestSuccessful {
+		return 0, fmt.Errorf("monnify settlements: %s", result.ResponseMessage)
+	}
+	return int64(result.ResponseBody.TotalAmount * 100), nil
 }

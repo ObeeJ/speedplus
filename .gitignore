@@ -17,6 +17,11 @@ build
 .env.production
 .env*.local
 
+# Local agent/editor tooling — machine-specific, not project source
+.agent
+.shared
+.vscode
+
 # Misc
 .DS_Store
 *.pem

@@ -1,4 +1,4 @@
-import type { Address, Money, Vertical } from './common';
+import type { Money, Vertical } from './common';
 
 export type OrderStatus =
   | 'pending'
@@ -6,6 +6,9 @@ export type OrderStatus =
   | 'preparing'
   | 'ready_for_pickup'
   | 'driver_assigned'
+  | 'awaiting_collection'
+  | 'empty_collected'
+  | 'at_plant'
   | 'in_transit'
   | 'delivered'
   | 'cancelled'
@@ -19,19 +22,23 @@ export interface Order {
   vertical: Vertical;
   status: OrderStatus;
   items: OrderItem[];
-  deliveryAddress: Address;
+  // Backend returns deliveryAddressId (UUID string), not a full Address object
+  deliveryAddressId: string;
   subtotal: Money;
   deliveryFee: Money;
   serviceFee: Money;
   total: Money;
   tip?: Money;
+  paymentMethod: string;
+  trackingRef?: string;
+  declaredValueKobo?: number;
   scheduledFor?: string;
   createdAt: string;
   updatedAt: string;
   estimatedDeliveryAt?: string;
   deliveredAt?: string;
   cancellationReason?: string;
-  proofOfDeliveryUrl?: string;
+  prescriptionId?: string;
   // Driver enrichment — populated when a driver is assigned
   driverName?: string;
   driverPhone?: string;
@@ -47,12 +54,12 @@ export interface OrderItem {
   unitPrice: Money;
   total: Money;
   customizations?: string;
-  substitutionPreference?: 'allow' | 'deny' | 'contact';
+  substitutionPreference?: string;
 }
 
 export interface CreateOrderPayload {
   merchantId: string;
-  quoteId?: string; // required for package; other verticals will add quote step
+  quoteId: string;
   vertical: Vertical;
   items: Array<{
     productId: string;
@@ -65,10 +72,20 @@ export interface CreateOrderPayload {
     substitutionPreference?: string;
   }>;
   deliveryAddressId: string;
+  recipientName?: string;
+  recipientPhone?: string;
   paymentMethod?: string;
   tipKobo?: number;
+  declaredValueKobo?: number;
   scheduledFor?: string;
   prescriptionId?: string;
   gasMode?: 'swap' | 'refill' | 'new_cylinder';
   cylinderId?: string;
+  stops?: Array<{
+    sequence: number;
+    addressId: string;
+    recipientName?: string;
+    recipientPhone?: string;
+    notes?: string;
+  }>;
 }

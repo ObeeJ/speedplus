@@ -19,9 +19,33 @@ export interface ConfirmStopInput {
   capturedLng?: number;
 }
 
+export interface OrderReceipt {
+  orderId: string;
+  merchantName: string;
+  driverName?: string;
+  paymentMethod: string;
+  subtotalKobo: number;
+  deliveryKobo: number;
+  serviceKobo: number;
+  tipKobo: number;
+  totalKobo: number;
+  createdAt: string;
+  deliveredAt?: string;
+  items: Array<{ name: string; quantity: number; unitPriceKobo: number; totalKobo: number }>;
+  review?: { rating: number; comment?: string };
+}
+
 export const ordersApi = {
-  async create(payload: CreateOrderPayload): Promise<Order> {
-    const { data } = await apiClient.post<ApiResponse<Order>>('/orders', payload);
+  async getReceipt(orderId: string): Promise<OrderReceipt> {
+    const { data } = await apiClient.get<ApiResponse<OrderReceipt>>(`/orders/${orderId}/receipt`);
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
+  async create(payload: CreateOrderPayload, idempotencyKey: string): Promise<Order> {
+    const { data } = await apiClient.post<ApiResponse<Order>>('/orders', payload, {
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
     if (!data.success) throw new Error(data.error.message);
     return data.data;
   },
@@ -38,8 +62,8 @@ export const ordersApi = {
     return data.data;
   },
 
-  async cancel(orderId: string, reason: string): Promise<Order> {
-    const { data } = await apiClient.post<ApiResponse<Order>>(`/orders/${orderId}/cancel`, { reason });
+  async cancel(orderId: string, reason: string): Promise<{ message: string }> {
+    const { data } = await apiClient.post<ApiResponse<{ message: string }>>(`/orders/${orderId}/cancel`, { reason });
     if (!data.success) throw new Error(data.error.message);
     return data.data;
   },

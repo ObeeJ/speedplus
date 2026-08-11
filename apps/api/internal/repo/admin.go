@@ -18,6 +18,9 @@ type AdminRepo interface {
 	ListDriverProfiles(ctx context.Context, status string, cursor *uuid.UUID, limit int) ([]model.DriverProfile, error)
 	LockDriverProfileTx(ctx context.Context, tx *gorm.DB, id uuid.UUID) (*model.DriverProfile, error)
 	SaveDriverProfileTx(ctx context.Context, tx *gorm.DB, dp *model.DriverProfile) error
+	LockUserTx(ctx context.Context, tx *gorm.DB, id uuid.UUID) (*model.User, error)
+	SaveUserTx(ctx context.Context, tx *gorm.DB, u *model.User) error
+	RevokeAllUserRefreshTokensTx(ctx context.Context, tx *gorm.DB, userID uuid.UUID) error
 	SearchOrders(ctx context.Context, q, status string, cursor *uuid.UUID, limit int) ([]model.Order, error)
 	FindOrderWithEvents(ctx context.Context, id uuid.UUID) (*model.Order, error)
 	FindOrderTx(ctx context.Context, tx *gorm.DB, id uuid.UUID) (*model.Order, error)
@@ -32,6 +35,15 @@ type AdminRepo interface {
 	ListZones(ctx context.Context, launchStatus string, cursor *uuid.UUID, limit int) ([]model.ServiceZone, error)
 	LockZoneTx(ctx context.Context, tx *gorm.DB, id uuid.UUID) (*model.ServiceZone, error)
 	SaveZoneTx(ctx context.Context, tx *gorm.DB, z *model.ServiceZone) error
+	// Operational metrics
+	GetMetrics(ctx context.Context) (*OperationalMetrics, error)
+	// Admin console listings. These back the /admin/users, /admin/runs,
+	// /admin/subscriptions and /admin/prescriptions pages, which shipped in the
+	// client before the routes existed and returned 404 on load.
+	ListUsers(ctx context.Context, role, q string, cursor *uuid.UUID, limit int) ([]model.User, error)
+	ListRuns(ctx context.Context, status string, cursor *uuid.UUID, limit int) ([]model.DeliveryRun, error)
+	ListSubscriptions(ctx context.Context, status string, cursor *uuid.UUID, limit int) ([]model.Subscription, error)
+	ListPrescriptions(ctx context.Context, status string, cursor *uuid.UUID, limit int) ([]model.Prescription, error)
 }
 
 type adminRepo struct{ db *gorm.DB }
@@ -72,6 +84,86 @@ func (r *adminRepo) CreateAuditLogTx(ctx context.Context, tx *gorm.DB, log *mode
 	return tx.WithContext(ctx).Create(log).Error
 }
 
+// ── Admin console listings ────────────────────────────────────────────────────
+//
+// All four follow the keyset pagination used by the existing list queries:
+// (created_at, id) DESC with a strict tuple comparison against the cursor row.
+// Offset pagination would drift as rows are inserted underneath the admin.
+
+func (r *adminRepo) ListUsers(ctx context.Context, role, q string, cursor *uuid.UUID, limit int) ([]model.User, error) {
+	db := r.db.WithContext(ctx).Model(&model.User{})
+	if role != "" {
+		db = db.Where("role = ?", role)
+	}
+	if q != "" {
+		// Case-insensitive match across the fields an operator actually searches
+		// by. Parameterised — never string-concatenated into the SQL.
+		like := "%" + q + "%"
+		db = db.Where(
+			"first_name ILIKE ? OR last_name ILIKE ? OR phone ILIKE ? OR email ILIKE ?",
+			like, like, like, like,
+		)
+	}
+	if cursor != nil {
+		var pivot model.User
+		if err := r.db.WithContext(ctx).First(&pivot, cursor).Error; err == nil {
+			db = db.Where("(created_at, id) < (?, ?)", pivot.CreatedAt, pivot.ID)
+		}
+	}
+	var rows []model.User
+	err := db.Order("created_at DESC, id DESC").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
+func (r *adminRepo) ListRuns(ctx context.Context, status string, cursor *uuid.UUID, limit int) ([]model.DeliveryRun, error) {
+	db := r.db.WithContext(ctx).Model(&model.DeliveryRun{})
+	if status != "" {
+		db = db.Where("status = ?", status)
+	}
+	if cursor != nil {
+		var pivot model.DeliveryRun
+		if err := r.db.WithContext(ctx).First(&pivot, cursor).Error; err == nil {
+			db = db.Where("(created_at, id) < (?, ?)", pivot.CreatedAt, pivot.ID)
+		}
+	}
+	var rows []model.DeliveryRun
+	// Preload Orders so the console can show an order count without an N+1.
+	err := db.Preload("Orders").Order("created_at DESC, id DESC").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
+func (r *adminRepo) ListSubscriptions(ctx context.Context, status string, cursor *uuid.UUID, limit int) ([]model.Subscription, error) {
+	db := r.db.WithContext(ctx).Model(&model.Subscription{})
+	if status != "" {
+		db = db.Where("status = ?", status)
+	}
+	if cursor != nil {
+		var pivot model.Subscription
+		if err := r.db.WithContext(ctx).First(&pivot, cursor).Error; err == nil {
+			db = db.Where("(created_at, id) < (?, ?)", pivot.CreatedAt, pivot.ID)
+		}
+	}
+	var rows []model.Subscription
+	err := db.Order("created_at DESC, id DESC").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
+func (r *adminRepo) ListPrescriptions(ctx context.Context, status string, cursor *uuid.UUID, limit int) ([]model.Prescription, error) {
+	db := r.db.WithContext(ctx).Model(&model.Prescription{})
+	if status != "" {
+		db = db.Where("status = ?", status)
+	}
+	if cursor != nil {
+		var pivot model.Prescription
+		if err := r.db.WithContext(ctx).First(&pivot, cursor).Error; err == nil {
+			db = db.Where("(created_at, id) < (?, ?)", pivot.CreatedAt, pivot.ID)
+		}
+	}
+	var rows []model.Prescription
+	err := db.Order("created_at DESC, id DESC").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
 func (r *adminRepo) ListDriverProfiles(ctx context.Context, status string, cursor *uuid.UUID, limit int) ([]model.DriverProfile, error) {
 	q := r.db.WithContext(ctx).Model(&model.DriverProfile{})
 	if status != "" {
@@ -96,6 +188,22 @@ func (r *adminRepo) LockDriverProfileTx(ctx context.Context, tx *gorm.DB, id uui
 
 func (r *adminRepo) SaveDriverProfileTx(ctx context.Context, tx *gorm.DB, dp *model.DriverProfile) error {
 	return tx.WithContext(ctx).Save(dp).Error
+}
+
+func (r *adminRepo) LockUserTx(ctx context.Context, tx *gorm.DB, id uuid.UUID) (*model.User, error) {
+	var u model.User
+	err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).First(&u, id).Error
+	return &u, err
+}
+
+func (r *adminRepo) SaveUserTx(ctx context.Context, tx *gorm.DB, u *model.User) error {
+	return tx.WithContext(ctx).Save(u).Error
+}
+
+func (r *adminRepo) RevokeAllUserRefreshTokensTx(ctx context.Context, tx *gorm.DB, userID uuid.UUID) error {
+	return tx.WithContext(ctx).Model(&model.RefreshToken{}).
+		Where("user_id = ? AND revoked_at IS NULL", userID).
+		Update("revoked_at", "NOW()").Error
 }
 
 func (r *adminRepo) SearchOrders(ctx context.Context, q, status string, cursor *uuid.UUID, limit int) ([]model.Order, error) {
@@ -195,6 +303,58 @@ func (r *adminRepo) LockZoneTx(ctx context.Context, tx *gorm.DB, id uuid.UUID) (
 	var z model.ServiceZone
 	err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).First(&z, id).Error
 	return &z, err
+}
+
+// OperationalMetrics is the daily business health snapshot for the admin dashboard.
+type OperationalMetrics struct {
+	OrdersToday      int64   `json:"ordersToday"`
+	GMVKobo          int64   `json:"gmvKobo"`           // gross merchandise value (sum of order totals)
+	RevenueKobo      int64   `json:"revenueKobo"`       // platform revenue (service fees + delivery margin)
+	ActiveDrivers    int64   `json:"activeDrivers"`     // drivers online right now
+	ActiveMerchants  int64   `json:"activeMerchants"`   // merchants currently open
+	FailedPayments   int64   `json:"failedPayments"`    // payment intents failed today
+	Cancellations    int64   `json:"cancellations"`     // orders cancelled today
+	CancellationRate float64 `json:"cancellationRate"`  // cancellations / total orders today
+}
+
+func (r *adminRepo) GetMetrics(ctx context.Context) (*OperationalMetrics, error) {
+	m := &OperationalMetrics{}
+	today := "created_at >= CURRENT_DATE"
+
+	if err := r.db.WithContext(ctx).Model(&model.Order{}).
+		Where(today).Count(&m.OrdersToday).Error; err != nil {
+		return nil, err
+	}
+	if err := r.db.WithContext(ctx).Model(&model.Order{}).
+		Where(today+" AND status != 'cancelled'").
+		Select("COALESCE(SUM(total_kobo), 0)").Scan(&m.GMVKobo).Error; err != nil {
+		return nil, err
+	}
+	if err := r.db.WithContext(ctx).Model(&model.Order{}).
+		Where(today+" AND status != 'cancelled'").
+		Select("COALESCE(SUM(service_kobo), 0)").Scan(&m.RevenueKobo).Error; err != nil {
+		return nil, err
+	}
+	if err := r.db.WithContext(ctx).Model(&model.DriverProfile{}).
+		Where("is_online = true").Count(&m.ActiveDrivers).Error; err != nil {
+		return nil, err
+	}
+	if err := r.db.WithContext(ctx).Model(&model.Merchant{}).
+		Where("is_open = true").Count(&m.ActiveMerchants).Error; err != nil {
+		return nil, err
+	}
+	if err := r.db.WithContext(ctx).Model(&model.PaymentIntent{}).
+		Where(today+" AND status = 'failed'").Count(&m.FailedPayments).Error; err != nil {
+		return nil, err
+	}
+	if err := r.db.WithContext(ctx).Model(&model.Order{}).
+		Where(today+" AND status = 'cancelled'").Count(&m.Cancellations).Error; err != nil {
+		return nil, err
+	}
+	if m.OrdersToday > 0 {
+		m.CancellationRate = float64(m.Cancellations) / float64(m.OrdersToday)
+	}
+	return m, nil
 }
 
 func (r *adminRepo) SaveZoneTx(ctx context.Context, tx *gorm.DB, z *model.ServiceZone) error {

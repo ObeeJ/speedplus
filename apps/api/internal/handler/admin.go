@@ -12,13 +12,23 @@ import (
 )
 
 type AdminHandler struct {
-	admin      *service.AdminService
-	ledger     *service.LedgerService
-	feeConfigs *service.FeeConfigService
+	admin            *service.AdminService
+	ledger           *service.LedgerService
+	feeConfigs       *service.FeeConfigService
+	weatherSurcharge *service.WeatherSurchargeService
+	velocity         *service.VelocityService
 }
 
 func NewAdminHandler(admin *service.AdminService, ledger *service.LedgerService, feeConfigs *service.FeeConfigService) *AdminHandler {
 	return &AdminHandler{admin: admin, ledger: ledger, feeConfigs: feeConfigs}
+}
+
+func (h *AdminHandler) InjectWeatherSurcharge(ws *service.WeatherSurchargeService) {
+	h.weatherSurcharge = ws
+}
+
+func (h *AdminHandler) InjectVelocity(v *service.VelocityService) {
+	h.velocity = v
 }
 
 // ── Merchants ─────────────────────────────────────────────────────────────────
@@ -45,7 +55,7 @@ func (h *AdminHandler) SetMerchantStatus(c *gin.Context) {
 		Reason string `json:"reason"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 	adminID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
@@ -69,6 +79,48 @@ func (h *AdminHandler) ListDrivers(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"drivers": drivers}))
 }
 
+// ── Admin console listings ────────────────────────────────────────────────────
+//
+// These four back admin pages that shipped in the client before the routes
+// existed and 404'd on load. All are read-only and sit behind
+// RequireRole("admin") plus the admin rate limiter.
+
+func (h *AdminHandler) ListUsers(c *gin.Context) {
+	users, err := h.admin.ListUsers(c.Request.Context(), c.Query("role"), c.Query("q"), parseCursor(c), 20)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"users": users}))
+}
+
+func (h *AdminHandler) ListRuns(c *gin.Context) {
+	runs, err := h.admin.ListRuns(c.Request.Context(), c.Query("status"), parseCursor(c), 20)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"runs": runs}))
+}
+
+func (h *AdminHandler) ListSubscriptions(c *gin.Context) {
+	subs, err := h.admin.ListSubscriptions(c.Request.Context(), c.Query("status"), parseCursor(c), 20)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"subscriptions": subs}))
+}
+
+func (h *AdminHandler) ListPrescriptions(c *gin.Context) {
+	rx, err := h.admin.ListPrescriptions(c.Request.Context(), c.Query("status"), parseCursor(c), 20)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"prescriptions": rx}))
+}
+
 func (h *AdminHandler) SetDriverStatus(c *gin.Context) {
 	driverID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -80,7 +132,7 @@ func (h *AdminHandler) SetDriverStatus(c *gin.Context) {
 		Reason string `json:"reason"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 	adminID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
@@ -89,6 +141,34 @@ func (h *AdminHandler) SetDriverStatus(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(dto.MessageResponse{Message: "driver status updated"}))
+}
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+
+func (h *AdminHandler) SetUserActive(c *gin.Context) {
+	userID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid user ID", "id"))
+		return
+	}
+	var req struct {
+		Active bool   `json:"active"`
+		Reason string `json:"reason" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
+		return
+	}
+	adminID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	if err := h.admin.SetUserActive(c.Request.Context(), userID, adminID, req.Active, req.Reason); err != nil {
+		if err.Error() == "user not found" {
+			c.JSON(http.StatusNotFound, dto.Fail("NOT_FOUND", "User not found", "id"))
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(dto.MessageResponse{Message: "user status updated"}))
 }
 
 // ── Orders ────────────────────────────────────────────────────────────────────
@@ -133,12 +213,12 @@ func (h *AdminHandler) FreezeEscrow(c *gin.Context) {
 		Reason string `json:"reason" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), "reason"))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", "reason"))
 		return
 	}
 	adminID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
 	if err := h.admin.FreezeEscrow(c.Request.Context(), orderID, adminID, req.Reason); err != nil {
-		c.JSON(http.StatusConflict, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusConflict, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(dto.MessageResponse{Message: "escrow frozen"}))
@@ -158,13 +238,13 @@ func (h *AdminHandler) ReleaseEscrow(c *gin.Context) {
 		Reason    string `json:"reason"    binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 	adminID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
 	result, err := h.admin.ReleaseEscrow(c.Request.Context(), orderID, adminID, req.Recipient, req.Reason)
 	if err != nil {
-		c.JSON(http.StatusConflict, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusConflict, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(gin.H{"message": result}))
@@ -191,7 +271,7 @@ func (h *AdminHandler) UpsertCancellationRule(c *gin.Context) {
 		FullRefund          bool    `json:"fullRefund"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 	rule, err := h.admin.UpsertCancellationRule(c.Request.Context(), service.CancellationRuleInput{
@@ -248,7 +328,7 @@ func (h *AdminHandler) UpsertFeeConfig(c *gin.Context) {
 		Reason           string  `json:"reason"           binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 	adminID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
@@ -267,7 +347,7 @@ func (h *AdminHandler) UpsertFeeConfig(c *gin.Context) {
 	})
 	if err != nil {
 		// Service-level validation (take-rate sum, unknown vertical) is a client error.
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(gin.H{"config": row, "fuelSuggestion": suggestion}))
@@ -294,6 +374,17 @@ func (h *AdminHandler) GetLedger(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(gin.H{"entries": entries}))
+}
+
+// GetMetrics — GET /admin/metrics
+// Returns today's operational health numbers.
+func (h *AdminHandler) GetMetrics(c *gin.Context) {
+	m, err := h.admin.GetMetrics(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(m))
 }
 
 // queryInt reads an integer query param with a fallback default.
@@ -337,12 +428,12 @@ func (h *AdminHandler) SetMerchantFillStatus(c *gin.Context) {
 		Reason string `json:"reason" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 	adminID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
 	if err := h.admin.SetMerchantFillStatus(c.Request.Context(), merchantID, adminID, req.Status, req.Reason); err != nil {
-		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", err.Error(), ""))
+		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(dto.MessageResponse{Message: "fill status updated"}))
@@ -371,13 +462,109 @@ func (h *AdminHandler) SetZoneLaunchStatus(c *gin.Context) {
 		Reason string `json:"reason" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 	adminID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
 	if err := h.admin.SetZoneLaunchStatus(c.Request.Context(), zoneID, adminID, req.Status, req.Reason); err != nil {
-		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", err.Error(), ""))
+		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(dto.MessageResponse{Message: "launch status updated"}))
+}
+
+// ── Weather surcharge settings ────────────────────────────────────────────────
+
+// GetWeatherSurcharge — GET /admin/settings/weather
+func (h *AdminHandler) GetWeatherSurcharge(c *gin.Context) {
+	if h.weatherSurcharge == nil {
+		c.JSON(http.StatusOK, dto.OK(gin.H{"enabled": false, "amountKobo": 20000}))
+		return
+	}
+	enabled, amountKobo := h.weatherSurcharge.Get(c.Request.Context())
+	c.JSON(http.StatusOK, dto.OK(gin.H{"enabled": enabled, "amountKobo": amountKobo}))
+}
+
+// SetWeatherSurcharge — PUT /admin/settings/weather
+func (h *AdminHandler) SetWeatherSurcharge(c *gin.Context) {
+	if h.weatherSurcharge == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.Fail("UNAVAILABLE", "Weather surcharge service not configured", ""))
+		return
+	}
+	var req struct {
+		Enabled    bool   `json:"enabled"`
+		AmountKobo int64  `json:"amountKobo" binding:"min=0"`
+		Reason     string `json:"reason" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
+		return
+	}
+	adminID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	if err := h.weatherSurcharge.Set(c.Request.Context(), adminID, req.Enabled, req.AmountKobo, req.Reason); err != nil {
+		internalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"enabled": req.Enabled, "amountKobo": req.AmountKobo}))
+}
+
+// ── Velocity limits (AML) ─────────────────────────────────────────────────────
+
+// ListVelocityLimits — GET /admin/velocity/limits
+func (h *AdminHandler) ListVelocityLimits(c *gin.Context) {
+	if h.velocity == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.Fail("UNAVAILABLE", "Velocity service not configured", ""))
+		return
+	}
+	limits, err := h.velocity.ListLimits(c.Request.Context())
+	if err != nil {
+		internalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"limits": limits}))
+}
+
+// UpsertVelocityLimit — PUT /admin/velocity/limits
+func (h *AdminHandler) UpsertVelocityLimit(c *gin.Context) {
+	if h.velocity == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.Fail("UNAVAILABLE", "Velocity service not configured", ""))
+		return
+	}
+	var req struct {
+		Tier        int    `json:"tier"        binding:"min=0,max=1"`
+		Operation   string `json:"operation"   binding:"required,oneof=transfer cashout withdraw fund gift_card"`
+		PerTxnKobo  int64  `json:"perTxnKobo"  binding:"required,min=1"`
+		DailyKobo   int64  `json:"dailyKobo"   binding:"required,min=1"`
+		MonthlyKobo int64  `json:"monthlyKobo" binding:"required,min=1"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
+		return
+	}
+	limit, err := h.velocity.UpsertLimit(c.Request.Context(), req.Tier, req.Operation, req.PerTxnKobo, req.DailyKobo, req.MonthlyKobo)
+	if err != nil {
+		internalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(limit))
+}
+
+// ListSuspiciousActivity — GET /admin/velocity/suspicious?cursor=...
+func (h *AdminHandler) ListSuspiciousActivity(c *gin.Context) {
+	if h.velocity == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.Fail("UNAVAILABLE", "Velocity service not configured", ""))
+		return
+	}
+	var cursor *uuid.UUID
+	if raw := c.Query("cursor"); raw != "" {
+		if id, err := uuid.Parse(raw); err == nil {
+			cursor = &id
+		}
+	}
+	rows, err := h.velocity.ListSuspiciousActivity(c.Request.Context(), cursor, 50)
+	if err != nil {
+		internalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"flags": rows}))
 }

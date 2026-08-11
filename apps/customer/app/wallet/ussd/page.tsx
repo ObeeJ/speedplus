@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Button } from '@speedplus/ui';
+import { Button, ListCard } from '@speedplus/ui';
 import { ussdApi, type USSDIntent } from '@speedplus/api-client';
 
 function naira(kobo: number) {
@@ -58,7 +58,7 @@ export default function USSDBankPage() {
 
       <div className="flex-1 px-5 py-6 max-w-[480px] mx-auto w-full flex flex-col gap-5">
         {intent && liveStatus !== 'expired' && liveStatus !== 'failed' ? (
-          <div className="bg-white rounded-2xl border border-[#E4E0D6] p-6 flex flex-col items-center gap-4">
+          <ListCard className="p-6 flex flex-col items-center gap-4">
             {liveStatus === 'paid' ? (
               <>
                 <div className="w-14 h-14 rounded-2xl bg-[#E9F3D8] flex items-center justify-center">
@@ -88,9 +88,9 @@ export default function USSDBankPage() {
                 <Button variant="ghost" size="sm" onClick={() => setIntent(null)} className="w-full">Start over</Button>
               </>
             )}
-          </div>
+          </ListCard>
         ) : (
-          <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-[#E4E0D6] p-5 flex flex-col gap-4">
+          <ListCard className="flex flex-col gap-4">
             <p className="text-[14px] font-semibold text-[#121216]">Fund your wallet with USSD</p>
             <p className="text-[12px] text-[#63636E]">No internet needed on your phone. Dial the code we give you.</p>
 
@@ -123,8 +123,7 @@ export default function USSDBankPage() {
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="100"
-                  className="w-full border border-[#E4E0D6] rounded-xl pl-8 pr-4 py-3 text-[15px] text-[#121216] placeholder-[#C5C2BB] focus:outline-none focus:border-[#0A3D2C] transition-colors"
-                />
+                  className="w-full border border-[#E4E0D6] rounded-xl pl-8 pr-4 py-3 text-[15px] text-[#121216] placeholder-[#C5C2BB] focus:outline-none focus:border-[#0A3D2C] transition-colors" aria-label="Amount (₦)"/>
               </div>
             </div>
 
@@ -133,7 +132,7 @@ export default function USSDBankPage() {
             <Button type="submit" variant="primary" size="md" isLoading={initiate.isPending} disabled={!bankCode || !amount} className="w-full">
               Get USSD code
             </Button>
-          </form>
+          </ListCard>
         )}
       </div>
     </main>

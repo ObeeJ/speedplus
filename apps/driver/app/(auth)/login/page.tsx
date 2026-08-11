@@ -2,19 +2,32 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Input } from '@speedplus/ui';
-import { SpeedPlusLogo } from '@speedplus/ui';
+import Link from 'next/link';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowRight } from 'lucide-react';
 import { authApi } from '@speedplus/api-client';
 import { useDriverAuthStore } from '@/lib/store/auth.store';
+import { AuthShell, Button, Input, PasswordInput, AlertCircleIcon, type AuthShellChip } from '@speedplus/ui';
+
+const chips: [AuthShellChip, AuthShellChip] = [
+  {
+    icon: <span className="relative flex h-2 w-2 flex-shrink-0"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-lime opacity-60" /><span className="relative inline-flex rounded-full h-2 w-2 bg-lime" /></span>,
+    label: '2,400+ deliveries today',
+  },
+  {
+    icon: <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M6 1l1.3 2.6L10 4.1 8 6l.5 2.9L6 7.5 3.5 8.9 4 6 2 4.1l2.7-.5L6 1z" fill="#C6F24E" /></svg>,
+    label: '4.9 avg rider rating',
+  },
+];
 
 export default function DriverLoginPage() {
-  const router = useRouter();
+  const router  = useRouter();
   const setAuth = useDriverAuthStore((s) => s.setAuth);
 
-  const [phone, setPhone] = useState('');
+  const [phone,    setPhone]    = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [error,    setError]    = useState('');
+  const [loading,  setLoading]  = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -36,17 +49,19 @@ export default function DriverLoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-emerald flex flex-col items-center justify-center px-5 py-12">
-      <div
-        className="w-full max-w-[380px] bg-sand rounded-2xl p-8 flex flex-col gap-6 shadow-[0_24px_60px_rgba(0,0,0,0.3)]"
-        style={{ animation: 'slideUp 0.35s cubic-bezier(0.16,1,0.3,1) both' }}
-      >
-        <div className="flex flex-col items-center gap-2">
-          <SpeedPlusLogo variant="full" theme="light" size="lg" />
-          <span className="text-xs font-semibold text-mid tracking-widest uppercase">Rider Portal</span>
-        </div>
+    <AuthShell
+      headline={<>Deliver.<br />Earn.<br /><span className="text-lime">Grow.</span></>}
+      subtext="Your earnings, your schedule, your city. Start riding with SpeedPlus."
+      heroImage="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=1200&q=80"
+      portalLabel="Rider Portal"
+      chips={chips}
+      formHeading="Welcome back"
+      formSubheading="Sign in to your rider account"
+    >
+      <form onSubmit={handleSubmit} noValidate>
+        <div className="flex flex-col gap-4">
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {/* Phone */}
           <Input
             id="phone"
             label="Phone number"
@@ -57,35 +72,77 @@ export default function DriverLoginPage() {
             autoComplete="tel"
             required
           />
-          <Input
+
+          {/* Password */}
+          <PasswordInput
             id="password"
             label="Password"
-            type="password"
-            placeholder="••••••••"
+            placeholder="Enter your password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
             required
           />
 
-          {error && (
-            <p className="text-xs text-[#DC2626] bg-[#FEF2F2] border border-[#FECACA] rounded-xl px-3 py-2" role="alert">
-              {error}
-            </p>
-          )}
+          {/* Forgot password */}
+          <div className="flex justify-end -mt-1">
+            <Link
+              href="/forgot-password"
+              className="text-[12px] font-medium text-mid hover:text-ink transition-colors underline-offset-2 hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </div>
 
-          <Button type="submit" variant="primary" size="lg" isLoading={loading} className="w-full mt-1">
-            Sign in
+          {/* Error banner */}
+          <AnimatePresence>
+            {error && (
+              <motion.div
+                className="flex items-start gap-3 rounded-2xl px-4 py-3.5"
+                style={{
+                  background: 'rgba(254,242,242,0.8)',
+                  border: '1px solid rgba(220,38,38,0.15)',
+                  boxShadow: '0 1px 4px rgba(220,38,38,0.08)',
+                }}
+                role="alert"
+                aria-live="polite"
+                initial={{ opacity: 0, y: -8, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0,  scale: 1    }}
+                exit={{    opacity: 0, y: -6, scale: 0.97 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              >
+                <AlertCircleIcon color="#DC2626" aria-hidden="true" />
+                <p className="text-[12.5px] text-red-700 leading-snug font-medium">{error}</p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Submit */}
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            isLoading={loading}
+            className="w-full mt-1 group"
+          >
+            {!loading && (
+              <>
+                Sign in
+                <motion.span
+                  className="inline-flex"
+                  initial={{ x: 0 }}
+                  whileHover={{ x: 3 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 28 }}
+                >
+                  <ArrowRight size={15} />
+                </motion.span>
+              </>
+            )}
+            {loading && 'Signing in…'}
           </Button>
-        </form>
-      </div>
 
-      <style>{`
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(24px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
-    </main>
+        </div>
+      </form>
+    </AuthShell>
   );
 }

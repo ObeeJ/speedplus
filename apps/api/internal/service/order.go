@@ -14,7 +14,9 @@ import (
 	"github.com/speedplus/api/internal/dto"
 	"github.com/speedplus/api/internal/model"
 	"github.com/speedplus/api/internal/observability"
+	"github.com/speedplus/api/internal/ports"
 	"github.com/speedplus/api/internal/repo"
+	"github.com/speedplus/api/internal/whatsapp"
 	"gorm.io/gorm"
 )
 
@@ -27,6 +29,7 @@ var (
 	ErrOrderNotFound        = errors.New("order not found")
 	ErrGasValidation        = errors.New("gas order validation failed")
 	ErrInsufficientBalance  = errors.New("insufficient balance")
+	ErrOrderForbidden       = errors.New("forbidden")
 )
 
 type CreateOrderInput struct {
@@ -80,6 +83,7 @@ type OrderService struct {
 	recipients    *crypto.Cipher // encrypts/decrypts recipient name+phone at rest
 	email         orderEmailSender
 	users         repo.UserRepo
+	wa            ports.WhatsAppNotifier
 	// enqueueReview schedules post-review rating/badge recomputation. Injected
 	// after construction to avoid a service→worker import cycle.
 	enqueueReview func(revieweeID, revieweeType string) error
@@ -135,6 +139,12 @@ func (s *OrderService) InjectDeliveryCodes(dc *DeliveryCodeService) {
 func (s *OrderService) InjectEmail(e orderEmailSender, u repo.UserRepo) {
 	s.email = e
 	s.users = u
+}
+
+// InjectWhatsApp wires the WhatsApp notifier for order lifecycle notifications.
+// Optional — if not called all WA sends are silent no-ops.
+func (s *OrderService) InjectWhatsApp(wa ports.WhatsAppNotifier) {
+	s.wa = wa
 }
 
 // InjectRecipientCipher wires the AES-GCM cipher used to encrypt/decrypt
@@ -475,6 +485,27 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 		}(order)
 	}
 
+	// Notify customer on WhatsApp — best-effort, never blocks order creation.
+	if s.wa != nil && s.users != nil {
+		go func(o *model.Order) {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("whatsapp order_confirmed goroutine panic", "panic", r, "order_id", o.ID)
+				}
+			}()
+			u, err := s.users.FindByID(context.Background(), o.CustomerID)
+			if err != nil || u.Phone == "" {
+				return
+			}
+			merchant, err := s.orders.FindMerchant(context.Background(), o.MerchantID)
+			if err != nil {
+				return
+			}
+			total := fmt.Sprintf("₦%.0f", float64(o.TotalKobo)/100)
+			s.wa.OrderConfirmed(whatsapp.NormalisePhone(u.Phone), o.ID.String(), merchant.BusinessName, total)
+		}(order)
+	}
+
 	return order, nil
 }
 
@@ -504,20 +535,20 @@ func (s *OrderService) transitionTx(ctx context.Context, tx *gorm.DB, orderID, a
 	switch actorRole {
 	case "merchant":
 		if order.MerchantID != actorID {
-			return errors.New("forbidden")
+			return ErrOrderForbidden
 		}
 	case "driver":
 		if order.DriverID == nil || *order.DriverID != actorID {
-			return errors.New("forbidden")
+			return ErrOrderForbidden
 		}
 	case "customer":
 		if order.CustomerID != actorID {
-			return errors.New("forbidden")
+			return ErrOrderForbidden
 		}
 	case "admin":
 		// admin may transition any order
 	default:
-		return errors.New("forbidden")
+		return ErrOrderForbidden
 	}
 
 	allowed := model.ValidTransitions[order.Status]
@@ -574,6 +605,21 @@ func (s *OrderService) transitionTx(ctx context.Context, tx *gorm.DB, orderID, a
 				s.email.SendDeliveryCode(context.Background(), *u.Email, u.FirstName, c, oid)
 			}(order.CustomerID, code, orderID.String())
 		}
+		// WhatsApp delivery code — free (inside CSW opened by order_confirmed reply)
+		if s.wa != nil && s.users != nil {
+			go func(customerID uuid.UUID, c string) {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("whatsapp delivery_code goroutine panic", "panic", r)
+					}
+				}()
+				u, err := s.users.FindByID(context.Background(), customerID)
+				if err != nil || u.Phone == "" {
+					return
+				}
+				s.wa.DeliveryCode(whatsapp.NormalisePhone(u.Phone), c)
+			}(order.CustomerID, code)
+		}
 		if s.hub != nil {
 			_ = s.hub.Publish(ctx,
 				"order:"+orderID.String(),
@@ -589,6 +635,46 @@ func (s *OrderService) transitionTx(ctx context.Context, tx *gorm.DB, orderID, a
 			"driver_assigned",
 			map[string]interface{}{"orderId": orderID, "driverId": order.DriverID},
 		)
+	}
+
+	// WhatsApp: rider assigned notification
+	if to == model.OrderDriverAssigned && s.wa != nil && s.users != nil {
+		go func(o *model.Order) {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("whatsapp rider_assigned goroutine panic", "panic", r, "order_id", o.ID)
+				}
+			}()
+			u, err := s.users.FindByID(context.Background(), o.CustomerID)
+			if err != nil || u.Phone == "" {
+				return
+			}
+			riderName := "Your rider"
+			if o.DriverID != nil {
+				if driver, err := s.users.FindByID(context.Background(), *o.DriverID); err == nil {
+					riderName = driver.FirstName
+				}
+			}
+			// ETA is not stored on the order at this stage; omit rather than lie.
+			// Wire a real value here once OSRM duration is persisted on the offer.
+			s.wa.RiderAssigned(whatsapp.NormalisePhone(u.Phone), riderName, "")
+		}(order)
+	}
+
+	// WhatsApp: order delivered notification
+	if to == model.OrderDelivered && s.wa != nil && s.users != nil {
+		go func(o *model.Order) {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("whatsapp order_delivered goroutine panic", "panic", r, "order_id", o.ID)
+				}
+			}()
+			u, err := s.users.FindByID(context.Background(), o.CustomerID)
+			if err != nil || u.Phone == "" {
+				return
+			}
+			s.wa.OrderDelivered(whatsapp.NormalisePhone(u.Phone), o.ID.String())
+		}(order)
 	}
 
 	if s.hub != nil {
@@ -621,20 +707,20 @@ func (s *OrderService) GetByID(ctx context.Context, orderID, requesterID uuid.UU
 	switch requesterRole {
 	case "customer":
 		if order.CustomerID != requesterID {
-			return nil, errors.New("forbidden")
+			return nil, ErrOrderForbidden
 		}
 	case "driver":
 		if order.DriverID == nil || *order.DriverID != requesterID {
-			return nil, errors.New("forbidden")
+			return nil, ErrOrderForbidden
 		}
 	case "merchant":
 		if order.MerchantID != requesterID {
-			return nil, errors.New("forbidden")
+			return nil, ErrOrderForbidden
 		}
 	case "admin":
 		// admin sees all
 	default:
-		return nil, errors.New("forbidden")
+		return nil, ErrOrderForbidden
 	}
 	return order, nil
 }
@@ -668,7 +754,7 @@ func (s *OrderService) ToResponse(ctx context.Context, o *model.Order) dto.Order
 
 // Cancel handles cancellation with the refund engine.
 func (s *OrderService) Cancel(ctx context.Context, orderID, actorID uuid.UUID, actorRole, reason string) error {
-	return s.orders.Transaction(ctx, func(tx *gorm.DB) error {
+	err := s.orders.Transaction(ctx, func(tx *gorm.DB) error {
 		order, err := s.orders.LockForUpdate(ctx, tx, orderID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -726,6 +812,38 @@ func (s *OrderService) Cancel(ctx context.Context, orderID, actorID uuid.UUID, a
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	// WhatsApp cancellation notification fires AFTER the transaction commits.
+	// Spawning inside the tx closure would send the message even on rollback
+	// (e.g. if ProcessCancellationRefund fails), producing a phantom cancel
+	// notification for an order that is still active.
+	if s.wa != nil && s.users != nil {
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("whatsapp order_cancelled goroutine panic", "panic", r, "order_id", orderID)
+				}
+			}()
+			// Re-fetch the order post-commit to get the final state.
+			o, err := s.orders.FindByID(context.Background(), orderID)
+			if err != nil {
+				return
+			}
+			u, err := s.users.FindByID(context.Background(), o.CustomerID)
+			if err != nil || u.Phone == "" {
+				return
+			}
+			refund := fmt.Sprintf("₦%.0f", float64(o.TotalKobo)/100)
+			if o.PaymentMethod == "pay_on_arrival" {
+				refund = "no charge"
+			}
+			s.wa.OrderCancelled(whatsapp.NormalisePhone(u.Phone), reason, refund)
+		}()
+	}
+	return nil
 }
 
 // OrderStopOut is the API-facing view of a stop. Recipient fields are only
@@ -777,7 +895,7 @@ func (s *OrderService) GetReceipt(ctx context.Context, orderID, customerID uuid.
 		return nil, err
 	}
 	if order.CustomerID != customerID {
-		return nil, fmt.Errorf("forbidden")
+		return nil, ErrOrderForbidden
 	}
 
 	merchant, _ := s.orders.FindMerchant(ctx, order.MerchantID)
@@ -840,7 +958,7 @@ func (s *OrderService) SubmitReview(ctx context.Context, orderID, customerID uui
 		return fmt.Errorf("order not found")
 	}
 	if order.CustomerID != customerID {
-		return fmt.Errorf("forbidden")
+		return ErrOrderForbidden
 	}
 	if order.Status != model.OrderDelivered {
 		return fmt.Errorf("can only review a delivered order")
@@ -869,7 +987,7 @@ func (s *OrderService) SubmitReview(ctx context.Context, orderID, customerID uui
 		Comment:      comment,
 	}
 	if err := s.orders.CreateReview(ctx, review); err != nil {
-		return fmt.Errorf("review already submitted or DB error: %w", err)
+		return fmt.Errorf("review already submitted")
 	}
 
 	// Rating recomputation + badge award run in the worker: retried on failure,
@@ -1258,4 +1376,24 @@ func (s *OrderService) PurgeStaleRecipientPII(ctx context.Context) (int64, error
 		return 0, err
 	}
 	return int64(len(orderIDs)), nil
+}
+
+// IsOrderParticipant returns true when userID is the customer, assigned driver,
+// or merchant of the given order. Used by the WS hub to gate order channel subscriptions.
+// Order.MerchantID carries the merchant's User.ID (same key space as CustomerID/DriverID).
+func (s *OrderService) IsOrderParticipant(ctx context.Context, orderID uuid.UUID, userID string) bool {
+	order, err := s.orders.FindByID(ctx, orderID)
+	if err != nil {
+		return false
+	}
+	if order.CustomerID.String() == userID {
+		return true
+	}
+	if order.DriverID != nil && order.DriverID.String() == userID {
+		return true
+	}
+	if order.MerchantID.String() == userID {
+		return true
+	}
+	return false
 }

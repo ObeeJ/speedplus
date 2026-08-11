@@ -8,8 +8,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
+	"github.com/speedplus/api/internal/ports"
 	"github.com/speedplus/api/internal/repo"
 	"github.com/speedplus/api/internal/storage"
+	"github.com/speedplus/api/internal/whatsapp"
 )
 
 var (
@@ -44,12 +46,21 @@ var validPrescriptionContentTypes = map[string]bool{
 }
 
 type CatalogService struct {
-	repo repo.CatalogRepo
-	r2   *storage.R2Client // nil-safe: presigned Rx image views fail closed without it
+	repo  repo.CatalogRepo
+	r2    *storage.R2Client // nil-safe: presigned Rx image views fail closed without it
+	wa    ports.WhatsAppNotifier // nil-safe: prescription_ready WA notification
+	users repo.UserRepo          // nil-safe: needed for WA prescription notification
 }
 
 func NewCatalogService(r repo.CatalogRepo, r2 *storage.R2Client) *CatalogService {
 	return &CatalogService{repo: r, r2: r2}
+}
+
+// InjectWhatsApp wires the WhatsApp notifier and user repo for prescription
+// approval notifications. Both must be set together to have any effect.
+func (s *CatalogService) InjectWhatsApp(wa ports.WhatsAppNotifier, users repo.UserRepo) {
+	s.wa = wa
+	s.users = users
 }
 
 func (s *CatalogService) ListProducts(ctx context.Context, merchantID uuid.UUID, category string, page, limit int) ([]model.Product, error) {
@@ -255,5 +266,29 @@ func (s *CatalogService) ReviewPrescription(ctx context.Context, reviewerUserID,
 		}
 		return nil, ErrPrescriptionUsed
 	}
-	return s.repo.GetPrescriptionByID(ctx, prescriptionID)
+	p, err := s.repo.GetPrescriptionByID(ctx, prescriptionID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Notify customer on WhatsApp when prescription is approved — best-effort.
+	if approve && s.wa != nil && s.users != nil {
+		go func(rx *model.Prescription) {
+			defer func() {
+				if r := recover(); r != nil {
+					return
+				}
+			}()
+			customer, err := s.users.FindByID(context.Background(), rx.CustomerID)
+			if err != nil || customer.Phone == "" {
+				return
+			}
+			merchant, err := s.repo.GetMerchant(context.Background(), merchantID)
+			if err != nil {
+				return
+			}
+			s.wa.PrescriptionReady(whatsapp.NormalisePhone(customer.Phone), merchant.BusinessName)
+		}(p)
+	}
+	return p, nil
 }

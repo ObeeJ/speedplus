@@ -3,10 +3,8 @@ export type ApiResponse<T> =
   | { success: false; error: ApiError };
 
 export interface PaginationMeta {
-  page: number;
-  pageSize: number;
-  total: number;
-  totalPages: number;
+  limit: number;
+  nextCursor?: string;
 }
 
 export interface ApiError {

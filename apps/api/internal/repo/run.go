@@ -10,9 +10,10 @@ import (
 )
 
 type RunOrderRow struct {
-	OrderID uuid.UUID
-	Lat     float64
-	Lng     float64
+	OrderID    uuid.UUID
+	MerchantID uuid.UUID
+	Lat        float64
+	Lng        float64
 }
 
 type RunRepo interface {
@@ -42,7 +43,7 @@ func (r *runRepo) FindZone(ctx context.Context, id uuid.UUID) (*model.ServiceZon
 func (r *runRepo) FindOrdersInZoneWindow(ctx context.Context, boundary string, windowStart, windowEnd time.Time, limit int) ([]RunOrderRow, error) {
 	var rows []RunOrderRow
 	err := r.db.WithContext(ctx).Raw(`
-		SELECT o.id AS order_id, a.lat, a.lng
+		SELECT o.id AS order_id, o.merchant_id, a.lat, a.lng
 		FROM orders o
 		JOIN addresses a ON a.id = o.delivery_address_id
 		WHERE o.vertical = 'gas'
@@ -106,8 +107,8 @@ func (r *runRepo) ListActiveZones(ctx context.Context) ([]model.ServiceZone, err
 
 func (r *runRepo) CountRunsForZoneWindow(ctx context.Context, zoneID uuid.UUID, windowStart time.Time) (int64, error) {
 	var count int64
-	r.db.WithContext(ctx).Model(&model.DeliveryRun{}).
+	err := r.db.WithContext(ctx).Model(&model.DeliveryRun{}).
 		Where("zone_id = ? AND window_start = ? AND status != 'cancelled'", zoneID, windowStart).
-		Count(&count)
-	return count, nil
+		Count(&count).Error
+	return count, err
 }

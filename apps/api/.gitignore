@@ -2,3 +2,6 @@
 .env.local
 *.env
 /tmp/
+# Compiled binaries — never commit; built by CI/Dockerfile
+/server
+/seed

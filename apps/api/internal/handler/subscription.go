@@ -54,6 +54,18 @@ func (h *SubscriptionHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, successResp(gin.H{"subscription": sub}))
 }
 
+// List — GET /subscriptions. Returns only the caller's own subscriptions; the
+// customer id comes from the JWT, never from the request.
+func (h *SubscriptionHandler) List(c *gin.Context) {
+	customerID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	subs, err := h.svc.ListMine(c.Request.Context(), customerID)
+	if err != nil {
+		internalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, successResp(gin.H{"subscriptions": subs}))
+}
+
 func (h *SubscriptionHandler) Pause(c *gin.Context) {
 	subID, _ := uuid.Parse(c.Param("id"))
 	customerID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))

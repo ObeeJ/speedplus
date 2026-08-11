@@ -132,6 +132,17 @@ export interface LedgerEntry {
   createdAt: string;
 }
 
+export interface OperationalMetrics {
+  ordersToday: number;
+  gmvKobo: number;
+  revenueKobo: number;
+  activeDrivers: number;
+  activeMerchants: number;
+  failedPayments: number;
+  cancellations: number;
+  cancellationRate: number;
+}
+
 // ── KYC ───────────────────────────────────────────────────────────────────────
 
 export const adminApi = {
@@ -295,6 +306,65 @@ export const adminApi = {
   // LPG price index
   async recordLPGPrice(payload: { region: string; pricePerKgKobo: number; source: string }) {
     const { data } = await apiClient.post<ApiResponse<{ entry: unknown; suggestion: string | null }>>('/admin/gas/price-index', payload);
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
+  // Weather surcharge settings
+  async getWeatherSurcharge(): Promise<{ enabled: boolean; amountKobo: number }> {
+    const { data } = await apiClient.get<ApiResponse<{ enabled: boolean; amountKobo: number }>>('/admin/settings/weather');
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
+  async setWeatherSurcharge(payload: { enabled: boolean; amountKobo: number; reason: string }): Promise<void> {
+    const { data } = await apiClient.put<ApiResponse<unknown>>('/admin/settings/weather', payload);
+    if (!data.success) throw new Error(data.error.message);
+  },
+
+  // Operational metrics
+  async getMetrics(): Promise<OperationalMetrics> {
+    const { data } = await apiClient.get<ApiResponse<OperationalMetrics>>('/admin/metrics');
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
+  // ── Routes pending backend implementation ────────────────────────────────
+  // These are called by admin UI pages. Backend routes will be added in the
+  // next sprint. Until then the pages show empty states gracefully.
+
+  /** GET /admin/users — list all users with optional role/search filter. */
+  async listUsers(role?: string, q?: string, page = 0): Promise<{ users: Array<{ id: string; role: string; firstName: string; lastName: string; phone: string; email?: string; isVerified: boolean; isActive: boolean; createdAt: string }> }> {
+    const { data } = await apiClient.get<ApiResponse<{ users: Array<{ id: string; role: string; firstName: string; lastName: string; phone: string; email?: string; isVerified: boolean; isActive: boolean; createdAt: string }> }>>('/admin/users', {
+      params: { ...(role ? { role } : {}), ...(q ? { q } : {}), page },
+    });
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
+  /** GET /admin/runs — list delivery runs with optional status filter. */
+  async listRuns(status?: string, page = 0): Promise<{ runs: Array<{ id: string; zoneId: string; driverId?: string; windowStart: string; windowEnd: string; status: string; totalDistanceKm: number; orderCount?: number }> }> {
+    const { data } = await apiClient.get<ApiResponse<{ runs: Array<{ id: string; zoneId: string; driverId?: string; windowStart: string; windowEnd: string; status: string; totalDistanceKm: number; orderCount?: number }> }>>('/admin/runs', {
+      params: { ...(status ? { status } : {}), page },
+    });
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
+  /** GET /admin/subscriptions — list all subscriptions with optional status filter. */
+  async listSubscriptions(status?: string, page = 0): Promise<{ subscriptions: Array<{ id: string; customerId: string; merchantId: string; merchantName?: string; vertical: string; frequency: string; status: string; nextRunAt?: string; createdAt: string }> }> {
+    const { data } = await apiClient.get<ApiResponse<{ subscriptions: Array<{ id: string; customerId: string; merchantId: string; merchantName?: string; vertical: string; frequency: string; status: string; nextRunAt?: string; createdAt: string }> }>>('/admin/subscriptions', {
+      params: { ...(status ? { status } : {}), page },
+    });
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
+  /** GET /admin/prescriptions — list all prescriptions with optional status filter. */
+  async listPrescriptions(status?: string, page = 0): Promise<{ prescriptions: Array<{ id: string; customerId: string; merchantId: string; merchantName?: string; status: string; reviewNote?: string; createdAt: string; expiresAt?: string }> }> {
+    const { data } = await apiClient.get<ApiResponse<{ prescriptions: Array<{ id: string; customerId: string; merchantId: string; merchantName?: string; status: string; reviewNote?: string; createdAt: string; expiresAt?: string }> }>>('/admin/prescriptions', {
+      params: { ...(status ? { status } : {}), page },
+    });
     if (!data.success) throw new Error(data.error.message);
     return data.data;
   },

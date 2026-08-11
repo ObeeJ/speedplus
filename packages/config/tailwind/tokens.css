@@ -1,5 +1,61 @@
 /* SpeedPlus Design Tokens — Tailwind v4 @theme */
 
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@utility animate-fade-up {
+  animation: fadeUp 0.4s cubic-bezier(0.16,1,0.3,1) both;
+}
+
+@utility animate-fade-up-1 {
+  animation: fadeUp 0.4s cubic-bezier(0.16,1,0.3,1) 55ms both;
+}
+
+@utility animate-fade-up-2 {
+  animation: fadeUp 0.4s cubic-bezier(0.16,1,0.3,1) 110ms both;
+}
+
+@utility animate-fade-up-3 {
+  animation: fadeUp 0.4s cubic-bezier(0.16,1,0.3,1) 165ms both;
+}
+
+@utility animate-fade-up-4 {
+  animation: fadeUp 0.4s cubic-bezier(0.16,1,0.3,1) 220ms both;
+}
+
+@utility animate-fade-up-5 {
+  animation: fadeUp 0.4s cubic-bezier(0.16,1,0.3,1) 275ms both;
+}
+
+@utility animate-fade-up-6 {
+  animation: fadeUp 0.4s cubic-bezier(0.16,1,0.3,1) 330ms both;
+}
+
+@utility animate-slide-down {
+  animation: slideDown 0.3s cubic-bezier(0.16,1,0.3,1) both;
+}
+
+@utility animate-slide-up {
+  animation: slideUp 0.3s cubic-bezier(0.16,1,0.3,1) both;
+}
+
+@utility animate-press {
+  transition: transform 0.1s ease;
+  &:active { transform: scale(0.97); }
+}
+
 @theme {
   /* Brand */
   --color-emerald:      #0A3D2C;  /* primary brand surface / secondary button */
@@ -22,5 +78,13 @@
   --font-body:    'Instrument Sans', sans-serif; /* body, labels, captions */
 
   /* Radius */
-  --radius-sm: 9px; --radius-md: 13px; --radius-lg: 16px; --radius-xl: 20px; --radius-full: 9999px;
+  --radius-sm: 8px; --radius-md: 12px; --radius-lg: 16px; --radius-xl: 20px; --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-xs:  0 1px 2px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04);
+  --shadow-sm:  0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04);
+  --shadow-md:  0 4px 12px rgba(0,0,0,0.10), 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-lg:  0 8px 24px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06);
+  --shadow-xl:  0 20px 48px rgba(0,0,0,0.16), 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lime: 0 4px 16px rgba(198,242,78,0.28), 0 1px 3px rgba(0,0,0,0.10);
 }

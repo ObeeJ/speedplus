@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"time"
@@ -15,13 +16,25 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	ErrGiftCardNotFound = errors.New("gift card not found or already redeemed")
+	ErrGiftCardExpired  = errors.New("gift card expired")
+)
+
 type GiftCardService struct {
-	repo   repo.GiftCardRepo
-	ledger *LedgerService
+	repo     repo.GiftCardRepo
+	ledger   *LedgerService
+	velocity *VelocityService
+	tiers    *TierService
 }
 
 func NewGiftCardService(r repo.GiftCardRepo, ledger *LedgerService) *GiftCardService {
 	return &GiftCardService{repo: r, ledger: ledger}
+}
+
+func (s *GiftCardService) InjectVelocity(v *VelocityService, t *TierService) {
+	s.velocity = v
+	s.tiers = t
 }
 
 func randomGiftCode() (string, error) {
@@ -61,9 +74,23 @@ func (s *GiftCardService) Issue(ctx context.Context, issuerID uuid.UUID, amountK
 		IssuerID:   issuerID,
 		ExpiresAt:  expiresAt,
 	}
-	if err := s.repo.Create(ctx, gc); err != nil {
+	
+	err = s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		if s.velocity != nil && s.tiers != nil {
+			tier := s.tiers.GetTier(ctx, issuerID)
+			if err := s.velocity.Check(ctx, tx, issuerID, amountKobo, tier, "gift_card"); err != nil {
+				return err
+			}
+		}
+		if err := s.ledger.DebitWallet(ctx, tx, issuerID, amountKobo, "gift_card_issue", &gc.ID); err != nil {
+			return err
+		}
+		return s.repo.CreateTx(ctx, tx, gc)
+	})
+	if err != nil {
 		return "", nil, err
 	}
+
 	return code, gc, nil
 }
 
@@ -72,10 +99,10 @@ func (s *GiftCardService) Redeem(ctx context.Context, redeemerID uuid.UUID, code
 	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {
 		gc, err := s.repo.LockByCodeHash(ctx, tx, codeHash)
 		if err != nil {
-			return fmt.Errorf("gift card not found or already redeemed")
+			return ErrGiftCardNotFound
 		}
 		if gc.ExpiresAt != nil && time.Now().After(*gc.ExpiresAt) {
-			return fmt.Errorf("gift card expired")
+			return ErrGiftCardExpired
 		}
 
 		if err := s.ledger.CreditWallet(ctx, tx, redeemerID, gc.AmountKobo, "gift_card", &gc.ID); err != nil {

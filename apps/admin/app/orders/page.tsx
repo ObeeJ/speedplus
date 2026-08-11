@@ -1,31 +1,36 @@
 'use client';
 
-import { useEffect, useState, useTransition } from 'react';
+import { useState, useTransition } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { adminApi, type OrderSummary, type OrderDetail } from '@speedplus/api-client';
-import { Badge } from '@speedplus/ui';
+import { Badge, Skeleton } from '@speedplus/ui';
 
 function formatKobo(k: number) {
   return `₦${(k / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`;
 }
 
 export default function OrdersPage() {
-  const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [detail, setDetail] = useState<OrderDetail | null>(null);
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
-  const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [isPending, startTransition] = useTransition();
 
-  useEffect(() => {
-    adminApi.searchOrders(q || undefined, status || undefined)
-      .then((d) => setOrders(d.orders))
-      .catch((e: Error) => setError(e.message));
-  }, [q, status]);
+  // useQuery rather than useEffect + setState — see drivers/page.tsx. This page
+  // matters most: the search box drives the query, so every keystroke fired an
+  // uncancelled request and responses could arrive out of order, painting an
+  // earlier query's orders under the current search text.
+  const { data, isPending: isLoading, error } = useQuery({
+    queryKey: ['admin-orders', q, status],
+    queryFn: () => adminApi.searchOrders(q || undefined, status || undefined),
+  });
+  const orders: OrderSummary[] = data?.orders ?? [];
+  const errorMessage = actionError || (error instanceof Error ? error.message : '');
 
   function openDetail(id: string) {
     adminApi.getOrderDetail(id)
       .then(setDetail)
-      .catch((e: Error) => setError(e.message));
+      .catch((e: Error) => setActionError(e.message));
   }
 
   function handleAssign(orderId: string) {
@@ -36,7 +41,7 @@ export default function OrdersPage() {
         await adminApi.assignDriver(orderId, driverId);
         setDetail(null);
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Failed');
+        setActionError(e instanceof Error ? e.message : 'Failed');
       }
     });
   }
@@ -78,15 +83,14 @@ export default function OrdersPage() {
   }
 
   return (
-    <div className="px-8 py-7 flex flex-col gap-4">
-      <h1 className="font-display font-semibold text-[26px] tracking-tight">Orders</h1>
-      <div className="flex gap-3">
+    <div className="px-4 sm:px-8 py-6 sm:py-7 flex flex-col gap-4">
+      <h1 className="font-display font-semibold text-[22px] sm:text-[26px] tracking-tight">Orders</h1>
+      <div className="flex gap-3 flex-wrap">
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search by order ID or customer ID…"
-          className="flex-1 border border-line rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
-        />
+          className="flex-1 min-w-[200px] border border-line rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald" aria-label="Search by order ID or customer ID"/>
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
@@ -98,13 +102,26 @@ export default function OrdersPage() {
           ))}
         </select>
       </div>
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      <div className="bg-white border border-line rounded-2xl overflow-hidden">
+      {errorMessage && <p className="text-sm text-red-600">{errorMessage}</p>}
+      <div className="bg-white border border-line rounded-2xl overflow-x-auto">
+        <div className="min-w-[480px]">
         <div className="grid px-5 py-3 border-b border-[#EFECE3] text-[10.5px] font-semibold text-mid tracking-[.5px]"
           style={{ gridTemplateColumns: '1fr 1fr 120px 100px' }}>
           <span>ORDER ID</span><span>VERTICAL</span><span>STATUS</span><span>TOTAL</span>
         </div>
-        {orders.map((o) => (
+        {isLoading && (
+          <div className="p-4 flex flex-col gap-3">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="grid gap-4 items-center" style={{ gridTemplateColumns: '1fr 1fr 120px 100px' }}>
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-5 w-20 rounded-full" />
+                <Skeleton className="h-4 w-14" />
+              </div>
+            ))}
+          </div>
+        )}
+        {!isLoading && orders.map((o) => (
           <button
             key={o.id}
             onClick={() => openDetail(o.id)}
@@ -120,6 +137,7 @@ export default function OrdersPage() {
         {orders.length === 0 && (
           <p className="px-5 py-4 text-sm text-mid">No orders found.</p>
         )}
+        </div>
       </div>
     </div>
   );

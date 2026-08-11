@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
-import { Button } from '@speedplus/ui';
+import { Button, ListCard } from '@speedplus/ui';
 import { paymentLinksApi } from '@speedplus/api-client';
 
 function naira(kobo: number) {
@@ -50,7 +50,7 @@ export default function PaymentLinksPage() {
 
       <div className="flex-1 px-5 py-6 max-w-[480px] mx-auto w-full flex flex-col gap-5">
         {created ? (
-          <div className="bg-white rounded-2xl border border-[#E4E0D6] p-6 flex flex-col items-center gap-4">
+          <ListCard className="p-6 flex flex-col items-center gap-4">
             <div className="w-14 h-14 rounded-2xl bg-[#E9F3D8] flex items-center justify-center">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0A3D2C" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" /></svg>
             </div>
@@ -72,9 +72,9 @@ export default function PaymentLinksPage() {
               <Button variant="ghost" size="sm" onClick={() => { setCreated(null); setAmount(''); setNote(''); }} className="flex-1">New link</Button>
               <Button variant="primary" size="sm" onClick={() => router.push('/wallet')} className="flex-1">Done</Button>
             </div>
-          </div>
+          </ListCard>
         ) : (
-          <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-[#E4E0D6] p-5 flex flex-col gap-4">
+          <ListCard className="flex flex-col gap-4">
             <p className="text-[14px] font-semibold text-[#121216]">Create a payment link</p>
             <p className="text-[12px] text-[#63636E]">Share the link — anyone can pay you, even without a SpeedPlus account.</p>
 
@@ -90,8 +90,7 @@ export default function PaymentLinksPage() {
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="100"
-                  className="w-full border border-[#E4E0D6] rounded-xl pl-8 pr-4 py-3 text-[15px] text-[#121216] placeholder-[#C5C2BB] focus:outline-none focus:border-[#0A3D2C] transition-colors"
-                />
+                  className="w-full border border-[#E4E0D6] rounded-xl pl-8 pr-4 py-3 text-[15px] text-[#121216] placeholder-[#C5C2BB] focus:outline-none focus:border-[#0A3D2C] transition-colors" aria-label="Amount (₦)"/>
               </div>
             </div>
 
@@ -103,8 +102,7 @@ export default function PaymentLinksPage() {
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="e.g. For the groceries"
-                className="w-full border border-[#E4E0D6] rounded-xl px-4 py-3 text-[14px] text-[#121216] placeholder-[#C5C2BB] focus:outline-none focus:border-[#0A3D2C] transition-colors"
-              />
+                className="w-full border border-[#E4E0D6] rounded-xl px-4 py-3 text-[14px] text-[#121216] placeholder-[#C5C2BB] focus:outline-none focus:border-[#0A3D2C] transition-colors" aria-label="Note (optional)"/>
             </div>
 
             {create.isError && <p className="text-xs text-red-600" role="alert">{(create.error as Error).message}</p>}
@@ -112,7 +110,7 @@ export default function PaymentLinksPage() {
             <Button type="submit" variant="primary" size="md" isLoading={create.isPending} disabled={!amount || parseFloat(amount) < 100} className="w-full">
               Generate link
             </Button>
-          </form>
+          </ListCard>
         )}
       </div>
     </main>

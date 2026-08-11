@@ -7,6 +7,7 @@ export interface QuoteResult {
   deliveryKobo: number;
   serviceKobo: number;
   subtotalKobo: number;
+  weatherSurchargeKobo: number; // 0 when surcharge is off
   distanceKm: number;
   etaMinutes: number;
   weatherAdvisory: string;

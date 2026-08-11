@@ -4,21 +4,88 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAdminAuthStore } from '@/lib/store/auth.store';
 import { authApi } from '@speedplus/api-client';
+import {
+  MetricsIcon,
+  LedgerIcon,
+  RunIcon,
+  KYCIcon,
+  StoreIcon,
+  DriverIcon,
+  UsersIcon,
+  ReceiptIcon,
+  PackageIcon,
+  DisputeIcon,
+  SubscriptionIcon,
+  PrescriptionIcon,
+  GasIcon,
+  ZoneIcon,
+  FuelIcon,
+  FeeIcon,
+  RulesIcon,
+  PowerIcon,
+  type DuotoneIconProps,
+} from '@speedplus/ui';
 
-const NAV: { href: string; label: string }[] = [
-  { href: '/kyc',                         label: 'KYC Queue' },
-  { href: '/merchants',                   label: 'Merchants' },
-  { href: '/drivers',                     label: 'Drivers' },
-  { href: '/orders',                      label: 'All Orders' },
-  { href: '/orders/package',              label: '📦 Package Orders' },
-  { href: '/disputes',                    label: 'Disputes' },
-  { href: '/gas/merchants',               label: '⛽ Fill Accuracy' },
-  { href: '/gas/zones',                   label: '⛽ Zones' },
-  { href: '/gas/price-index',             label: '⛽ LPG Price' },
-  { href: '/settings/cancellation-rules', label: 'Cancel Rules' },
-  { href: '/settings/fees',               label: 'Fees' },
-  { href: '/ledger',                      label: 'Ledger' },
+type NavItem = {
+  href: string;
+  label: string;
+  Icon: (props: DuotoneIconProps) => React.JSX.Element;
+  /** exact match only (avoids /orders matching /orders/package) */
+  exact?: boolean;
+};
+
+type NavSection = { section: string; items: NavItem[] };
+
+const NAV: NavSection[] = [
+  {
+    section: 'Overview',
+    items: [
+      { href: '/metrics', label: 'Dashboard',    Icon: MetricsIcon },
+      { href: '/ledger',  label: 'Ledger',        Icon: LedgerIcon },
+      { href: '/runs',    label: 'Delivery Runs', Icon: RunIcon },
+    ],
+  },
+  {
+    section: 'People',
+    items: [
+      { href: '/kyc',       label: 'KYC Queue',  Icon: KYCIcon },
+      { href: '/merchants', label: 'Merchants',  Icon: StoreIcon },
+      { href: '/drivers',   label: 'Drivers',    Icon: DriverIcon },
+      { href: '/users',     label: 'Users',      Icon: UsersIcon },
+    ],
+  },
+  {
+    section: 'Orders',
+    items: [
+      { href: '/orders',        label: 'All Orders',     Icon: ReceiptIcon, exact: true },
+      { href: '/orders/package',label: 'Package',        Icon: PackageIcon },
+      { href: '/disputes',      label: 'Disputes',       Icon: DisputeIcon },
+      { href: '/subscriptions', label: 'Subscriptions',  Icon: SubscriptionIcon },
+      { href: '/pharmacy',      label: 'Prescriptions',  Icon: PrescriptionIcon },
+    ],
+  },
+  {
+    section: 'Gas',
+    items: [
+      { href: '/gas/merchants',   label: 'Fill Accuracy', Icon: GasIcon },
+      { href: '/gas/zones',       label: 'Zones',         Icon: ZoneIcon },
+      { href: '/gas/price-index', label: 'LPG Price',     Icon: FuelIcon },
+    ],
+  },
+  {
+    section: 'Settings',
+    items: [
+      { href: '/settings/fees',               label: 'Fee Configs',      Icon: FeeIcon },
+      { href: '/settings/cancellation-rules', label: 'Cancel Rules',     Icon: RulesIcon },
+      { href: '/settings/weather',            label: 'Weather Surcharge',Icon: FuelIcon },
+    ],
+  },
 ];
+
+const ACTIVE_COLOR  = '#C6F24E';
+const ACTIVE_ACCENT = '#A8D43A';
+const IDLE_COLOR    = 'rgba(247,245,239,0.55)';
+const IDLE_ACCENT   = 'rgba(247,245,239,0.30)';
 
 export function AdminNav() {
   const path = usePathname();
@@ -32,45 +99,69 @@ export function AdminNav() {
     router.replace('/login');
   }
 
-  // Hide nav on login page
   if (path.startsWith('/login')) return null;
 
   return (
-    <aside className="w-[220px] flex-none min-h-screen flex flex-col gap-6 p-6" style={{ background: '#08301F' }}>
-      <span className="font-display font-bold text-xl text-sand tracking-tight">
-        speed<span className="text-lime">+</span>{' '}
-        <span className="font-medium text-[11px] text-sand/55">OPS</span>
-      </span>
+    <aside
+      className="w-full lg:w-[220px] lg:min-h-screen flex-none flex flex-col gap-0 lg:overflow-y-auto"
+      style={{ background: '#07291A' }}
+    >
+      {/* Logo */}
+      <div className="px-5 pt-5 pb-4 lg:pt-6 lg:pb-5 flex items-center justify-between">
+        <span className="font-display font-bold text-[19px] text-[#F7F5EF] tracking-tight select-none">
+          speed<span style={{ color: '#C6F24E' }}>+</span>{' '}
+          <span className="font-medium text-[10px] text-[#F7F5EF]/40 tracking-widest uppercase">OPS</span>
+        </span>
+      </div>
 
-      <nav className="flex flex-col gap-1 flex-1">
-        {NAV.map((item) => {
-          const active = item.href === '/orders'
-            ? path === '/orders'
-            : path.startsWith(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`rounded-xl px-4 py-2.5 text-[13.5px] font-medium transition-colors ${
-                active
-                  ? 'bg-lime/[.14] text-lime font-semibold'
-                  : 'text-sand/70 hover:bg-sand/[.08] hover:text-sand'
-              }`}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
+      {/* Nav sections — horizontal scroll on mobile, vertical on desktop */}
+      <nav className="flex lg:flex-col gap-5 flex-1 px-3 pb-3 lg:pb-4 overflow-x-auto lg:overflow-x-visible">
+        {NAV.map(({ section, items }) => (
+          <div key={section} className="flex lg:flex-col gap-0.5 shrink-0">
+            <span className="hidden lg:block px-3 mb-1 text-[9.5px] font-semibold tracking-[0.9px] uppercase text-[#F7F5EF]/30">
+              {section}
+            </span>
+            {items.map(({ href, label, Icon, exact }) => {
+              const active = exact ? path === href : path.startsWith(href);
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  className={`flex items-center gap-2 rounded-[11px] px-3 py-2 text-[12.5px] font-medium transition-all whitespace-nowrap ${
+                    active
+                      ? 'bg-[#C6F24E]/[.12] text-[#C6F24E] font-semibold'
+                      : 'text-[#F7F5EF]/55 hover:bg-[#F7F5EF]/[.06] hover:text-[#F7F5EF]/85'
+                  }`}
+                >
+                  <Icon
+                    size={16}
+                    active={active}
+                    color={active ? ACTIVE_COLOR : IDLE_COLOR}
+                    accent={active ? ACTIVE_ACCENT : IDLE_ACCENT}
+                  />
+                  {label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
+      {/* User footer — desktop only */}
       {user && (
-        <div className="flex flex-col gap-2 border-t border-sand/10 pt-4">
-          <span className="text-[11px] text-sand/50 truncate">{user.firstName} {user.lastName}</span>
+        <div className="hidden lg:flex px-4 py-4 border-t border-[#F7F5EF]/[.07] items-center justify-between gap-2">
+          <div className="flex flex-col min-w-0">
+            <span className="text-[11px] font-semibold text-[#F7F5EF]/70 truncate">
+              {user.firstName} {user.lastName}
+            </span>
+            <span className="text-[10px] text-[#F7F5EF]/35 truncate">Admin</span>
+          </div>
           <button
             onClick={handleSignOut}
-            className="text-[12px] font-semibold text-sand/60 hover:text-sand text-left transition-colors"
+            title="Sign out"
+            className="shrink-0 p-1.5 rounded-lg hover:bg-[#F7F5EF]/[.08] transition-colors"
           >
-            Sign out
+            <PowerIcon size={15} color="rgba(247,245,239,0.4)" />
           </button>
         </div>
       )}

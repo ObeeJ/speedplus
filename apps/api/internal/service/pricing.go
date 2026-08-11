@@ -66,11 +66,12 @@ var DefaultFeeTable = map[string]FeeConfig{
 }
 
 type PricingService struct {
-	orders     repo.OrderRepo
-	cfg        *config.Config
-	osrmURL    string
-	httpClient *http.Client
-	feeConfigs *FeeConfigService
+	orders          repo.OrderRepo
+	cfg             *config.Config
+	osrmURL         string
+	httpClient      *http.Client
+	feeConfigs      *FeeConfigService
+	weatherSurcharge *WeatherSurchargeService // nil = surcharge always off (tests/bootstrap)
 }
 
 func NewPricingService(orders repo.OrderRepo, cfg *config.Config, osrmURL string, feeConfigs *FeeConfigService) *PricingService {
@@ -81,6 +82,11 @@ func NewPricingService(orders repo.OrderRepo, cfg *config.Config, osrmURL string
 		httpClient: &http.Client{Timeout: 5 * time.Second},
 		feeConfigs: feeConfigs,
 	}
+}
+
+// InjectWeatherSurcharge wires the service after construction to avoid import cycles.
+func (s *PricingService) InjectWeatherSurcharge(ws *WeatherSurchargeService) {
+	s.weatherSurcharge = ws
 }
 
 type QuoteRequest struct {
@@ -98,6 +104,12 @@ type QuoteRequest struct {
 }
 
 func (s *PricingService) Quote(ctx context.Context, req QuoteRequest) (*model.PricingQuote, error) {
+	if req.WeightKg < 0 {
+		return nil, fmt.Errorf("weight_kg must be non-negative")
+	}
+	if req.SubtotalKobo < 0 {
+		return nil, fmt.Errorf("subtotal must be non-negative")
+	}
 	distKm, etaMinutes, err := s.osrmRoute(ctx, req.OriginLat, req.OriginLng, req.DestLat, req.DestLng)
 	if err != nil {
 		return nil, fmt.Errorf("osrm: %w", err)
@@ -113,7 +125,6 @@ func (s *PricingService) Quote(ctx context.Context, req QuoteRequest) (*model.Pr
 	weatherAdvisory := s.weatherAdvisory(ctx, req.DestLat, req.DestLng)
 
 	deliveryKobo := fees.BaseFeeKobo + int64(distKm*float64(fees.PerKmKobo))
-	// Weather surcharge disabled — advisory shown to all parties but no fee charged.
 
 	// Weight + size surcharge for package and gas verticals
 	if req.Vertical == "package" || req.Vertical == "gas" {
@@ -124,23 +135,25 @@ func (s *PricingService) Quote(ctx context.Context, req QuoteRequest) (*model.Pr
 	}
 
 	serviceKobo := int64(float64(req.SubtotalKobo) * fees.ServicePct)
-	totalKobo := req.SubtotalKobo + deliveryKobo + serviceKobo
+	weatherSurchargeKobo := s.weatherSurchargeKobo(ctx, weatherAdvisory)
+	totalKobo := req.SubtotalKobo + deliveryKobo + serviceKobo + weatherSurchargeKobo
 
 	quote := &model.PricingQuote{
-		ID:              uuid.New(),
-		CustomerID:      req.CustomerID,
-		MerchantID:      req.MerchantID,
-		DistanceKm:      distKm,
-		ETAMinutes:      etaMinutes,
-		StopCount:       1, // single dropoff — must match the DB default so the signed hash agrees with the stored row
-		WeightKg:        req.WeightKg,
-		SizeCategory:    string(req.SizeCategory),
-		SubtotalKobo:    req.SubtotalKobo,
-		DeliveryKobo:    deliveryKobo,
-		ServiceKobo:     serviceKobo,
-		TotalKobo:       totalKobo,
-		WeatherAdvisory: weatherAdvisory,
-		ExpiresAt:       time.Now().Add(10 * time.Minute),
+		ID:                   uuid.New(),
+		CustomerID:           req.CustomerID,
+		MerchantID:           req.MerchantID,
+		DistanceKm:           distKm,
+		ETAMinutes:           etaMinutes,
+		StopCount:            1, // single dropoff — must match the DB default so the signed hash agrees with the stored row
+		WeightKg:             req.WeightKg,
+		SizeCategory:         string(req.SizeCategory),
+		SubtotalKobo:         req.SubtotalKobo,
+		DeliveryKobo:         deliveryKobo,
+		ServiceKobo:          serviceKobo,
+		WeatherSurchargeKobo: weatherSurchargeKobo,
+		TotalKobo:            totalKobo,
+		WeatherAdvisory:      weatherAdvisory,
+		ExpiresAt:            time.Now().Add(10 * time.Minute),
 	}
 	quote.QuoteHash = s.signQuote(quote)
 
@@ -177,17 +190,29 @@ func (s *PricingService) MarkQuoteUsed(ctx context.Context, quoteID uuid.UUID) e
 }
 
 func (s *PricingService) signQuote(q *model.PricingQuote) string {
-	// StopCount is part of the signed payload: a multi-drop quote's per-stop
-	// fee is baked into DeliveryKobo at signing time, but without binding the
-	// count itself, nothing stops a client from submitting the order with
-	// extra stops appended after the quote was priced for fewer.
-	payload := fmt.Sprintf("%s:%s:%s:%d:%d:%d:%d:%d",
+	// WeatherSurchargeKobo is included so a client cannot strip the surcharge
+	// from a quote that was priced with it active.
+	payload := fmt.Sprintf("%s:%s:%s:%d:%d:%d:%d:%d:%d",
 		q.ID, q.CustomerID, q.MerchantID,
 		q.SubtotalKobo, q.DeliveryKobo, q.ServiceKobo, q.TotalKobo, q.StopCount,
+		q.WeatherSurchargeKobo,
 	)
 	mac := hmac.New(sha256.New, []byte(s.cfg.QuoteSecret))
 	mac.Write([]byte(payload))
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// weatherSurchargeKobo returns the surcharge amount when the switch is on and
+// the advisory string is non-empty (meaning conditions matched). Zero otherwise.
+func (s *PricingService) weatherSurchargeKobo(ctx context.Context, advisory string) int64 {
+	if advisory == "" || s.weatherSurcharge == nil {
+		return 0
+	}
+	enabled, amountKobo := s.weatherSurcharge.Get(ctx)
+	if !enabled {
+		return 0
+	}
+	return amountKobo
 }
 
 // osrmRoute returns road distance (km) and travel duration (minutes) from OSRM.
@@ -264,6 +289,12 @@ const maxQuoteStops = 6 // guardrail: bounds rider load and OSRM trip payload si
 // count is baked into the signed quote hash so it can't be tampered down
 // after the route was priced.
 func (s *PricingService) QuoteMultiStop(ctx context.Context, req MultiStopQuoteRequest) (*model.PricingQuote, error) {
+	if req.WeightKg < 0 {
+		return nil, fmt.Errorf("weight_kg must be non-negative")
+	}
+	if req.SubtotalKobo < 0 {
+		return nil, fmt.Errorf("subtotal must be non-negative")
+	}
 	if len(req.Stops) == 0 {
 		return nil, fmt.Errorf("multistop quote requires at least one dropoff stop")
 	}
@@ -300,23 +331,25 @@ func (s *PricingService) QuoteMultiStop(ctx context.Context, req MultiStopQuoteR
 	}
 
 	serviceKobo := int64(float64(req.SubtotalKobo) * fees.ServicePct)
-	totalKobo := req.SubtotalKobo + deliveryKobo + serviceKobo
+	weatherSurchargeKobo := s.weatherSurchargeKobo(ctx, weatherAdvisory)
+	totalKobo := req.SubtotalKobo + deliveryKobo + serviceKobo + weatherSurchargeKobo
 
 	quote := &model.PricingQuote{
-		ID:              uuid.New(),
-		CustomerID:      req.CustomerID,
-		MerchantID:      req.MerchantID,
-		DistanceKm:      distKm,
-		ETAMinutes:      etaMinutes,
-		StopCount:       len(req.Stops),
-		WeightKg:        req.WeightKg,
-		SizeCategory:    string(req.SizeCategory),
-		SubtotalKobo:    req.SubtotalKobo,
-		DeliveryKobo:    deliveryKobo,
-		ServiceKobo:     serviceKobo,
-		TotalKobo:       totalKobo,
-		WeatherAdvisory: weatherAdvisory,
-		ExpiresAt:       time.Now().Add(10 * time.Minute),
+		ID:                   uuid.New(),
+		CustomerID:           req.CustomerID,
+		MerchantID:           req.MerchantID,
+		DistanceKm:           distKm,
+		ETAMinutes:           etaMinutes,
+		StopCount:            len(req.Stops),
+		WeightKg:             req.WeightKg,
+		SizeCategory:         string(req.SizeCategory),
+		SubtotalKobo:         req.SubtotalKobo,
+		DeliveryKobo:         deliveryKobo,
+		ServiceKobo:          serviceKobo,
+		WeatherSurchargeKobo: weatherSurchargeKobo,
+		TotalKobo:            totalKobo,
+		WeatherAdvisory:      weatherAdvisory,
+		ExpiresAt:            time.Now().Add(10 * time.Minute),
 	}
 	quote.QuoteHash = s.signQuote(quote)
 

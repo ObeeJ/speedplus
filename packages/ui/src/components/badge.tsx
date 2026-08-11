@@ -5,13 +5,13 @@ import type { HTMLAttributes } from 'react';
 const badgeVariants = cva('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-display font-semibold transition-colors', {
   variants: {
     variant: {
-      gas:      'bg-[#E9F3D8] text-[#0A3D2C]',
-      grocery:  'bg-[#E9F3D8] text-[#0A3D2C]',
-      food:     'bg-[#E9F3D8] text-[#0A3D2C]',
-      pharmacy: 'bg-[#E9F3D8] text-[#0A3D2C]',
-      default:  'bg-[#E9F3D8] text-[#0A3D2C]',
-      success:  'bg-[#E9F3D8] text-[#0A3D2C]',
-      warning:  'bg-[#E8B14E]/20 text-[#0A3D2C]',
+      gas:      'bg-tile text-emerald',
+      grocery:  'bg-tile text-emerald',
+      food:     'bg-tile text-emerald',
+      pharmacy: 'bg-tile text-emerald',
+      default:  'bg-tile text-emerald',
+      success:  'bg-tile text-emerald',
+      warning:  'bg-amber/20 text-emerald',
       error:    'bg-red-100 text-red-700',
     },
   },

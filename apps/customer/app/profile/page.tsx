@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { FEATURES } from '@/lib/features';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button } from '@speedplus/ui';
+import { Button, Skeleton } from '@speedplus/ui';
 import { usersApi, authApi, type CreateAddressPayload } from '@speedplus/api-client';
 import { useAuthStore } from '@/lib/store/auth.store';
 
@@ -180,23 +181,20 @@ export default function ProfilePage() {
                   required
                   value={editForm.firstName}
                   onChange={(e) => setEditForm((f) => ({ ...f, firstName: e.target.value }))}
-                  className="border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald"
-                />
+                  className="border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald" aria-label="First name *"/>
                 <input
                   placeholder="Last name *"
                   required
                   value={editForm.lastName}
                   onChange={(e) => setEditForm((f) => ({ ...f, lastName: e.target.value }))}
-                  className="border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald"
-                />
+                  className="border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald" aria-label="Last name *"/>
               </div>
               <input
                 placeholder="Email (optional)"
                 type="email"
                 value={editForm.email}
                 onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
-                className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald"
-              />
+                className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald" aria-label="Email (optional)"/>
               {editError && <p className="text-xs text-red-600" role="alert">{editError}</p>}
               <div className="flex gap-2">
                 <Button type="submit" variant="primary" size="sm" isLoading={updateMe.isPending} className="flex-1">Save</Button>
@@ -216,14 +214,18 @@ export default function ProfilePage() {
             <span className="text-[13px] font-semibold text-ink">Auto-refill subscriptions</span>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
           </Link>
+          {FEATURES.loyalty && (
           <Link href="/loyalty" className="flex items-center justify-between bg-white border border-line rounded-2xl px-4 py-3 mt-2 hover:border-emerald/40 transition-colors">
             <span className="text-[13px] font-semibold text-ink">Loyalty points</span>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
           </Link>
+          )}
+          {FEATURES.giftCards && (
           <Link href="/gift-cards" className="flex items-center justify-between bg-white border border-line rounded-2xl px-4 py-3 mt-2 hover:border-emerald/40 transition-colors">
             <span className="text-[13px] font-semibold text-ink">Gift cards</span>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
           </Link>
+          )}
           <Link href="/kyc" className="flex items-center justify-between bg-white border border-line rounded-2xl px-4 py-3 mt-2 hover:border-emerald/40 transition-colors">
             <span className="text-[13px] font-semibold text-ink">Identity verification</span>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
@@ -241,7 +243,12 @@ export default function ProfilePage() {
             )}
           </div>
 
-          {isLoading && <span className="text-[13px] text-mid">Loading…</span>}
+          {isLoading && (
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-[52px] rounded-2xl" />
+              <Skeleton className="h-[52px] rounded-2xl" />
+            </div>
+          )}
 
           {!isLoading && addresses.length === 0 && !adding && (
             <p className="text-[13px] text-mid">No saved addresses yet. Add one to start ordering.</p>
@@ -260,29 +267,25 @@ export default function ProfilePage() {
                 placeholder="Label (e.g. Home)"
                 value={form.label ?? ''}
                 onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
-                className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald"
-              />
+                className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald" aria-label="Label (e.g. Home)"/>
               <input
                 placeholder="Street *"
                 required
                 value={form.street}
                 onChange={(e) => setForm((f) => ({ ...f, street: e.target.value }))}
-                className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald"
-              />
+                className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald" aria-label="Street *"/>
               <input
                 placeholder="City *"
                 required
                 value={form.city}
                 onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))}
-                className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald"
-              />
+                className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald" aria-label="City *"/>
               <input
                 placeholder="State *"
                 required
                 value={form.state}
                 onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))}
-                className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald"
-              />
+                className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald" aria-label="State *"/>
               <div className="grid grid-cols-2 gap-2">
                 <input
                   placeholder="Latitude"
@@ -290,16 +293,14 @@ export default function ProfilePage() {
                   step="any"
                   value={form.lat || ''}
                   onChange={(e) => setForm((f) => ({ ...f, lat: parseFloat(e.target.value) || 0 }))}
-                  className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald"
-                />
+                  className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald" aria-label="Latitude"/>
                 <input
                   placeholder="Longitude"
                   type="number"
                   step="any"
                   value={form.lng || ''}
                   onChange={(e) => setForm((f) => ({ ...f, lng: parseFloat(e.target.value) || 0 }))}
-                  className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald"
-                />
+                  className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald" aria-label="Longitude"/>
               </div>
               {formError && <p className="text-xs text-red-600" role="alert">{formError}</p>}
               <div className="flex gap-2">
@@ -339,8 +340,7 @@ export default function ProfilePage() {
                   placeholder="4-digit PIN"
                   value={pin}
                   onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid tracking-[0.3em] focus:outline-none focus:border-emerald"
-                />
+                  className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid tracking-[0.3em] focus:outline-none focus:border-emerald" aria-label="4-digit PIN"/>
                 {pinError && <p className="text-xs text-red-600" role="alert">{pinError}</p>}
                 <div className="flex gap-2">
                   <Button type="submit" variant="primary" size="sm" isLoading={setPinMutation.isPending} className="flex-1">Save PIN</Button>
@@ -358,7 +358,7 @@ export default function ProfilePage() {
             </div>
             {otpStage === 'idle' && (
               <>
-                <p className="text-[11px] text-mid">We'll text a code to {user?.phone ?? 'your phone'}.</p>
+                <p className="text-[11px] text-mid">We&apos;ll text a code to {user?.phone ?? 'your phone'}.</p>
                 {otpError && <p className="text-xs text-red-600" role="alert">{otpError}</p>}
                 <Button
                   type="button"
@@ -380,8 +380,7 @@ export default function ProfilePage() {
                   placeholder="Enter code"
                   value={otpCode}
                   onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                  className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald"
-                />
+                  className="w-full border border-line rounded-xl px-3 py-2.5 text-[13px] text-ink placeholder-mid focus:outline-none focus:border-emerald" aria-label="Enter code"/>
                 {otpError && <p className="text-xs text-red-600" role="alert">{otpError}</p>}
                 <div className="flex gap-2">
                   <Button type="button" variant="primary" size="sm" isLoading={verifyOtpMutation.isPending} className="flex-1" onClick={() => verifyOtpMutation.mutate()}>

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -17,10 +18,24 @@ import (
 	"github.com/speedplus/api/internal/service"
 )
 
+type walletSvc interface {
+	InitiateFund(ctx context.Context, userID uuid.UUID, amountKobo int64, email, idempotencyKey, callbackURL string) (*payment.ChargeResponse, error)
+	Transfer(ctx context.Context, senderID, recipientID uuid.UUID, amountKobo int64, pin, idempotencyKey string) error
+	EWACashout(ctx context.Context, driverID uuid.UUID, amountKobo int64, idempotencyKey string) error
+	ProcessWebhook(ctx context.Context, payload service.WebhookPayload) error
+	InitiateCryptoFund(ctx context.Context, userID uuid.UUID, amountKobo int64, email, fullName, idempotencyKey, callbackURL string, bridge *payment.BridgeProvider) (*payment.ChargeResponse, error)
+}
+
+type ledgerSvc interface {
+	ResolveWalletOwner(ctx context.Context, userID uuid.UUID, role string) (uuid.UUID, error)
+	GetBalance(ctx context.Context, userID uuid.UUID) (int64, error)
+	GetTransactions(ctx context.Context, userID uuid.UUID, cursor *uuid.UUID, limit int) ([]model.LedgerEntry, error)
+}
+
 type WalletHandler struct {
-	wallet  *service.WalletService
-	ledger  *service.LedgerService
-	bridge  *payment.BridgeProvider // nil when Bridge is disabled
+	wallet   walletSvc
+	ledger   ledgerSvc
+	bridge   *payment.BridgeProvider // nil when Bridge is disabled
 	userRepo interface {
 		FindByPhone(ctx context.Context, phone string) (*model.User, error)
 		FindByUsername(ctx context.Context, username string) (*model.User, error)
@@ -208,7 +223,15 @@ func (h *WalletHandler) Transfer(c *gin.Context) {
 	}
 
 	if err := h.wallet.Transfer(ctx, senderID, recipient.ID, req.AmountKobo, req.PIN, idempotencyKey); err != nil {
-		c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", err.Error(), ""))
+		switch {
+		case errors.Is(err, service.ErrInsufficientBalance):
+			c.JSON(http.StatusUnprocessableEntity, errResp("INSUFFICIENT_FUNDS", "Insufficient balance for this transfer", ""))
+		case errors.Is(err, service.ErrBankAccountRequired):
+			c.JSON(http.StatusUnprocessableEntity, errResp("BANK_ACCOUNT_REQUIRED", err.Error(), ""))
+		default:
+			slog.ErrorContext(ctx, "wallet transfer failed", "error", err, "sender", senderID)
+			c.JSON(http.StatusUnprocessableEntity, errResp("TRANSFER_FAILED", "Transfer could not be completed. Please try again.", ""))
+		}
 		return
 	}
 
@@ -235,7 +258,15 @@ func (h *WalletHandler) EWACashout(c *gin.Context) {
 
 	driverID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
 	if err := h.wallet.EWACashout(c.Request.Context(), driverID, req.AmountKobo, idempotencyKey); err != nil {
-		c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", err.Error(), ""))
+		switch {
+		case errors.Is(err, service.ErrBankAccountRequired):
+			c.JSON(http.StatusUnprocessableEntity, errResp("BANK_ACCOUNT_REQUIRED", err.Error(), ""))
+		case errors.Is(err, service.ErrInsufficientBalance):
+			c.JSON(http.StatusUnprocessableEntity, errResp("INSUFFICIENT_FUNDS", "Insufficient earned balance for cashout", ""))
+		default:
+			slog.ErrorContext(c.Request.Context(), "EWA cashout failed", "error", err, "driver", driverID)
+			c.JSON(http.StatusUnprocessableEntity, errResp("CASHOUT_FAILED", "Cashout could not be completed. Please try again.", ""))
+		}
 		return
 	}
 

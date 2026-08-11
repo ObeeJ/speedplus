@@ -49,9 +49,8 @@ export default function PackageOrdersPage() {
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
-    setError('');
     adminApi.searchOrders(undefined, statusFilter || undefined)
-      .then((d) => {
+      .then((d) => { setError('');
         setOrders(d.orders as unknown as PackageOrderSummary[]);
       })
       .catch((e: Error) => setError(e.message));
@@ -85,7 +84,7 @@ export default function PackageOrdersPage() {
 
   if (detail) {
     return (
-      <div className="px-8 py-7 flex flex-col gap-5 max-w-3xl">
+      <div className="px-4 sm:px-8 py-6 sm:py-7 flex flex-col gap-5 max-w-3xl">
         <button
           onClick={() => { setDetail(null); setStops([]); }}
           className="text-sm text-mid hover:text-emerald transition-colors self-start"
@@ -193,7 +192,7 @@ export default function PackageOrdersPage() {
   }
 
   return (
-    <div className="px-8 py-7 flex flex-col gap-4">
+    <div className="px-4 sm:px-8 py-6 sm:py-7 flex flex-col gap-4">
       <div className="flex items-baseline justify-between">
         <h1 className="font-display font-semibold text-[26px] tracking-tight flex items-center gap-2">
           <BoxIcon size={24} />

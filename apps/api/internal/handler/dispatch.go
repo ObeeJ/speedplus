@@ -25,7 +25,7 @@ func (h *DispatchHandler) UpdateLocation(c *gin.Context) {
 		Heading *float64 `json:"heading"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 
@@ -63,8 +63,8 @@ func (h *DispatchHandler) RejectOffer(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid offer ID", "id"))
 		return
 	}
-	// Mark rejected — driver stays available for next offer
-	if err := h.dispatch.RejectOffer(c.Request.Context(), offerID); err != nil {
+	driverID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	if err := h.dispatch.RejectOffer(c.Request.Context(), offerID, driverID); err != nil {
 		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
 		return
 	}
@@ -81,7 +81,7 @@ func (h *DispatchHandler) AdminAssign(c *gin.Context) {
 		DriverID string `json:"driverId" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 	driverID, err := uuid.Parse(req.DriverID)

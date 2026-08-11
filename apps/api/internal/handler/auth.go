@@ -122,7 +122,10 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	}
 	c.ShouldBindJSON(&req)
 	if req.RefreshToken != "" {
-		h.auth.Logout(c.Request.Context(), req.RefreshToken)
+		if err := h.auth.Logout(c.Request.Context(), req.RefreshToken); err != nil {
+			internalError(c, err)
+			return
+		}
 	}
 	c.JSON(http.StatusOK, successResp(gin.H{"message": "logged out"}))
 }
@@ -161,12 +164,19 @@ func (h *AuthHandler) VerifyOTP(c *gin.Context) {
 		return
 	}
 
-	if err := h.auth.VerifyOTP(c.Request.Context(), req.Phone, req.Code, req.Purpose); err != nil {
+	access, refresh, err := h.auth.VerifyOTP(c.Request.Context(), req.Phone, req.Code, req.Purpose)
+	if err != nil {
 		c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", "Invalid or expired OTP", "otp"))
 		return
 	}
 
-	c.JSON(http.StatusOK, successResp(gin.H{"verified": true}))
+	// Fresh tokens carry the updated IsVerified claim — the caller must swap
+	// these in for verification to take effect without a re-login.
+	c.JSON(http.StatusOK, successResp(gin.H{
+		"verified":     true,
+		"accessToken":  access,
+		"refreshToken": refresh,
+	}))
 }
 
 func (h *AuthHandler) SetPIN(c *gin.Context) {
@@ -199,6 +209,30 @@ func (h *AuthHandler) VerifyPIN(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, successResp(gin.H{"verified": true}))
+}
+
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	var req struct {
+		Phone       string `json:"phone" binding:"required"`
+		OTP         string `json:"otp" binding:"required"`
+		NewPassword string `json:"newPassword" binding:"required,min=8"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		validationError(c, err)
+		return
+	}
+	if err := h.auth.ResetPassword(c.Request.Context(), req.Phone, req.OTP, req.NewPassword); err != nil {
+		switch err {
+		case service.ErrOTPInvalid:
+			c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", "Invalid or expired OTP", "otp"))
+		case service.ErrUserNotFound:
+			c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", "Invalid or expired OTP", "otp"))
+		default:
+			internalError(c, err)
+		}
+		return
+	}
+	c.JSON(http.StatusOK, successResp(gin.H{"message": "Password reset successful"}))
 }
 
 // ── Response helpers ──────────────────────────────────────────────────────────

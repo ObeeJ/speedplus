@@ -206,6 +206,16 @@ func TestEscrowHoldAndSettle_FullLifecycle(t *testing.T) {
 			t.Errorf("customer balance after full-total hold = %d, want 0", custBalAfterHold)
 		}
 
+		// Settlement requires proof of delivery for non-gas orders (tier-0
+		// prevention added with the dispute work): at least one dropoff_photo
+		// must exist before escrow is released. This fixture predates that gate,
+		// so seed the evidence rather than weaken the invariant.
+		mustCreate(t, tx, &model.ProofMedia{
+			ID: uuid.New(), OrderID: order.ID, Kind: "dropoff_photo",
+			R2Key: "test/dropoff/" + uuid.NewString(), SHA256: "deadbeef",
+			CapturedAt: time.Now(), CapturedBy: *order.DriverID,
+		})
+
 		paycodeEventID := uuid.New()
 		if err := ledger.Settle(ctx, tx, order, paycodeEventID); err != nil {
 			t.Fatalf("settle: %v", err)

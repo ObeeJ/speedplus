@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -108,7 +109,7 @@ func (h *CatalogHandler) PresignPrescriptionUpload(c *gin.Context) {
 		ContentType string `json:"contentType" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 	customerID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
@@ -138,11 +139,17 @@ func (h *CatalogHandler) CreatePrescription(c *gin.Context) {
 		MerchantID string `json:"merchantId" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 
 	customerID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+
+	expectedPrefix := "prescriptions/" + customerID.String() + "/"
+	if !strings.HasPrefix(req.R2Key, expectedPrefix) {
+		c.JSON(http.StatusForbidden, dto.Fail("FORBIDDEN", "r2Key does not belong to the authenticated user", "r2Key"))
+		return
+	}
 
 	merchantID, err := uuid.Parse(req.MerchantID)
 	if err != nil {

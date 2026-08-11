@@ -94,18 +94,36 @@ type OTPCode struct {
 	ID        uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
 	Phone     string    `gorm:"not null;index"`
 	CodeHash  string    `gorm:"not null"` // bcrypt of 6-digit code
-	Purpose   string    `gorm:"not null"` // "verify_phone" | "login" | "reset_pin"
+	Purpose   string    `gorm:"not null"` // free-form, scopes the lookup — e.g. "phone_verification"; request and verify must send the same value
 	ExpiresAt time.Time `gorm:"not null"`
 	UsedAt    *time.Time
 	CreatedAt time.Time
 }
 
 type PIN struct {
-	ID        uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	UserID    uuid.UUID `gorm:"type:uuid;uniqueIndex;not null"`
-	PINHash   string    `gorm:"not null"` // bcrypt
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID             uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	UserID         uuid.UUID  `gorm:"type:uuid;uniqueIndex;not null"`
+	PINHash        string     `gorm:"not null"` // bcrypt
+	FailedAttempts int        `gorm:"not null;default:0"`
+	LockedUntil    *time.Time // nil = not locked
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+// DriverBankAccount stores the verified bank account a driver withdraws to.
+// AccountName is resolved via the payment provider's account-resolution API
+// before saving — never trusted from the request body.
+type DriverBankAccount struct {
+	ID            uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	DriverID      uuid.UUID `gorm:"type:uuid;uniqueIndex;not null"`
+	BankCode      string    `gorm:"not null"`
+	BankName      string    `gorm:"not null"`
+	AccountNumber string    `gorm:"not null"`
+	AccountName   string    `gorm:"not null"` // provider-resolved
+	Provider      string    `gorm:"not null;default:'paystack'"`
+	IsVerified    bool      `gorm:"not null;default:true"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 type Address struct {

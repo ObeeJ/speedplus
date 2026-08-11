@@ -101,7 +101,7 @@ export default function FeeConfigsPage() {
   }
 
   return (
-    <div className="px-8 py-7 flex flex-col gap-6">
+    <div className="px-4 sm:px-8 py-6 sm:py-7 flex flex-col gap-6">
       <div className="flex flex-col gap-1">
         <h1 className="font-display font-semibold text-[26px] tracking-tight">Delivery Fees & Commissions</h1>
         <p className="text-sm text-mid">
@@ -163,6 +163,7 @@ export default function FeeConfigsPage() {
                     type="number"
                     min={0}
                     value={e[k]}
+                    aria-label={label}
                     onChange={(ev) => setField(vertical, { [k]: Number(ev.target.value) } as Partial<EditState>)}
                     className="border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
                   />
@@ -174,8 +175,7 @@ export default function FeeConfigsPage() {
                   value={e.reason}
                   placeholder="e.g. fuel price adjustment"
                   onChange={(ev) => setField(vertical, { reason: ev.target.value })}
-                  className="border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
-                />
+                  className="border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald" aria-label="Reason (required)"/>
               </div>
             </div>
 
@@ -195,6 +195,102 @@ export default function FeeConfigsPage() {
         );
       })}
       {configs.length === 0 && !error && <p className="text-sm text-mid">Loading…</p>}
+
+      {/* ── Weather surcharge ─────────────────────────────────────────────── */}
+      <WeatherSurchargeCard />
+    </div>
+  );
+}
+
+function WeatherSurchargeCard() {
+  const [enabled, setEnabled] = useState(false);
+  const [amountNaira, setAmountNaira] = useState('200');
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    adminApi.getWeatherSurcharge()
+      .then((d) => { setEnabled(d.enabled); setAmountNaira(String(d.amountKobo / 100)); })
+      .catch(() => {});
+  }, []);
+
+  async function handleSave() {
+    if (!reason.trim()) return;
+    setSaving(true);
+    setError('');
+    try {
+      await adminApi.setWeatherSurcharge({
+        enabled,
+        amountKobo: Math.round(parseFloat(amountNaira) * 100),
+        reason: reason.trim(),
+      });
+      setSaved(true);
+      setReason('');
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="bg-white border border-line rounded-2xl p-5 flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="font-display font-semibold text-[15px]">Weather surcharge</p>
+          <p className="text-[11px] text-mid mt-0.5">
+            Applies when Open-Meteo reports rain, storm, or extreme heat. Takes effect on new quotes within ~1 minute.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setEnabled((v) => !v)}
+          className="w-11 h-6 flex-none rounded-full relative transition-colors"
+          style={{ background: enabled ? '#0A3D2C' : '#D5D2C8' }}
+          aria-label={enabled ? 'Disable weather surcharge' : 'Enable weather surcharge'}
+        >
+          <span
+            className="absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white shadow-sm transition-all"
+            style={{ left: enabled ? 23 : 3 }}
+          />
+        </button>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-1 flex-1">
+          <label className="text-[11px] font-semibold text-mid uppercase tracking-wide">Amount (₦)</label>
+          <input
+            type="number"
+            min="0"
+            value={amountNaira}
+            onChange={(e) => setAmountNaira(e.target.value)}
+            className="border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald" aria-label="Amount (₦)"/>
+        </div>
+        <div className="flex flex-col gap-1 flex-[2]">
+          <label className="text-[11px] font-semibold text-mid uppercase tracking-wide">Reason (required)</label>
+          <input
+            value={reason}
+            placeholder="e.g. heavy rain season"
+            onChange={(e) => setReason(e.target.value)}
+            className="border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald" aria-label="Reason (required)"/>
+        </div>
+      </div>
+
+      {error && <p className="text-xs text-red-600">{error}</p>}
+
+      <div className="flex items-center gap-3">
+        <button
+          disabled={saving || !reason.trim()}
+          onClick={handleSave}
+          className="self-start font-display text-sm font-semibold text-emerald bg-lime rounded-[10px] px-5 py-2 hover:bg-lime-600 transition-colors disabled:opacity-50"
+        >
+          Save weather settings
+        </button>
+        {saved && <span className="text-[12px] text-emerald font-semibold">Saved ✓</span>}
+      </div>
     </div>
   );
 }

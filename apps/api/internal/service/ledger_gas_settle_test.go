@@ -245,3 +245,56 @@ func TestSettleGasOrder_NoRefundWithinTolerance(t *testing.T) {
 		}
 	})
 }
+
+// TestSettleGasOrder_RejectsImplausibleMeasuredWeight is the regression test
+// for MED-2: a measured_kg outside the 50%–150% plausibility band must cause
+// Settle to return an error before any money moves, so a driver typo or a
+// tampered weight photo cannot zero a merchant's entire payout.
+func TestSettleGasOrder_RejectsImplausibleMeasuredWeight(t *testing.T) {
+	cases := []struct {
+		name       string
+		orderedKg  float64
+		measuredKg float64
+	}{
+		{"too low — 10% of ordered", 12.5, 1.25},
+		{"too high — 200% of ordered", 12.5, 25.0},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			gdb := testDB(t)
+			withTx(t, gdb, func(tx *gorm.DB) {
+				ctx := context.Background()
+				ledger, _ := setupGasLedger(t, tx)
+
+				const subtotal, delivery, serviceFee = int64(1_180_000), int64(193_000), int64(35_400)
+				order := seedGasOrder(t, tx, tc.orderedKg, subtotal, delivery, serviceFee, "swap")
+				total := subtotal + delivery + serviceFee
+				seedWeightPhoto(t, tx, order, tc.measuredKg)
+
+				if err := ledger.CreditWallet(ctx, tx, order.CustomerID, total, "test_seed", nil); err != nil {
+					t.Fatalf("seed customer wallet: %v", err)
+				}
+				if err := ledger.HoldEscrow(ctx, tx, order.ID, order.CustomerID, total); err != nil {
+					t.Fatalf("hold escrow: %v", err)
+				}
+
+				err := ledger.Settle(ctx, tx, order, uuid.New())
+				if err == nil {
+					t.Fatalf("expected Settle to reject implausible measured weight %.2f kg for ordered %.2f kg, got nil",
+						tc.measuredKg, tc.orderedKg)
+				}
+
+				// Escrow must be untouched.
+				escrowAcct, _ := ledger.platformAccount(ctx, tx, model.AccountEscrow)
+				var escrowBal model.WalletBalance
+				if err := tx.Where("account_id = ?", escrowAcct.ID).First(&escrowBal).Error; err != nil {
+					t.Fatalf("get escrow balance: %v", err)
+				}
+				if escrowBal.BalanceKobo != total {
+					t.Errorf("escrow balance after rejected settle = %d, want %d (untouched)", escrowBal.BalanceKobo, total)
+				}
+			})
+		})
+	}
+}

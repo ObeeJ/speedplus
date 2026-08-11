@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Instrument_Sans, Space_Grotesk } from 'next/font/google';
 import { Providers } from './providers';
 import { AuthGuard } from './components/auth-guard';
@@ -12,15 +12,16 @@ const spaceGrotesk = Space_Grotesk({
   display: 'swap',
 });
 
+export const viewport: Viewport = { themeColor: '#0A3D2C' };
+
 export const metadata: Metadata = {
   title: 'SpeedPlus — Faster. Cheaper. Better.',
   description: 'Gas, groceries, food and pharmacy delivered fast across Nigeria.',
-  themeColor: '#0A3D2C',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${instrumentSans.variable} ${spaceGrotesk.variable}`}>
+    <html lang="en" className={`${instrumentSans.variable} ${spaceGrotesk.variable}`} suppressHydrationWarning>
       <body>
         <Providers>
           <AuthGuard>{children}</AuthGuard>

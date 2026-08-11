@@ -11,6 +11,9 @@ import (
 
 type SubscriptionRepo interface {
 	CreateSubscription(ctx context.Context, sub *model.Subscription) error
+	// ListByCustomer backs GET /subscriptions. Always scoped to the caller's own
+	// customer_id — that id comes from the JWT, never from the request.
+	ListByCustomer(ctx context.Context, customerID uuid.UUID) ([]model.Subscription, error)
 	PauseByCustomer(ctx context.Context, subID, customerID uuid.UUID) error
 	CancelByCustomer(ctx context.Context, subID, customerID uuid.UUID) error
 	ListDue(ctx context.Context) ([]model.Subscription, error)
@@ -37,6 +40,15 @@ type SubscriptionBurnRow struct {
 type subscriptionRepo struct{ db *gorm.DB }
 
 func NewSubscriptionRepo(db *gorm.DB) SubscriptionRepo { return &subscriptionRepo{db: db} }
+
+func (r *subscriptionRepo) ListByCustomer(ctx context.Context, customerID uuid.UUID) ([]model.Subscription, error) {
+	var rows []model.Subscription
+	err := r.db.WithContext(ctx).
+		Where("customer_id = ?", customerID).
+		Order("created_at DESC").
+		Find(&rows).Error
+	return rows, err
+}
 
 func (r *subscriptionRepo) CreateSubscription(ctx context.Context, sub *model.Subscription) error {
 	return r.db.WithContext(ctx).Create(sub).Error

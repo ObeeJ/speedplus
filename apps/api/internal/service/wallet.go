@@ -25,6 +25,8 @@ type WalletService struct {
 	email    walletEmailSender
 	users    repo.UserRepo
 	enqueue  func(cashoutID string) error
+	velocity *VelocityService // nil = no velocity checks (dev/test)
+	tiers    *TierService     // nil = no tier lookup (dev/test)
 }
 
 type walletEmailSender interface {
@@ -40,6 +42,12 @@ func NewWalletService(r repo.WalletRepo, ledger *LedgerService, pins ports.PINVe
 // circular dependency. Must be called before any cashout is initiated.
 func (s *WalletService) InjectQueue(fn func(cashoutID string) error) {
 	s.enqueue = fn
+}
+
+// InjectVelocity wires velocity checking after construction.
+func (s *WalletService) InjectVelocity(v *VelocityService, t *TierService) {
+	s.velocity = v
+	s.tiers = t
 }
 
 // ── Fund wallet (pay-in) ──────────────────────────────────────────────────────
@@ -177,12 +185,39 @@ func (s *WalletService) ProcessWebhook(ctx context.Context, p WebhookPayload) er
 
 		intent, err := s.repo.LockPaymentIntentByRefTx(ctx, tx, p.Reference)
 		if err != nil {
+			// The provider confirmed a payment we hold no intent for. Almost
+			// always a race: the webhook beat POST /wallet/fund's commit.
+			// Acking here would strand the customer's money permanently — the
+			// webhook_events row written above suppresses every future
+			// redelivery of this event ID. Returning retryable rolls the whole
+			// transaction back (that row included) so the provider redelivers.
+			observability.CaptureError(ctx, err, "webhook: no payment intent for reference — forcing provider retry",
+				"provider", p.Provider, "reference", p.Reference)
+			return ErrWebhookRetryable
+		}
+
+		// Already settled by an earlier delivery of this same event: ack without
+		// re-crediting. Committing here persists the webhook_events row, so
+		// later redeliveries short-circuit at the replay guard above.
+		if intent.Status == "success" {
 			return nil
 		}
 
 		if err := s.ledger.CreditWallet(ctx, tx, intent.UserID, verified.AmountKobo, "payment_intent", &intent.ID); err != nil {
 			// Ledger write failed — transient, must retry
 			return ErrWebhookRetryable
+		}
+
+		// Velocity check for fund — runs after credit so the counter only
+		// increments on confirmed payments, not on failed/pending intents.
+		// Non-blocking: a velocity breach on a confirmed payment is logged
+		// but does not roll back the credit (money already moved at provider).
+		if s.velocity != nil && s.tiers != nil {
+			tier := s.tiers.GetTier(ctx, intent.UserID)
+			if err := s.velocity.Check(ctx, tx, intent.UserID, verified.AmountKobo, tier, "fund"); err != nil {
+				slog.WarnContext(ctx, "velocity: fund limit exceeded after credit — flagged but not reversed",
+					"user_id", intent.UserID, "amount_kobo", verified.AmountKobo, "error", err)
+			}
 		}
 
 		intent.Status = "success"
@@ -262,7 +297,21 @@ func (s *WalletService) Transfer(ctx context.Context, senderID, recipientID uuid
 	var notifyFirst, notifySender string
 
 	err := s.repo.Transaction(ctx, func(tx *gorm.DB) error {
-		if _, err := s.repo.FindIdempotencyKeyTx(ctx, tx, idempotencyKey); err == nil {
+		// Velocity check — inside the transaction so a limit breach rolls back atomically.
+		if s.velocity != nil && s.tiers != nil {
+			tier := s.tiers.GetTier(ctx, senderID)
+			if err := s.velocity.Check(ctx, tx, senderID, amountKobo, tier, "transfer"); err != nil {
+				return err
+			}
+		}
+		// idempotency_keys.key is a global PRIMARY KEY, not scoped per user. A
+		// key value already claimed by a DIFFERENT account would otherwise read
+		// as "this transfer already happened" and return success without moving
+		// money. Verify ownership before treating it as a replay.
+		if existing, err := s.repo.FindIdempotencyKeyTx(ctx, tx, idempotencyKey); err == nil {
+			if existing.UserID != senderID {
+				return errors.New("idempotency key is already in use; retry with a fresh key")
+			}
 			return nil
 		}
 
@@ -272,6 +321,25 @@ func (s *WalletService) Transfer(ctx context.Context, senderID, recipientID uuid
 		}
 		recipientWallet, err := s.ledger.EnsureWallet(ctx, tx, recipientID)
 		if err != nil {
+			return err
+		}
+
+		// Deadlock avoidance. Two concurrent transfers in opposite directions
+		// (A→B and B→A) would each grab one wallet's row lock and then block on
+		// the other, and Postgres resolves that by aborting one with 40P01 —
+		// surfacing to the user as a spurious failure on a money operation.
+		// Acquire BOTH row locks up front in a total order derived from the
+		// account UUID, so every concurrent transfer requests them in the same
+		// sequence and a cycle can never form. Row locks are re-entrant within
+		// a transaction, so re-locking the sender below is free.
+		lockFirst, lockSecond := senderWallet.ID, recipientWallet.ID
+		if lockFirst.String() > lockSecond.String() {
+			lockFirst, lockSecond = lockSecond, lockFirst
+		}
+		if _, err := s.repo.LockWalletBalanceTx(ctx, tx, lockFirst); err != nil {
+			return err
+		}
+		if _, err := s.repo.LockWalletBalanceTx(ctx, tx, lockSecond); err != nil {
 			return err
 		}
 
@@ -341,9 +409,31 @@ func (s *WalletService) Transfer(ctx context.Context, senderID, recipientID uuid
 
 const EWACashoutFeeKobo = 10000 // ₦100 instant cashout fee
 
+var ErrBankAccountRequired = errors.New("bank account required — add a verified bank account before withdrawing")
+
 func (s *WalletService) EWACashout(ctx context.Context, driverID uuid.UUID, amountKobo int64, idempotencyKey string) error {
+	// Verify bank account exists before opening a transaction or debiting anything.
+	// Frontend gating is not a security control.
+	if _, err := s.repo.FindDriverBankAccountTx(ctx, nil, driverID); err != nil {
+		return ErrBankAccountRequired
+	}
+
 	err := s.repo.Transaction(ctx, func(tx *gorm.DB) error {
-		if _, err := s.repo.FindIdempotencyKeyTx(ctx, tx, idempotencyKey); err == nil {
+		// Velocity check for cashout.
+		if s.velocity != nil && s.tiers != nil {
+			tier := s.tiers.GetTier(ctx, driverID)
+			if err := s.velocity.Check(ctx, tx, driverID, amountKobo, tier, "cashout"); err != nil {
+				return err
+			}
+		}
+
+		// See Transfer: the key is globally unique, so confirm this driver owns
+		// it before treating it as a replay — otherwise a cashout can return
+		// success while paying nothing out.
+		if existing, err := s.repo.FindIdempotencyKeyTx(ctx, tx, idempotencyKey); err == nil {
+			if existing.UserID != driverID {
+				return errors.New("idempotency key is already in use; retry with a fresh key")
+			}
 			return nil
 		}
 
@@ -419,7 +509,10 @@ func (s *WalletService) EWACashout(ctx context.Context, driverID uuid.UUID, amou
 // ── Weekly auto-payout (called by asynq cron) ─────────────────────────────────
 
 func (s *WalletService) WeeklyAutoPayout(ctx context.Context) error {
-	drivers, _ := s.repo.ListDriversWithUnpaidEarnings(ctx)
+	drivers, err := s.repo.ListDriversWithUnpaidEarnings(ctx)
+	if err != nil {
+		return fmt.Errorf("weekly payout: list drivers: %w", err)
+	}
 
 	for _, driverID := range drivers {
 		total, err := s.repo.SumUnpaidEarnings(ctx, nil, driverID)
@@ -485,7 +578,20 @@ func (s *WalletService) MerchantWithdraw(ctx context.Context, merchantID uuid.UU
 	}
 
 	err := s.repo.Transaction(ctx, func(tx *gorm.DB) error {
-		if _, err := s.repo.FindIdempotencyKeyTx(ctx, tx, idempotencyKey); err == nil {
+		// Velocity check for merchant withdrawal.
+		if s.velocity != nil && s.tiers != nil {
+			tier := s.tiers.GetTier(ctx, userID)
+			if err := s.velocity.Check(ctx, tx, userID, amountKobo, tier, "withdraw"); err != nil {
+				return err
+			}
+		}
+
+		// See Transfer: the key is globally unique. userID (not merchantID) owns
+		// the ledger account, so that is the identity the key must match.
+		if existing, err := s.repo.FindIdempotencyKeyTx(ctx, tx, idempotencyKey); err == nil {
+			if existing.UserID != userID {
+				return errors.New("idempotency key is already in use; retry with a fresh key")
+			}
 			return nil
 		}
 
@@ -574,6 +680,24 @@ func (s *WalletService) MerchantWithdraw(ctx context.Context, merchantID uuid.UU
 // Called by the worker after all retries are exhausted.
 func (s *WalletService) ReverseCashout(ctx context.Context, cashout *model.CashoutRequest) error {
 	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		// Idempotency guard. This runs from an asynq worker, which retries on
+		// failure — and a retry after the credit committed but before the caller
+		// observed success would credit the wallet a SECOND time. Re-read the row
+		// under a lock and bail if the reversal has already been applied.
+		//
+		// LedgerService.Reverse is deliberately NOT used here: the cashout
+		// journal carries offsetting +amount/-amount legs on the same earnings
+		// account, and Reverse adjusts every leg individually, so the negative
+		// leg would be applied first and rejected by the balance floor. An
+		// explicit guard is the correct tool for this journal shape.
+		locked, err := s.repo.LockCashoutTx(ctx, tx, cashout.ID)
+		if err != nil {
+			return fmt.Errorf("reverse cashout: lock cashout %s: %w", cashout.ID, err)
+		}
+		if locked.Status == "failed" {
+			return nil // already reversed — crediting again would duplicate the refund
+		}
+
 		// Determine which wallet to credit back
 		var ownerID uuid.UUID
 		if cashout.ActorType == "merchant" && cashout.MerchantID != nil {
@@ -618,6 +742,48 @@ func (s *WalletService) ReverseCashout(ctx context.Context, cashout *model.Casho
 func (s *WalletService) DB() *gorm.DB               { return nil }
 func (s *WalletService) Provider() payment.Provider { return s.provider }
 
+// ── Driver bank account ───────────────────────────────────────────────────────
+
+// ResolveDriverBankAccount calls the payment provider to verify an account
+// number and return the authoritative account name. Never trusts the caller.
+func (s *WalletService) ResolveDriverBankAccount(ctx context.Context, bankCode, accountNumber string) (string, error) {
+	ps, ok := s.provider.(*payment.PaystackProvider)
+	if !ok {
+		return "", fmt.Errorf("bank account resolution requires Paystack provider")
+	}
+	name, err := ps.ResolveAccount(ctx, bankCode, accountNumber)
+	if err != nil {
+		return "", fmt.Errorf("resolve account: %w", err)
+	}
+	return name, nil
+}
+
+// SaveDriverBankAccount persists a verified bank account for a driver.
+// accountName must come from ResolveDriverBankAccount, never from the client.
+func (s *WalletService) SaveDriverBankAccount(ctx context.Context, driverID uuid.UUID, bankCode, bankName, accountNumber, accountName string) (*model.DriverBankAccount, error) {
+	acct := &model.DriverBankAccount{
+		DriverID:      driverID,
+		BankCode:      bankCode,
+		BankName:      bankName,
+		AccountNumber: accountNumber,
+		AccountName:   accountName,
+		IsVerified:    true,
+	}
+	if err := s.users.UpsertDriverBankAccount(ctx, acct); err != nil {
+		return nil, err
+	}
+	return acct, nil
+}
+
+// GetDriverBankAccount returns the driver's saved bank account, or nil.
+func (s *WalletService) GetDriverBankAccount(ctx context.Context, driverID uuid.UUID) (*model.DriverBankAccount, error) {
+	acct, err := s.repo.FindDriverBankAccountTx(ctx, nil, driverID)
+	if err != nil {
+		return nil, nil // not found is not an error on the read path
+	}
+	return acct, nil
+}
+
 func (s *WalletService) ResolveCashoutRecipient(ctx context.Context, cashout *model.CashoutRequest) (recipientCode, accountName, reason string, err error) {
 	if cashout.ActorType == "merchant" && cashout.MerchantID != nil {
 		bankAcct, err := s.repo.FindMerchantBankAccountTx(ctx, nil, *cashout.MerchantID)
@@ -629,7 +795,15 @@ func (s *WalletService) ResolveCashoutRecipient(ctx context.Context, cashout *mo
 		}
 		return bankAcct.AccountNumber, bankAcct.AccountName, "SpeedPlus merchant payout", nil
 	}
-	return "", "", "", fmt.Errorf("driver bank account resolution not yet implemented")
+	// Driver payout
+	bankAcct, err := s.repo.FindDriverBankAccountTx(ctx, nil, cashout.DriverID)
+	if err != nil {
+		return "", "", "", fmt.Errorf("driver bank account not found — driver must add a bank account before withdrawing: %w", err)
+	}
+	if s.provider.Name() == "monnify" {
+		return bankAcct.BankCode + ":" + bankAcct.AccountNumber, bankAcct.AccountName, "SpeedPlus driver payout", nil
+	}
+	return bankAcct.AccountNumber, bankAcct.AccountName, "SpeedPlus driver payout", nil
 }
 
 func formatKobo(k int64) string {

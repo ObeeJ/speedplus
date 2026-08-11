@@ -57,6 +57,11 @@ jobs:
       DATABASE_URL: postgresql://speedplus:speedplus@localhost:5432/speedplus_test
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: test-secret-that-is-at-least-32-bytes-long # gitleaks:allow — non-secret CI test constant
+      PAYCODE_SECRET: test-paycode-secret-32-bytes-padded-xx # gitleaks:allow — non-secret CI test constant
+      QUOTE_SECRET: test-quote-secret-that-is-32-bytes-long # gitleaks:allow — non-secret CI test constant
+      # OSRM_URL is intentionally absent in CI — pricing tests use the haversine
+      # fallback. Production requires a self-hosted OSRM instance (SPOF risk:
+      # document in OPS-RUNBOOK.md). Add redundancy before scaling.
       ENVIRONMENT: development
 
     steps:
@@ -152,7 +157,7 @@ jobs:
 
       - uses: pnpm/action-setup@v3
         with:
-          version: 9
+          version: 11
 
       - uses: actions/setup-node@v4
         with:
@@ -182,3 +187,114 @@ jobs:
 
       - name: Audit frontend dependencies
         run: pnpm audit --audit-level=high
+
+  lint:
+    name: ESLint
+    runs-on: ubuntu-latest
+    # No job previously ran `turbo lint`, so lint failures reached the default
+    # branch unnoticed: two react/no-unescaped-entities errors and one
+    # exhaustive-deps warning were sitting on `dev` when this job was added.
+    # Each app lints with --max-warnings=0, so warnings block too.
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint all packages
+        run: pnpm turbo lint
+
+  e2e:
+    name: E2E — Order Flow
+    runs-on: ubuntu-latest
+    # Run after unit tests pass so we don't waste minutes on a broken build.
+    needs: build-test
+    defaults:
+      run:
+        working-directory: .
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: speedplus
+          POSTGRES_PASSWORD: speedplus
+          POSTGRES_DB: speedplus
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://speedplus:speedplus@localhost:5433/speedplus?sslmode=disable
+      REDIS_URL: redis://localhost:6379
+      # gitleaks:allow — non-secret CI test constants, never used in production
+      JWT_SECRET: 6465766c6f63616c6a77747365637265746b65796d757374626532636861727
+      PAYCODE_SECRET: 6465766c6f63616c7061796c6f61647365637265746b65796d757374626532
+      QUOTE_SECRET: 6465766c6f63616c71756f74657365637265746b65796d757374626532636861
+      ENCRYPTION_KEY: devlocalencryptionkey32byteslong
+      OSRM_URL: http://router.project-osrm.org
+      ALLOW_DESTRUCTIVE_SEED: 'true'
+      E2E_SEED_PASSWORD: Test1234!
+      E2E_CUSTOMER_PHONE: '+2349000000001'
+      E2E_DRIVER_PHONE: '+2349000000002'
+      E2E_MERCHANT_PHONE: '+2349000000003'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: apps/api/go.sum
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @speedplus/e2e exec playwright install chromium --with-deps
+
+      - name: Run E2E tests
+        run: pnpm --filter @speedplus/e2e test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/e2e/playwright-report/
+          retention-days: 7

@@ -13,13 +13,24 @@ import (
 	"gorm.io/gorm"
 )
 
+type kycEmailer interface {
+	SendKYCApproved(ctx context.Context, toEmail, firstName, docType string)
+	SendKYCRejected(ctx context.Context, toEmail, firstName, docType, note string)
+}
+
 type KYCService struct {
 	repo     repo.DispatchRepo
 	provider kyc.Provider
+	email    kycEmailer
 }
 
 func NewKYCService(r repo.DispatchRepo, provider kyc.Provider) *KYCService {
 	return &KYCService{repo: r, provider: provider}
+}
+
+// InjectEmail wires the email client for KYC approval/rejection notifications.
+func (s *KYCService) InjectEmail(e kycEmailer) {
+	s.email = e
 }
 
 func (s *KYCService) RecordDocumentUpload(ctx context.Context, userID uuid.UUID, docType model.KYCDocType, r2Key string) error {
@@ -46,6 +57,8 @@ func (s *KYCService) SubmitCheck(ctx context.Context, userID uuid.UUID, docType 
 		result, err = s.provider.VerifyDriversLicence(ctx, params["number"], params["first_name"], params["last_name"], params["dob"])
 	case model.DocLiveness:
 		result, err = s.provider.Liveness(ctx, params["image"])
+	case model.DocBusinessReg:
+		result, err = s.provider.VerifyCAC(ctx, params["rc_number"], params["company_name"])
 	default:
 		return fmt.Errorf("unsupported doc type: %s", docType)
 	}
@@ -65,7 +78,7 @@ func (s *KYCService) SubmitCheck(ctx context.Context, userID uuid.UUID, docType 
 				ProviderPayload: &raw,
 				ReviewNote:      &note,
 			}
-			s.repo.CreateKYCCheck(ctx, &failedCheck)
+			s.repo.CreateKYCCheck(ctx, &failedCheck) //nolint:errcheck — best-effort audit record; primary error returned below
 		}
 		return fmt.Errorf("prembly verify: %w", err)
 	}
@@ -99,7 +112,20 @@ func (s *KYCService) AdminApprove(ctx context.Context, checkID, adminID uuid.UUI
 		if err := s.repo.SaveKYCCheckTx(ctx, tx, check); err != nil {
 			return err
 		}
-		return s.tryActivateProfile(ctx, tx, check.UserID)
+		if err := s.tryActivateProfile(ctx, tx, check.UserID); err != nil {
+			return err
+		}
+		// Notify user — best-effort, after transaction commits.
+		if s.email != nil {
+			docType := string(check.DocType)
+			userID := check.UserID
+			go func() {
+				if u, err := s.repo.FindUserTx(context.Background(), nil, userID); err == nil && u.Email != nil {
+					s.email.SendKYCApproved(context.Background(), *u.Email, u.FirstName, docType)
+				}
+			}()
+		}
+		return nil
 	})
 }
 
@@ -111,7 +137,20 @@ func (s *KYCService) AdminReject(ctx context.Context, checkID, adminID uuid.UUID
 	check.Status = model.KYCRejected
 	check.ReviewedBy = &adminID
 	check.ReviewNote = &note
-	return s.repo.SaveKYCCheck(ctx, check)
+	if err := s.repo.SaveKYCCheck(ctx, check); err != nil {
+		return err
+	}
+	// Notify user — best-effort.
+	if s.email != nil {
+		docType := string(check.DocType)
+		userID := check.UserID
+		go func() {
+			if u, err := s.repo.FindUserTx(context.Background(), nil, userID); err == nil && u.Email != nil {
+				s.email.SendKYCRejected(context.Background(), *u.Email, u.FirstName, docType, note)
+			}
+		}()
+	}
+	return nil
 }
 
 func (s *KYCService) tryActivateProfile(ctx context.Context, tx *gorm.DB, userID uuid.UUID) error {
@@ -141,4 +180,10 @@ func (s *KYCService) tryActivateProfile(ctx context.Context, tx *gorm.DB, userID
 
 func (s *KYCService) QueueForAdmin(ctx context.Context, page, pageSize int) ([]model.KYCCheck, error) {
 	return s.repo.ListPendingKYCChecks(ctx, page*pageSize, pageSize)
+}
+
+// GetUserKYC returns all KYC checks for a user — used by admin for AML tracing
+// and by the user themselves to see their own verification status.
+func (s *KYCService) GetUserKYC(ctx context.Context, userID uuid.UUID) ([]model.KYCCheck, error) {
+	return s.repo.ListKYCChecksByUser(ctx, userID)
 }

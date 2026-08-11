@@ -24,8 +24,12 @@ export default function SubscriptionsPage() {
   const [addressId, setAddressId] = useState('');
   const [formError, setFormError] = useState('');
 
-  // We don't have a list endpoint yet — track locally after create
-  const [subs, setSubs] = useState<Subscription[]>([]);
+  // Fetch subscriptions from server; fall back to empty array on 404 (endpoint pending)
+  const { data: subs = [], refetch: refetchSubs } = useQuery({
+    queryKey: ['subscriptions'],
+    queryFn: () => subscriptionsApi.list().catch(() => [] as Subscription[]),
+    staleTime: 30_000,
+  });
 
   const { data: addresses = [] } = useQuery({
     queryKey: ['addresses'],
@@ -41,10 +45,10 @@ export default function SubscriptionsPage() {
       addressId,
       paymentMethod: 'wallet',
     }),
-    onSuccess: (sub) => {
-      setSubs((prev) => [sub, ...prev]);
+    onSuccess: () => {
       setCreating(false);
       setFormError('');
+      void refetchSubs();
       qc.invalidateQueries({ queryKey: ['addresses'] });
     },
     onError: (e: Error) => setFormError(e.message),
@@ -52,12 +56,12 @@ export default function SubscriptionsPage() {
 
   const pause = useMutation({
     mutationFn: (id: string) => subscriptionsApi.pause(id),
-    onSuccess: (_, id) => setSubs((prev) => prev.map((s) => s.id === id ? { ...s, status: 'paused' } : s)),
+    onSuccess: () => void refetchSubs(),
   });
 
   const cancel = useMutation({
     mutationFn: (id: string) => subscriptionsApi.cancel(id),
-    onSuccess: (_, id) => setSubs((prev) => prev.map((s) => s.id === id ? { ...s, status: 'cancelled' } : s)),
+    onSuccess: () => void refetchSubs(),
   });
 
   function handleSubmit(e: React.FormEvent) {

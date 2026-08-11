@@ -25,7 +25,7 @@ func (h *KYCHandler) SubmitCheck(c *gin.Context) {
 		Params  map[string]string `json:"params"  binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 
@@ -86,5 +86,33 @@ func (h *KYCHandler) Reject(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(dto.MessageResponse{Message: "rejected"}))
+}
+
+// AdminGetUserKYC — GET /admin/users/:id/kyc
+// Returns full KYC history for a user — for AML investigation and compliance tracing.
+func (h *KYCHandler) AdminGetUserKYC(c *gin.Context) {
+	userID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid user ID", "id"))
+		return
+	}
+	checks, err := h.kyc.GetUserKYC(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"checks": checks}))
+}
+
+// MyKYCStatus — GET /kyc/status
+// Lets a user see their own verification checks and statuses.
+func (h *KYCHandler) MyKYCStatus(c *gin.Context) {
+	userID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	checks, err := h.kyc.GetUserKYC(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"checks": checks}))
 }
 

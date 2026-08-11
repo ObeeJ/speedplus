@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@speedplus/config/tailwind/tokens.css";
+@source "../../../packages/ui/src";
 
 @layer base {
   *, *::before, *::after { box-sizing: border-box; }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
+	"github.com/speedplus/api/internal/observability"
 	"github.com/speedplus/api/internal/payment"
 	"github.com/speedplus/api/internal/repo"
 	"gorm.io/gorm"
@@ -65,7 +66,7 @@ func (s *PaymentLinkService) Get(ctx context.Context, slug string) (*model.Payme
 		return nil, err
 	}
 	if time.Now().After(pl.ExpiresAt) {
-		s.repo.ExpireLink(ctx, pl.ID)
+		_ = s.repo.ExpireLink(ctx, pl.ID) //nolint:errcheck — best-effort status update; expiry already enforced by the time check above
 		return nil, fmt.Errorf("payment link expired")
 	}
 	return pl, nil
@@ -82,7 +83,7 @@ func (s *PaymentLinkService) PayByWallet(ctx context.Context, slug string, payer
 			return fmt.Errorf("link not found or inactive")
 		}
 		if time.Now().After(pl.ExpiresAt) {
-			s.repo.ExpireLinkTx(ctx, tx, pl.ID)
+			_ = s.repo.ExpireLinkTx(ctx, tx, pl.ID) //nolint:errcheck — best-effort; expiry enforced by time check
 			return fmt.Errorf("payment link expired")
 		}
 		if pl.CreatorID == payerID {
@@ -157,7 +158,11 @@ func (s *PaymentLinkService) InitiateGuestPayment(ctx context.Context, slug, ema
 		return nil, err
 	}
 
-	s.repo.UpdateLinkProviderRef(ctx, pl.ID, ref, email)
+	if err := s.repo.UpdateLinkProviderRef(ctx, pl.ID, ref, email); err != nil {
+		observability.CaptureError(ctx, err, "payment link: UpdateLinkProviderRef failed", "link_id", pl.ID.String())
+		// non-fatal: the charge is already initiated; the link row missing the ref
+		// is recoverable via the webhook reference match
+	}
 
 	return s.provider.InitiateCharge(ctx, payment.ChargeRequest{
 		AmountKobo:  pl.AmountKobo,

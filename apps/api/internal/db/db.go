@@ -3,6 +3,7 @@ package db
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	gormpostgres "gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -30,6 +31,8 @@ func Connect(dsn string, debug bool) (*gorm.DB, error) {
 	}
 	sqlDB.SetMaxOpenConns(25)
 	sqlDB.SetMaxIdleConns(5)
+	sqlDB.SetConnMaxLifetime(30 * time.Minute)
+	sqlDB.SetConnMaxIdleTime(5 * time.Minute)
 
 	return db, nil
 }

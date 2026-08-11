@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Avatar, StatusSteps, Skeleton } from '@speedplus/ui';
+import { Avatar, StatusSteps, Skeleton, ListCard } from '@speedplus/ui';
 import { usePackageFlowStore } from '../../../lib/store/package-flow.store';
 import { useTrackOrder } from '../../../lib/hooks/use-order-mutations';
 import { ordersApi, buildWsUrl, buildWsProtocols } from '@speedplus/api-client';
@@ -136,7 +136,7 @@ export default function PackageTrackingPage() {
 
         {/* Rider card */}
         {driverAssigned ? (
-          <div className="bg-white rounded-2xl border border-[#E4E0D6] p-4 flex items-center gap-3">
+          <ListCard className="p-4 flex items-center gap-3">
             <Avatar initials={driverName ? driverName.charAt(0) : 'R'} size="md" variant="emerald" />
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-[14px] text-[#121216] truncate">{driverName || 'Your rider'}</p>
@@ -155,22 +155,21 @@ export default function PackageTrackingPage() {
                 </svg>
               </a>
             )}
-          </div>
+          </ListCard>
         ) : (
-          <div className="bg-white rounded-2xl border border-[#E4E0D6] p-4 flex items-center gap-3">
+          <ListCard className="p-4 flex items-center gap-3">
             <Skeleton className="w-11 h-11 rounded-full" />
             <div className="flex-1 flex flex-col gap-2">
               <Skeleton className="h-3.5 w-28" />
               <Skeleton className="h-3 w-20" />
             </div>
-          </div>
+          </ListCard>
         )}
 
         {/* Delivery code */}
         {deliveryCode && order?.status === 'in_transit' && (
           <div
-            className="bg-[#0A3D2C] rounded-2xl px-5 py-4 flex flex-col gap-1.5"
-            style={{ animation: 'slideUp 0.3s cubic-bezier(0.16,1,0.3,1) both' }}
+            className="animate-slide-up bg-[#0A3D2C] rounded-2xl px-5 py-4 flex flex-col gap-1.5"
           >
             <p className="text-[10px] font-semibold text-white/50 tracking-[0.8px] uppercase">Your delivery code</p>
             <p className="font-display font-bold text-[40px] text-[#C6F24E] tracking-[14px] leading-none">{deliveryCode}</p>
@@ -194,7 +193,7 @@ export default function PackageTrackingPage() {
 
         {/* Tracking reference — share with recipient */}
         {(order as (typeof order & { trackingRef?: string }) | undefined)?.trackingRef && (
-          <div className="bg-white rounded-2xl border border-[#E4E0D6] px-4 py-3 flex items-center justify-between">
+          <ListCard className="px-4 py-3 flex items-center justify-between">
             <div>
               <p className="text-[10.5px] font-semibold text-[#9A968D] tracking-[0.6px]">TRACKING REF</p>
               <p className="font-display font-bold text-[18px] text-[#0A3D2C] tracking-[3px] mt-0.5">
@@ -207,20 +206,20 @@ export default function PackageTrackingPage() {
             >
               Copy
             </button>
-          </div>
+          </ListCard>
         )}
 
         {/* Status steps */}
-        <div className="bg-white rounded-2xl border border-[#E4E0D6] p-5">
+        <ListCard className="p-5">
           <StatusSteps steps={STEPS} currentIndex={stepIndex} />
-        </div>
+        </ListCard>
 
         {/* Order total */}
         {order && (
-          <div className="bg-white rounded-2xl border border-[#E4E0D6] px-4 py-3.5 flex items-center justify-between">
+          <ListCard className="px-4 py-3.5 flex items-center justify-between">
             <p className="text-[13px] text-[#63636E]">Order total</p>
             <p className="font-display font-semibold text-[16px] text-[#121216]">{naira(order.total.amount)}</p>
-          </div>
+          </ListCard>
         )}
 
         {/* Cancel */}
@@ -238,12 +237,7 @@ export default function PackageTrackingPage() {
         )}
       </div>
 
-      <style>{`
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(12px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
+
     </main>
   );
 }

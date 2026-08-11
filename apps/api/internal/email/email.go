@@ -151,6 +151,34 @@ func (c *Client) SendTransferReceived(ctx context.Context, toEmail, firstName st
 	})
 }
 
+func (c *Client) SendKYCApproved(ctx context.Context, toEmail, firstName, docType string) {
+	c.send(ctx, sendbyte.SendEmailRequest{
+		From:    c.from,
+		To:      []string{toEmail},
+		Subject: "Your SpeedPlus verification is approved",
+		HTML: fmt.Sprintf(`<p>Hi %s,</p>
+<p>Your <strong>%s</strong> verification has been approved. Your account is now fully active.</p>
+<p>The SpeedPlus Team</p>`, firstName, docType),
+		Text:           fmt.Sprintf("Hi %s,\n\nYour %s verification has been approved. Your account is now fully active.\n\nThe SpeedPlus Team", firstName, docType),
+		IdempotencyKey: fmt.Sprintf("kyc-approved-%s-%s", toEmail, docType),
+	})
+}
+
+func (c *Client) SendKYCRejected(ctx context.Context, toEmail, firstName, docType, note string) {
+	c.send(ctx, sendbyte.SendEmailRequest{
+		From:    c.from,
+		To:      []string{toEmail},
+		Subject: "Action required: SpeedPlus verification",
+		HTML: fmt.Sprintf(`<p>Hi %s,</p>
+<p>Your <strong>%s</strong> verification could not be approved.</p>
+<p>Reason: %s</p>
+<p>Please re-submit with a valid document or contact support.</p>
+<p>The SpeedPlus Team</p>`, firstName, docType, note),
+		Text:           fmt.Sprintf("Hi %s,\n\nYour %s verification could not be approved.\nReason: %s\n\nPlease re-submit or contact support.\n\nThe SpeedPlus Team", firstName, docType, note),
+		IdempotencyKey: fmt.Sprintf("kyc-rejected-%s-%s", toEmail, docType),
+	})
+}
+
 // ── Internal ──────────────────────────────────────────────────────────────────
 
 func (c *Client) send(ctx context.Context, req sendbyte.SendEmailRequest) {

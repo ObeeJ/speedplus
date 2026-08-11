@@ -2,34 +2,40 @@
 
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, CameraIcon } from '@speedplus/ui';
+import { useQuery } from '@tanstack/react-query';
+import { Button, CameraIcon, Skeleton } from '@speedplus/ui';
 import { isValidPrescriptionFile } from '@speedplus/utils';
+import { catalogApi } from '@speedplus/api-client';
 import { FlowHeader } from '../../components/flow-header';
-import { usePharmacyFlowStore, OTC_ITEMS } from '../../../lib/store/pharmacy-flow.store';
+import { usePharmacyFlowStore } from '../../../lib/store/pharmacy-flow.store';
 import { useUploadPrescription, usePrescriptionStatus } from '../../../lib/hooks/use-order-mutations';
 
-function naira(n: number) {
-  return `₦${n.toLocaleString('en-NG')}`;
+function naira(kobo: number) {
+  return `₦${(kobo / 100).toLocaleString('en-NG')}`;
 }
 
 export default function PharmacyItemsPage() {
   const router = useRouter();
-  const { tab, setTab, otcItemId, setOtcItemId, merchantId, rxStatus, setRxStatus, prescriptionId, setPrescriptionId, canContinueItems } =
+  const { tab, setTab, otcItemId, setOtcItem, merchantId, rxStatus, setRxStatus, prescriptionId, setPrescriptionId, canContinueItems } =
     usePharmacyFlowStore();
   const canContinue = canContinueItems();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadPrescription = useUploadPrescription();
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // A pharmacy must be chosen before a prescription can be reviewed — the
-  // backend rejects a prescription with no merchant. Send the customer back
-  // to the picker rather than letting them upload into a dead end.
+  // A pharmacy must be chosen before a prescription can be reviewed.
   if (tab === 'rx' && !merchantId) {
     router.replace('/pharmacy');
   }
 
-  // Poll the real server-side review status once we have a prescription id —
-  // this replaces the client-side setTimeout that previously faked approval.
+  // Load OTC products from the catalog — no hard-coded items.
+  const productsQuery = useQuery({
+    queryKey: ['pharmacy-products', merchantId],
+    queryFn: () => catalogApi.listProducts(merchantId!, 'otc'),
+    enabled: Boolean(merchantId) && tab === 'otc',
+  });
+
+  // Poll real server-side review status once we have a prescription id.
   const statusQuery = usePrescriptionStatus(prescriptionId);
   const serverStatus = statusQuery.data?.status;
   if (serverStatus && serverStatus !== rxStatus) {
@@ -65,7 +71,7 @@ export default function PharmacyItemsPage() {
 
   return (
     <main className="min-h-screen bg-sand flex flex-col">
-      <FlowHeader title="What do you need?" step={1} backHref="/" />
+      <FlowHeader title="What do you need?" step={1} totalSteps={4} backHref="/pharmacy" />
 
       <div className="flex-1 px-5 py-5 flex flex-col gap-5 min-[700px]:max-w-[860px] min-[700px]:mx-auto min-[700px]:px-8 min-[700px]:py-10 min-[700px]:w-full">
         <div className="flex gap-2 bg-tile rounded-[13px] p-1">
@@ -89,23 +95,39 @@ export default function PharmacyItemsPage() {
 
         {tab === 'otc' ? (
           <div className="flex flex-col gap-2">
-            {OTC_ITEMS.map((item) => {
-              const selected = otcItemId === item.id;
+            {productsQuery.isLoading && (
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-[62px] rounded-[13px]" />
+                <Skeleton className="h-[62px] rounded-[13px]" />
+                <Skeleton className="h-[62px] rounded-[13px]" />
+              </div>
+            )}
+            {productsQuery.isError && (
+              <div className="rounded-[13px] border-2 border-line bg-white px-4 py-4 text-[13px] text-mid">
+                Couldn&apos;t load products. Please try again.
+              </div>
+            )}
+            {productsQuery.data?.products.filter((p) => p.isAvailable).map((product) => {
+              const selected = otcItemId === product.id;
               return (
                 <button
-                  key={item.id}
-                  onClick={() => setOtcItemId(item.id)}
+                  key={product.id}
+                  onClick={() => setOtcItem(product.id, product.priceKobo)}
                   className={`w-full flex items-center justify-between gap-3 rounded-[13px] border-2 px-4 py-3.5 text-left transition-all ${
                     selected ? 'bg-emerald border-lime' : 'bg-white border-line hover:border-emerald/40'
                   }`}
                 >
                   <span className="flex flex-col gap-0.5">
                     <span className={`font-display font-semibold text-[15px] ${selected ? 'text-lime' : 'text-ink'}`}>
-                      {selected ? `✓ ${item.name}` : item.name}
+                      {selected ? `✓ ${product.name}` : product.name}
                     </span>
-                    <span className={`text-[12.5px] ${selected ? 'text-sand/70' : 'text-mid'}`}>{item.description}</span>
+                    {product.description && (
+                      <span className={`text-[12.5px] ${selected ? 'text-sand/70' : 'text-mid'}`}>{product.description}</span>
+                    )}
                   </span>
-                  <span className={`font-display font-semibold text-[14px] ${selected ? 'text-lime' : 'text-ink'}`}>{naira(item.price)}</span>
+                  <span className={`font-display font-semibold text-[14px] ${selected ? 'text-lime' : 'text-ink'}`}>
+                    {naira(product.priceKobo)}
+                  </span>
                 </button>
               );
             })}
@@ -151,15 +173,12 @@ export default function PharmacyItemsPage() {
             )}
             {rxStatus === 'rejected' && (
               <div className="rounded-[13px] border-2 border-line bg-white px-4 py-4 text-[13px] text-ink">
-                <p className="font-semibold mb-1">This prescription wasn't approved.</p>
+                <p className="font-semibold mb-1">This prescription wasn&apos;t approved.</p>
                 {statusQuery.data?.reviewNote && (
                   <p className="text-mid">{statusQuery.data.reviewNote}</p>
                 )}
                 <button
-                  onClick={() => {
-                    setPrescriptionId(null);
-                    setRxStatus(null);
-                  }}
+                  onClick={() => { setPrescriptionId(null); setRxStatus(null); }}
                   className="mt-2 text-emerald underline text-[12.5px]"
                 >
                   Upload a different prescription
@@ -170,10 +189,7 @@ export default function PharmacyItemsPage() {
               <div className="rounded-[13px] border-2 border-line bg-white px-4 py-4 text-[13px] text-ink">
                 <p className="mb-2">This approval has expired.</p>
                 <button
-                  onClick={() => {
-                    setPrescriptionId(null);
-                    setRxStatus(null);
-                  }}
+                  onClick={() => { setPrescriptionId(null); setRxStatus(null); }}
                   className="text-emerald underline text-[12.5px]"
                 >
                   Upload again

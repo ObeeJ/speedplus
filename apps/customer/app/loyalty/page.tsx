@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { loyaltyApi, type LoyaltyEvent } from '@speedplus/api-client';
-import { Skeleton } from '@speedplus/ui';
+import { Skeleton, ListCard } from '@speedplus/ui';
 
 const EVENT_LABELS: Record<string, { label: string; positive: boolean }> = {
   order_completed:  { label: 'Order completed',   positive: true  },
@@ -75,17 +75,17 @@ export default function LoyaltyPage() {
             { icon: '👥', label: 'Refer a friend', pts: '+50 pts' },
             { icon: '⭐', label: 'Leave a review', pts: '+5 pts' },
           ].map((item) => (
-            <div key={item.label} className="bg-white rounded-2xl border border-[#E4E0D6] p-3.5 flex flex-col items-center gap-2 text-center">
+            <ListCard key={item.label} className="p-3.5 flex flex-col items-center gap-2 text-center">
               <span className="text-2xl" role="img" aria-label={item.label}>{item.icon}</span>
               <p className="text-[11px] text-[#63636E] leading-snug">{item.label}</p>
               <span className="text-[11px] font-bold text-[#0A3D2C] bg-[#E9F3D8] rounded-full px-2 py-0.5">{item.pts}</span>
-            </div>
+            </ListCard>
           ))}
         </div>
 
         {/* History */}
         <p className="text-[11px] font-semibold text-[#9A968D] tracking-[0.7px] uppercase mb-3">History</p>
-        <div className="bg-white rounded-2xl border border-[#E4E0D6] overflow-hidden">
+        <ListCard noPadding>
           {histLoading && (
             <div className="p-4 flex flex-col gap-3">
               {[1, 2, 3].map((i) => (
@@ -125,7 +125,7 @@ export default function LoyaltyPage() {
               </div>
             );
           })}
-        </div>
+        </ListCard>
       </div>
     </main>
   );

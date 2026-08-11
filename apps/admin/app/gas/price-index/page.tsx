@@ -45,8 +45,7 @@ export default function LPGPricePage() {
             value={region}
             onChange={(e) => setRegion(e.target.value)}
             placeholder="e.g. Lagos"
-            className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
+            className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" aria-label="Region"/>
         </div>
         <div className="flex flex-col gap-1">
           <label className="text-sm font-medium">Price per kg (₦)</label>
@@ -57,8 +56,7 @@ export default function LPGPricePage() {
             value={price}
             onChange={(e) => setPrice(e.target.value)}
             placeholder="e.g. 1200"
-            className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
+            className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" aria-label="Price per kg (₦)"/>
         </div>
         <div className="flex flex-col gap-1">
           <label className="text-sm font-medium">Source</label>
@@ -66,8 +64,7 @@ export default function LPGPricePage() {
             value={source}
             onChange={(e) => setSource(e.target.value)}
             placeholder="e.g. NMDPRA bulletin, manual survey"
-            className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
+            className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" aria-label="Source"/>
         </div>
 
         {error && <p className="text-sm text-red-600" role="alert">{error}</p>}

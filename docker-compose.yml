@@ -79,6 +79,9 @@ services:
       # Must differ from JWT_SECRET and be >= 32 bytes.
       PAYCODE_SECRET: "6465766c6f63616c7061796c6f61647365637265746b65796d757374626532"
 
+      # Must differ from JWT_SECRET and PAYCODE_SECRET and be >= 32 bytes.
+      QUOTE_SECRET: "6465766c6f63616c71756f74657365637265746b65796d757374626532636861"
+
       # 32-byte AES-GCM key for recipient PII encryption (hex → raw 32 bytes).
       # config.go checks len == 32, so pass the raw 32-char string directly.
       ENCRYPTION_KEY: "devlocalencryptionkey32byteslong"
@@ -89,6 +92,12 @@ services:
 
       # ── CORS ─────────────────────────────────────────────────────────────────
       ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003"
+
+      # ── Proxy trust ──────────────────────────────────────────────────────────
+      # In local dev there is no proxy, so trust none — ClientIP() falls back to
+      # the raw TCP peer address. In production set this to your load balancer
+      # CIDR (e.g. Railway: 100.64.0.0/10).
+      TRUSTED_PROXIES: ""
 
       # ── Optional integrations (leave blank to disable in dev) ────────────────
       SENTRY_DSN: ""

@@ -38,7 +38,7 @@ func (h *UsersHandler) UpdateMe(c *gin.Context) {
 		Username  *string `json:"username"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 
@@ -91,7 +91,7 @@ func (h *UsersHandler) CreateAddress(c *gin.Context) {
 		IsDefault            bool    `json:"isDefault"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", err.Error(), ""))
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
 		return
 	}
 

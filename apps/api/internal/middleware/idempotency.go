@@ -27,7 +27,11 @@ const idemErrorTTL = 2 * time.Minute
 // The key is bound to a SHA-256 fingerprint of the request body.
 // If the same key arrives with a different body, 422 is returned —
 // per Stripe/IETF idempotency semantics.
-func Idempotency(rdb *redis.Client, ttl time.Duration) gin.HandlerFunc {
+//
+// strict=true: Redis unavailable → 503 (fail-closed). Use on all money paths.
+// strict=false: Redis unavailable → pass-through (fail-open). Use on non-money POSTs.
+func Idempotency(rdb *redis.Client, ttl time.Duration, strict ...bool) gin.HandlerFunc {
+	failClosed := len(strict) > 0 && strict[0]
 	return func(c *gin.Context) {
 		if c.Request.Method != http.MethodPost {
 			c.Next()
@@ -64,6 +68,15 @@ func Idempotency(rdb *redis.Client, ttl time.Duration) gin.HandlerFunc {
 
 		claimed, err := rdb.SetNX(ctx, redisKey, idemProcessingSentinel, idemProcessingWaitTTL).Result()
 		if err != nil {
+			if failClosed {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+					"error": gin.H{
+						"code":    "SERVICE_UNAVAILABLE",
+						"message": "Replay protection unavailable. Please retry.",
+					},
+				})
+				return
+			}
 			c.Next()
 			return
 		}

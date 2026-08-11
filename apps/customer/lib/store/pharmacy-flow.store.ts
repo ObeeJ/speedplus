@@ -7,20 +7,6 @@ export type PharmacyTab = 'otc' | 'rx';
 // plus the client-only 'uploading' transient state for the upload-in-flight UI.
 export type RxStatus = 'uploading' | 'pending' | 'approved' | 'rejected' | 'expired';
 
-export interface OtcItem {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-}
-
-export const OTC_ITEMS: OtcItem[] = [
-  { id: 'paracetamol', name: 'Paracetamol (20 tabs)', description: 'Pain & fever relief', price: 800 },
-  { id: 'ors', name: 'ORS + Zinc', description: 'Rehydration sachets', price: 1200 },
-  { id: 'vitc', name: 'Vitamin C (30 tabs)', description: 'Immune support', price: 1500 },
-  { id: 'malariakit', name: 'Malaria test kit', description: 'Rapid diagnostic kit', price: 2000 },
-];
-
 export interface PharmacyAddress {
   id: string;
   label?: string;
@@ -33,6 +19,9 @@ export interface PharmacyAddress {
 interface PharmacyFlowState {
   tab: PharmacyTab;
   otcItemId: string | null;
+  // Price in kobo from the catalog — set when the customer picks an OTC item.
+  // Used as subtotalKobo in the quote request so the server sees the real price.
+  otcProductPriceKobo: number | null;
   rxStatus: RxStatus | null;
   // The pharmacy the Rx was submitted to — required by the backend as of the
   // integrity fix (a prescription with no target pharmacy could never be
@@ -46,7 +35,7 @@ interface PharmacyFlowState {
   orderId: string | null;
   prescriptionId: string | null;
   setTab: (v: PharmacyTab) => void;
-  setOtcItemId: (v: string) => void;
+  setOtcItem: (id: string, priceKobo: number) => void;
   setMerchant: (id: string, lat: number, lng: number) => void;
   setRxStatus: (v: RxStatus | null) => void;
   setPrescriptionId: (v: string | null) => void;
@@ -62,6 +51,7 @@ export const usePharmacyFlowStore = create<PharmacyFlowState>()(
     (set, get) => ({
       tab: 'otc',
       otcItemId: null,
+      otcProductPriceKobo: null,
       rxStatus: null,
       merchantId: null,
       merchantLat: null,
@@ -72,7 +62,7 @@ export const usePharmacyFlowStore = create<PharmacyFlowState>()(
       orderId: null,
       prescriptionId: null,
       setTab: (v) => set({ tab: v }),
-      setOtcItemId: (v) => set({ otcItemId: v, quote: null }),
+      setOtcItem: (id, priceKobo) => set({ otcItemId: id, otcProductPriceKobo: priceKobo, quote: null }),
       setMerchant: (id, lat, lng) => set({ merchantId: id, merchantLat: lat, merchantLng: lng, quote: null }),
       setRxStatus: (v) => set({ rxStatus: v }),
       setPrescriptionId: (v) => set({ prescriptionId: v }),
@@ -83,6 +73,7 @@ export const usePharmacyFlowStore = create<PharmacyFlowState>()(
         set({
           tab: 'otc',
           otcItemId: null,
+          otcProductPriceKobo: null,
           rxStatus: null,
           merchantId: null,
           merchantLat: null,

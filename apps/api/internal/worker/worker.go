@@ -32,6 +32,8 @@ const (
 	TaskFillAccuracy        = "gas:fill_accuracy"
 	TaskBurnRateUpdate      = "gas:burn_rate_update"
 	TaskRecertReminders     = "gas:recert_reminders"
+	TaskProviderReconcile   = "ledger:provider_reconcile"
+	TaskDisputeSLACheck     = "ledger:dispute_sla_check"
 )
 
 // ── Scheduler (cron) ──────────────────────────────────────────────────────────
@@ -51,6 +53,8 @@ func NewScheduler(redisURL string) *asynq.Scheduler {
 	s.Register("30 2 * * *", asynq.NewTask(TaskFillAccuracy, nil))
 	s.Register("0 3 * * *", asynq.NewTask(TaskBurnRateUpdate, nil))
 	s.Register("0 4 * * *", asynq.NewTask(TaskRecertReminders, nil))
+	s.Register("0 2 * * *", asynq.NewTask(TaskProviderReconcile, nil)) // 02:00 WAT daily
+	s.Register("0 * * * *", asynq.NewTask(TaskDisputeSLACheck, nil))   // every hour
 
 	return s
 }
@@ -76,14 +80,15 @@ func NewServer(redisURL string) *asynq.Server {
 
 // Handlers holds all worker dependencies.
 type Handlers struct {
-	subscriptions *service.SubscriptionService
-	wallet        *service.WalletService
-	dispatch      *service.DispatchService
-	ledger        *service.LedgerService
-	onboarding    onboardingRunner
-	orders        *service.OrderService
-	runs          *service.RunService
-	asynqClient   *asynq.Client
+	subscriptions  *service.SubscriptionService
+	wallet         *service.WalletService
+	dispatch       *service.DispatchService
+	ledger         *service.LedgerService
+	onboarding     onboardingRunner
+	orders         *service.OrderService
+	runs           *service.RunService
+	asynqClient    *asynq.Client
+	reconciliation *service.ReconciliationService
 	// FIX #3: explicit *gorm.DB so the worker never calls wallet.DB() which
 	// returns nil and causes a guaranteed nil-pointer panic on every cashout task.
 	db *gorm.DB
@@ -108,6 +113,9 @@ func (h *Handlers) InjectRuns(r *service.RunService) { h.runs = r }
 // InjectOrders wires OrderService after construction.
 func (h *Handlers) InjectOrders(o *service.OrderService) { h.orders = o }
 
+// InjectReconciliation wires ReconciliationService after construction.
+func (h *Handlers) InjectReconciliation(r *service.ReconciliationService) { h.reconciliation = r }
+
 func (h *Handlers) Register(mux *asynq.ServeMux) {
 	mux.HandleFunc(TaskWeeklyPayout, h.handleWeeklyPayout)
 	mux.HandleFunc(TaskExpireOffers, h.handleExpireOffers)
@@ -123,6 +131,8 @@ func (h *Handlers) Register(mux *asynq.ServeMux) {
 	mux.HandleFunc(TaskFillAccuracy, h.handleFillAccuracy)
 	mux.HandleFunc(TaskBurnRateUpdate, h.handleBurnRateUpdate)
 	mux.HandleFunc(TaskRecertReminders, h.handleRecertReminders)
+	mux.HandleFunc(TaskProviderReconcile, h.handleProviderReconcile)
+	mux.HandleFunc(TaskDisputeSLACheck, h.handleDisputeSLACheck)
 }
 
 func (h *Handlers) handleWeeklyPayout(ctx context.Context, _ *asynq.Task) error {
@@ -398,4 +408,22 @@ func (h *Handlers) handleRecertReminders(ctx context.Context, _ *asynq.Task) err
 		)
 	}
 	return nil
+}
+
+func (h *Handlers) handleProviderReconcile(ctx context.Context, _ *asynq.Task) error {
+	if h.reconciliation == nil {
+		slog.Warn("worker: provider reconciliation skipped — service not wired")
+		return nil
+	}
+	yesterday := time.Now().UTC().AddDate(0, 0, -1)
+	slog.Info("worker: provider reconciliation starting", "date", yesterday.Format("2006-01-02"))
+	if err := h.reconciliation.RunForDate(ctx, yesterday); err != nil {
+		return fmt.Errorf("provider reconciliation: %w", err)
+	}
+	slog.Info("worker: provider reconciliation complete", "date", yesterday.Format("2006-01-02"))
+	return nil
+}
+
+func (h *Handlers) handleDisputeSLACheck(ctx context.Context, _ *asynq.Task) error {
+	return h.ledger.AlertOverdueDisputes(ctx)
 }

@@ -244,22 +244,25 @@ func (h *MerchantHandler) GetBankAccount(c *gin.Context) {
 }
 
 // SaveBankAccount — POST /merchant/bank-account
-// The frontend must resolve the account name via Paystack's /bank/resolve
-// endpoint before calling this. The resolved name is sent in the request
-// body and stored as-is — it is the provider's authoritative answer.
+// Resolves the account name server-side via Paystack before saving.
+// Any client-supplied accountName is ignored.
 func (h *MerchantHandler) SaveBankAccount(c *gin.Context) {
 	var req struct {
 		BankCode      string `json:"bankCode"      binding:"required"`
 		BankName      string `json:"bankName"      binding:"required"`
 		AccountNumber string `json:"accountNumber" binding:"required"`
-		AccountName   string `json:"accountName"   binding:"required"` // provider-resolved
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		validationError(c, err)
 		return
 	}
+	resolvedName, err := h.wallet.ResolveDriverBankAccount(c.Request.Context(), req.BankCode, req.AccountNumber)
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", "Could not verify account — check the account number and bank code", "accountNumber"))
+		return
+	}
 	acct, err := h.merchant.SaveBankAccount(c.Request.Context(), h.userID(c),
-		req.BankCode, req.BankName, req.AccountNumber, req.AccountName)
+		req.BankCode, req.BankName, req.AccountNumber, resolvedName)
 	if err != nil {
 		internalError(c, err)
 		return

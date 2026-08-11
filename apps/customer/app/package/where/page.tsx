@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Input, Skeleton, SelectionCard } from '@speedplus/ui';
+import { Button, Input, Skeleton, SelectionCard, ListCard } from '@speedplus/ui';
 import { FlowHeader } from '../../components/flow-header';
 import { usePackageFlowStore, type AddressOption, type StopInput } from '../../../lib/store/package-flow.store';
 import { usersApi } from '@speedplus/api-client';
@@ -205,10 +205,10 @@ export default function PackageWherePage() {
 
             <section className="flex flex-col gap-3">
               <SectionLabel>Who is receiving it?</SectionLabel>
-              <div className="bg-white rounded-2xl border border-[#E4E0D6] p-4 flex flex-col gap-3">
+              <ListCard className="flex flex-col gap-3">
                 <Input id="recipientName" label="Recipient name" placeholder="e.g. Amaka Obi" value={recipientName} onChange={(e) => setRecipientName(e.target.value)} />
                 <Input id="recipientPhone" label="Recipient phone" type="tel" placeholder="08012345678" value={recipientPhone} onChange={(e) => setRecipientPhone(e.target.value)} />
-              </div>
+              </ListCard>
             </section>
           </>
         )}
@@ -242,9 +242,9 @@ export default function PackageWherePage() {
 
             <div className="flex flex-col gap-2">
               {stops.map((stop, i) => (
-                <div
+                <ListCard
                   key={stop.sequence}
-                  className="bg-white rounded-2xl border border-[#E4E0D6] px-4 py-3.5 flex items-center gap-3"
+                  className="px-4 py-3.5 flex items-center gap-3"
                   style={{ animation: `fadeUp 0.2s cubic-bezier(0.16,1,0.3,1) ${i * 40}ms both` }}
                 >
                   <span className="w-8 h-8 rounded-full bg-[#0A3D2C] flex items-center justify-center font-display font-bold text-[#C6F24E] text-[13px] flex-shrink-0">
@@ -264,7 +264,7 @@ export default function PackageWherePage() {
                       <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
                     </svg>
                   </button>
-                </div>
+                </ListCard>
               ))}
             </div>
 
@@ -343,10 +343,7 @@ export default function PackageWherePage() {
       </div>
 
       <style>{`
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(10px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
+        /* package/where uses inline stagger for dynamic stop list items — kept intentionally */
       `}</style>
     </main>
   );

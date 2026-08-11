@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -75,6 +76,75 @@ func (s *LedgerService) EnsureMerchantWallet(ctx context.Context, tx *gorm.DB, m
 
 func (s *LedgerService) platformAccount(ctx context.Context, tx *gorm.DB, acctType model.AccountType) (*model.LedgerAccount, error) {
 	return s.repo.FindOrCreatePlatformAccount(ctx, tx, acctType)
+}
+
+// ── Ledger correction ─────────────────────────────────────────────────────────
+
+// ErrAlreadyReversed is returned when a journal has already been reversed.
+// Callers should treat this as a successful no-op when retrying a correction,
+// and as a genuine error when the second reversal was unintended.
+var ErrAlreadyReversed = errors.New("journal already reversed")
+
+// Reverse posts equal-and-opposite entries for every entry in journalID,
+// then adjusts wallet_balances accordingly.
+//
+// This is the ONLY sanctioned correction path. Direct UPDATE/DELETE on
+// ledger_entries is blocked at the DB layer (migration 038 trigger).
+//
+// Blast radius: touches every account that appears in the original journal.
+// Must be called inside a caller-managed transaction.
+func (s *LedgerService) Reverse(ctx context.Context, tx *gorm.DB, journalID uuid.UUID, reason string) error {
+	originals, err := s.repo.FindEntriesByJournal(ctx, tx, journalID)
+	if err != nil {
+		return fmt.Errorf("reverse: load journal %s: %w", journalID, err)
+	}
+	if len(originals) == 0 {
+		return fmt.Errorf("reverse: journal %s not found or already empty", journalID)
+	}
+
+	// Idempotency guard. Ledger entries are append-only, so a second Reverse()
+	// of the same journal cannot overwrite the first — it posts a SECOND
+	// equal-and-opposite journal, moving the balance the wrong way by the full
+	// original amount. Each journal may be reversed at most once.
+	reversedAlready, err := s.repo.CountReversalsForJournal(ctx, tx, journalID)
+	if err != nil {
+		// Fail closed: we cannot prove this journal is unreversed.
+		return fmt.Errorf("reverse: check existing reversals for journal %s: %w", journalID, err)
+	}
+	if reversedAlready > 0 {
+		return fmt.Errorf("%w: journal %s", ErrAlreadyReversed, journalID)
+	}
+
+	// A reversal is itself a journal. Reversing one would re-apply the original
+	// amount; corrections to a reversal must be posted as a new forward entry.
+	if originals[0].RefType == "reversal" {
+		return fmt.Errorf("reverse: journal %s is itself a reversal — post a new correcting entry instead", journalID)
+	}
+
+	reversalID := uuid.New()
+	reversals := make([]model.LedgerEntry, len(originals))
+	for i, e := range originals {
+		reversals[i] = model.LedgerEntry{
+			ID:          uuid.New(),
+			JournalID:   reversalID,
+			AccountID:   e.AccountID,
+			AmountKobo:  -e.AmountKobo, // equal-and-opposite
+			Description: "reversal: " + reason,
+			RefType:     "reversal",
+			RefID:       &journalID, // links back to the original journal
+		}
+	}
+	if err := s.journal(ctx, tx, reversals); err != nil {
+		return fmt.Errorf("reverse: write reversal entries: %w", err)
+	}
+
+	// Adjust balances for each affected account.
+	for _, r := range reversals {
+		if err := s.adjustBalance(ctx, tx, r.AccountID, r.AmountKobo); err != nil {
+			return fmt.Errorf("reverse: adjust balance for account %s: %w", r.AccountID, err)
+		}
+	}
+	return nil
 }
 
 // ── Escrow hold ───────────────────────────────────────────────────────────────
@@ -196,6 +266,26 @@ func (s *LedgerService) Settle(ctx context.Context, tx *gorm.DB, order *model.Or
 		return fmt.Errorf("escrow hold not found: %w", err)
 	}
 
+	// Tier-0 prevention: non-gas orders require at least one dropoff_photo
+	// before settlement. This is the minimum proof-of-delivery evidence.
+	// Gas orders use weight_photo (checked below) — they don't need a separate
+	// dropoff_photo because the weight photo IS the delivery evidence.
+	if order.Vertical != "gas" {
+		var dropoffCount int64
+		// Check the error. A failed count leaves dropoffCount at 0, which is
+		// indistinguishable from "no proof exists" — so a transient database
+		// error would block a legitimate settlement while telling the operator
+		// the driver never took a photo. Fail closed either way, but say which.
+		if err := tx.WithContext(ctx).Model(&model.ProofMedia{}).
+			Where("order_id = ? AND kind = 'dropoff_photo'", order.ID).
+			Count(&dropoffCount).Error; err != nil {
+			return fmt.Errorf("settle: count delivery proof for order %s: %w", order.ID, err)
+		}
+		if dropoffCount == 0 {
+			return fmt.Errorf("settle: delivery photo required before settlement")
+		}
+	}
+
 	// Gas orders must never settle without a weight photo — this is the
 	// trust wedge the whole gas vertical rests on. Enforced here, inside
 	// Settle, so every current and future confirmation path (QR, code, card)
@@ -205,6 +295,7 @@ func (s *LedgerService) Settle(ctx context.Context, tx *gorm.DB, order *model.Or
 	// data — "has a weight photo" and "has a measured_kg to price against"
 	// are the same fact by construction, not two separately-maintained checks.
 	var gasMeasuredKg float64
+	var gasOrderedKg float64 // hoisted so plausibility check and shortfall block share one DB read
 	if order.Vertical == "gas" {
 		var err error
 		gasMeasuredKg, err = s.weightProof(ctx, tx, order.ID)
@@ -213,6 +304,22 @@ func (s *LedgerService) Settle(ctx context.Context, tx *gorm.DB, order *model.Or
 		}
 		if gasMeasuredKg <= 0 {
 			return fmt.Errorf("gas order requires a weight photo before settlement")
+		}
+		gasOrderedKg, err = s.orderedWeightKg(ctx, tx, order.ID)
+		if err != nil {
+			return fmt.Errorf("settle: %w", err)
+		}
+		// Plausibility band: reject implausible scale readings before any money
+		// moves. A typo (e.g. 1.25 instead of 12.5) or a tampered photo must
+		// not zero a merchant's entire payout. Band is intentionally wide
+		// (50%–150% of ordered) so legitimate edge cases (tare variance,
+		// overfill) are never blocked; only clear data-entry errors are caught.
+		if gasOrderedKg > 0 {
+			lo, hi := gasOrderedKg*0.5, gasOrderedKg*1.5
+			if gasMeasuredKg < lo || gasMeasuredKg > hi {
+				return fmt.Errorf("settle: measured weight %.2f kg is outside plausible range [%.2f, %.2f] for ordered %.2f kg — verify scale reading",
+					gasMeasuredKg, lo, hi, gasOrderedKg)
+			}
 		}
 	}
 
@@ -224,13 +331,9 @@ func (s *LedgerService) Settle(ctx context.Context, tx *gorm.DB, order *model.Or
 	// within this same balanced journal.
 	var shortfallRefundKobo int64
 	if order.Vertical == "gas" {
-		orderedKg, err := s.orderedWeightKg(ctx, tx, order.ID)
-		if err != nil {
-			return fmt.Errorf("settle: %w", err)
-		}
+		orderedKg := gasOrderedKg // already loaded and plausibility-checked above
 		if orderedKg > 0 {
-			measuredKg := gasMeasuredKg
-			shortKg := orderedKg - measuredKg
+			shortKg := orderedKg - gasMeasuredKg
 			if shortKg > orderedKg*shortfallTolerance {
 				// price per kg = subtotal / orderedKg. In new_cylinder mode
 				// the subtotal includes the cylinder body, not just the
@@ -347,6 +450,82 @@ func (s *LedgerService) Settle(ctx context.Context, tx *gorm.DB, order *model.Or
 	hold.ReleasedAt = &now
 	hold.ReleasedBy = &paycodeEventID
 	return s.repo.SaveEscrowHold(ctx, tx, hold)
+}
+
+// ── Dispute helpers (called by AdminService) ──────────────────────────────────
+
+// fullRefundFrozen refunds the full escrow amount to the customer.
+// Used for auto-adjudication when no proof media exists.
+// hold must already be locked; its status is updated to EscrowReversed.
+func (s *LedgerService) fullRefundFrozen(ctx context.Context, tx *gorm.DB, order *model.Order, hold *model.EscrowHold) error {
+	customerWallet, err := s.EnsureWallet(ctx, tx, order.CustomerID)
+	if err != nil {
+		return err
+	}
+	journalID := uuid.New()
+	entries := []model.LedgerEntry{
+		{ID: uuid.New(), JournalID: journalID, AccountID: hold.AccountID, AmountKobo: -hold.AmountKobo, Description: "auto-adjudication full refund debit escrow", RefType: "dispute", RefID: &order.ID},
+		{ID: uuid.New(), JournalID: journalID, AccountID: customerWallet.ID, AmountKobo: hold.AmountKobo, Description: "auto-adjudication full refund to customer", RefType: "dispute", RefID: &order.ID},
+	}
+	if err := s.journal(ctx, tx, entries); err != nil {
+		return err
+	}
+	if err := s.adjustBalance(ctx, tx, hold.AccountID, -hold.AmountKobo); err != nil {
+		return err
+	}
+	if err := s.adjustBalance(ctx, tx, customerWallet.ID, hold.AmountKobo); err != nil {
+		return err
+	}
+	now := time.Now()
+	hold.Status = model.EscrowReversed
+	hold.ReleasedAt = &now
+	return s.repo.SaveEscrowHold(ctx, tx, hold)
+}
+
+// partialRefundFrozen credits refundKobo to the customer from the escrow account.
+// The remainder stays in escrow and will be settled to the merchant via ReleaseEscrow.
+func (s *LedgerService) partialRefundFrozen(ctx context.Context, tx *gorm.DB, order *model.Order, hold *model.EscrowHold, refundKobo int64) error {
+	customerWallet, err := s.EnsureWallet(ctx, tx, order.CustomerID)
+	if err != nil {
+		return err
+	}
+	journalID := uuid.New()
+	entries := []model.LedgerEntry{
+		{ID: uuid.New(), JournalID: journalID, AccountID: hold.AccountID, AmountKobo: -refundKobo, Description: "auto-adjudication partial refund debit escrow", RefType: "dispute", RefID: &order.ID},
+		{ID: uuid.New(), JournalID: journalID, AccountID: customerWallet.ID, AmountKobo: refundKobo, Description: "auto-adjudication partial refund to customer", RefType: "dispute", RefID: &order.ID},
+	}
+	if err := s.journal(ctx, tx, entries); err != nil {
+		return err
+	}
+	if err := s.adjustBalance(ctx, tx, hold.AccountID, -refundKobo); err != nil {
+		return err
+	}
+	if err := s.adjustBalance(ctx, tx, customerWallet.ID, refundKobo); err != nil {
+		return err
+	}
+	// Reduce the hold amount — the remainder is still frozen for manual review.
+	hold.AmountKobo -= refundKobo
+	return nil
+}
+
+// shortfallRefundKobo computes the kobo amount to refund for a gas shortfall.
+// Returns 0 if the shortfall is within tolerance or the price cannot be determined.
+func (s *LedgerService) shortfallRefundKobo(ctx context.Context, tx *gorm.DB, order *model.Order, measuredKg, orderedKg float64) (int64, error) {
+	shortKg := orderedKg - measuredKg
+	if shortKg <= orderedKg*shortfallTolerance {
+		return 0, nil
+	}
+	pricePerKg := float64(order.SubtotalKobo) / orderedKg
+	if order.GasMode != nil && *order.GasMode == "new_cylinder" {
+		lpgPriceKobo, err := s.liveLPGPriceKobo(ctx, tx, "Lagos")
+		if err != nil {
+			return 0, err
+		}
+		if lpgPriceKobo > 0 {
+			pricePerKg = float64(lpgPriceKobo)
+		}
+	}
+	return int64(shortKg * pricePerKg), nil
 }
 
 // ── Cancellation refund engine ────────────────────────────────────────────────
@@ -487,6 +666,51 @@ func (s *LedgerService) CreditWallet(ctx context.Context, tx *gorm.DB, userID uu
 	}
 	if err := s.adjustBalance(ctx, tx, wallet.ID, amountKobo); err != nil {
 		return fmt.Errorf("credit wallet: adjust balance: %w", err)
+	}
+	return nil
+}
+
+// DebitWallet journals an outbound payment from a wallet.
+func (s *LedgerService) DebitWallet(ctx context.Context, tx *gorm.DB, userID uuid.UUID, amountKobo int64, refType string, refID *uuid.UUID) error {
+	wallet, err := s.EnsureWallet(ctx, tx, userID)
+	if err != nil {
+		return err
+	}
+	clearingAcct, err := s.platformAccount(ctx, tx, model.AccountProviderClearing)
+	if err != nil {
+		return fmt.Errorf("debit wallet: clearing account: %w", err)
+	}
+
+	journalID := uuid.New()
+	entries := []model.LedgerEntry{
+		{ID: uuid.New(), JournalID: journalID, AccountID: wallet.ID, AmountKobo: -amountKobo, Description: "wallet debit", RefType: refType, RefID: refID},
+		{ID: uuid.New(), JournalID: journalID, AccountID: clearingAcct.ID, AmountKobo: amountKobo, Description: "wallet debit credit provider clearing", RefType: refType, RefID: refID},
+	}
+	if err := s.journal(ctx, tx, entries); err != nil {
+		return err
+	}
+	if err := s.adjustBalance(ctx, tx, wallet.ID, -amountKobo); err != nil {
+		return fmt.Errorf("debit wallet: adjust balance: %w", err)
+	}
+	return nil
+}
+
+// AlertOverdueDisputes logs an error for every frozen escrow past its SLA deadline.
+// Called by the asynq scheduler (TaskDisputeSLACheck) every hour.
+// Alerting hooks on structured Error logs (Sentry, Datadog, etc.) fire from here.
+func (s *LedgerService) AlertOverdueDisputes(ctx context.Context) error {
+	holds, err := s.repo.FindOverdueFrozenEscrows(ctx)
+	if err != nil {
+		return fmt.Errorf("dispute sla: query: %w", err)
+	}
+	for _, h := range holds {
+		slog.ErrorContext(ctx, "dispute SLA breached — frozen escrow overdue",
+			"escrow_hold_id", h.ID,
+			"order_id", h.OrderID,
+			"amount_kobo", h.AmountKobo,
+			"frozen_at", h.FrozenAt,
+			"sla_deadline", h.FrozenSLADeadline,
+		)
 	}
 	return nil
 }

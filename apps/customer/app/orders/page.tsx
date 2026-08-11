@@ -3,10 +3,9 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ordersApi } from '@speedplus/api-client';
-import { apiClient } from '@speedplus/api-client';
-import type { ApiResponse, Order } from '@speedplus/types';
-import { Skeleton } from '@speedplus/ui';
+import { ordersApi, type OrderReceipt } from '@speedplus/api-client';
+import type { Order } from '@speedplus/types';
+import { Skeleton, ListCard, Modal, iconColors } from '@speedplus/ui';
 
 function naira(kobo: number) {
   return `₦${(kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 0 })}`;
@@ -27,15 +26,15 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_COLOR: Record<string, { bg: string; text: string }> = {
-  delivered:       { bg: '#E9F3D8', text: '#0A3D2C' },
-  in_transit:      { bg: '#E9F3D8', text: '#0A3D2C' },
-  driver_assigned: { bg: '#E9F3D8', text: '#0A3D2C' },
-  ready_for_pickup:{ bg: '#FFF7E6', text: '#8A6A1B' },
-  preparing:       { bg: '#FFF7E6', text: '#8A6A1B' },
-  confirmed:       { bg: '#FFF7E6', text: '#8A6A1B' },
-  pending:         { bg: '#F7F5EF', text: '#63636E' },
-  cancelled:       { bg: '#FEF2F2', text: '#DC2626' },
-  refunded:        { bg: '#FEF2F2', text: '#DC2626' },
+  delivered:       { bg: iconColors.tile, text: iconColors.emerald },
+  in_transit:      { bg: iconColors.tile, text: iconColors.emerald },
+  driver_assigned: { bg: iconColors.tile, text: iconColors.emerald },
+  ready_for_pickup:{ bg: iconColors.amberBg, text: iconColors.amberDeep },
+  preparing:       { bg: iconColors.amberBg, text: iconColors.amberDeep },
+  confirmed:       { bg: iconColors.amberBg, text: iconColors.amberDeep },
+  pending:         { bg: iconColors.sand, text: iconColors.mid },
+  cancelled:       { bg: iconColors.dangerBg, text: iconColors.dangerAlt },
+  refunded:        { bg: iconColors.dangerBg, text: iconColors.dangerAlt },
 };
 
 const VERTICAL_ICON: Record<string, React.ReactNode> = {
@@ -47,14 +46,6 @@ const VERTICAL_ICON: Record<string, React.ReactNode> = {
 };
 
 const ACTIVE = new Set(['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'driver_assigned', 'in_transit']);
-
-interface Receipt {
-  orderId: string; vertical: string; status: string; paymentMethod: string;
-  items: { name: string; quantity: number; unitPriceKobo: number; totalKobo: number }[];
-  subtotalKobo: number; deliveryKobo: number; serviceKobo: number; tipKobo: number; totalKobo: number;
-  merchantName: string; driverName: string; createdAt: string; deliveredAt?: string;
-  review?: { rating: number; comment?: string };
-}
 
 function StarRating({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   return (
@@ -76,12 +67,31 @@ export default function OrdersPage() {
 
   const [vertical, setVertical] = useState('all');
   const [status, setStatus] = useState('all');
-  const [receiptOrder, setReceiptOrder] = useState<Receipt | null>(null);
+  const [receiptOrder, setReceiptOrder] = useState<OrderReceipt | null>(null);
   const [reviewOrder, setReviewOrder] = useState<{ orderId: string; driverId?: string; merchantId: string } | null>(null);
   const [detailOrder, setDetailOrder] = useState<Order | null>(null);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
+  const [reportOrderId, setReportOrderId] = useState<string | null>(null);
   const [reviewTarget, setReviewTarget] = useState<'driver' | 'merchant'>('driver');
+
+  const SUPPORT_ISSUES = [
+    "Driver didn't arrive",
+    'Wrong item delivered',
+    'Missing item',
+    'Payment issue',
+    'Gas quantity wrong',
+    'Other',
+  ];
+
+  function openWhatsAppSupport(orderId: string, issue: string) {
+    const supportNumber = process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP;
+    if (!supportNumber) return;
+    const ref = `SUP-${orderId.slice(0, 8).toUpperCase()}`;
+    const msg = encodeURIComponent(`Hello SpeedPlus Support,\nOrder: #${orderId.slice(0, 8).toUpperCase()}\nIssue: ${issue}\nReference: ${ref}`);
+    window.open(`https://wa.me/${supportNumber}?text=${msg}`, '_blank');
+    setReportOrderId(null);
+  }
 
   const { data, isLoading } = useQuery({
     queryKey: ['orders-list', vertical, status],
@@ -95,8 +105,8 @@ export default function OrdersPage() {
   const orders = data?.orders ?? [];
 
   async function openReceipt(orderId: string) {
-    const { data } = await apiClient.get<ApiResponse<Receipt>>(`/orders/${orderId}/receipt`);
-    if (data.success) setReceiptOrder(data.data);
+    const receipt = await ordersApi.getReceipt(orderId);
+    setReceiptOrder(receipt);
   }
 
   async function openDetail(orderId: string) {
@@ -122,9 +132,9 @@ export default function OrdersPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F7F5EF] flex flex-col">
+    <main className="min-h-screen bg-sand flex flex-col">
       {/* Header */}
-      <div className="bg-[#0A3D2C] px-5 pt-12 pb-5 flex items-center gap-3">
+      <div className="bg-emerald px-5 pt-12 pb-5 flex items-center gap-3">
         <button onClick={() => router.back()} className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors" aria-label="Back">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
         </button>
@@ -136,7 +146,7 @@ export default function OrdersPage() {
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
           {VERTICALS.map((v) => (
             <button key={v} onClick={() => setVertical(v)}
-              className={`flex-shrink-0 rounded-full px-3.5 py-1.5 text-[12px] font-semibold capitalize transition-colors ${vertical === v ? 'bg-[#0A3D2C] text-white' : 'bg-white border border-[#E4E0D6] text-[#63636E] hover:border-[#0A3D2C]/30'}`}>
+              className={`flex-shrink-0 rounded-full px-3.5 py-1.5 text-[12px] font-semibold capitalize transition-colors ${vertical === v ? 'bg-emerald text-white' : 'bg-white border border-line text-mid hover:border-emerald/30'}`}>
               {v === 'all' ? 'All types' : v}
             </button>
           ))}
@@ -144,7 +154,7 @@ export default function OrdersPage() {
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
           {STATUSES.map((s) => (
             <button key={s} onClick={() => setStatus(s)}
-              className={`flex-shrink-0 rounded-full px-3.5 py-1.5 text-[12px] font-semibold capitalize transition-colors ${status === s ? 'bg-[#0A3D2C] text-white' : 'bg-white border border-[#E4E0D6] text-[#63636E] hover:border-[#0A3D2C]/30'}`}>
+              className={`flex-shrink-0 rounded-full px-3.5 py-1.5 text-[12px] font-semibold capitalize transition-colors ${status === s ? 'bg-emerald text-white' : 'bg-white border border-line text-mid hover:border-emerald/30'}`}>
               {s === 'all' ? 'All statuses' : STATUS_LABEL[s] ?? s}
             </button>
           ))}
@@ -154,21 +164,21 @@ export default function OrdersPage() {
       {/* List */}
       <div className="flex-1 px-5 py-3 flex flex-col gap-2.5 max-w-[600px] mx-auto w-full pb-8">
         {isLoading && [1, 2, 3].map((i) => (
-          <div key={i} className="bg-white rounded-2xl border border-[#E4E0D6] p-4 flex items-center gap-3">
+          <ListCard key={i} className="p-4 flex items-center gap-3">
             <Skeleton className="w-10 h-10 rounded-xl" />
             <div className="flex-1 flex flex-col gap-2"><Skeleton className="h-3.5 w-32" /><Skeleton className="h-3 w-20" /></div>
             <Skeleton className="h-4 w-16" />
-          </div>
+          </ListCard>
         ))}
 
         {!isLoading && orders.length === 0 && (
           <div className="flex flex-col items-center gap-4 py-20 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-white border border-[#E4E0D6] flex items-center justify-center text-[#9A968D]">
+            <div className="w-16 h-16 rounded-2xl bg-white border border-line flex items-center justify-center text-[#9A968D]">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" /></svg>
             </div>
             <div>
-              <p className="font-display font-semibold text-[18px] text-[#121216]">No orders found</p>
-              <p className="text-[13px] text-[#63636E] mt-1">Try changing the filters above.</p>
+              <p className="font-display font-semibold text-[18px] text-ink">No orders found</p>
+              <p className="text-[13px] text-mid mt-1">Try changing the filters above.</p>
             </div>
           </div>
         )}
@@ -178,21 +188,20 @@ export default function OrdersPage() {
           const sc = STATUS_COLOR[order.status] ?? { bg: '#F7F5EF', text: '#63636E' };
           const isDelivered = order.status === 'delivered';
           return (
-            <div
+            <ListCard
               key={order.id}
-              className="bg-white rounded-2xl border border-[#E4E0D6] px-4 py-3.5 flex flex-col gap-2.5"
-              style={{ animation: `fadeUp 0.2s cubic-bezier(0.16,1,0.3,1) ${i * 30}ms both` }}
+              className={`animate-fade-up px-4 py-3.5 flex flex-col gap-2.5`}
             >
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#F7F5EF] flex items-center justify-center flex-shrink-0 text-[#63636E]">
+                <div className="w-10 h-10 rounded-xl bg-sand flex items-center justify-center flex-shrink-0 text-mid">
                   {VERTICAL_ICON[order.vertical] ?? VERTICAL_ICON.package}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-semibold text-[#121216] capitalize">{order.vertical} delivery</p>
+                  <p className="text-[13px] font-semibold text-ink capitalize">{order.vertical} delivery</p>
                   <p className="text-[11px] text-[#9A968D] mt-0.5">{fmt(order.createdAt)}</p>
                 </div>
                 <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                  <p className="font-display font-semibold text-[14px] text-[#121216]">{naira(order.total.amount)}</p>
+                  <p className="font-display font-semibold text-[14px] text-ink">{naira(order.total.amount)}</p>
                   <span className="text-[10px] font-bold rounded-full px-2 py-0.5" style={{ background: sc.bg, color: sc.text }}>
                     {STATUS_LABEL[order.status] ?? order.status}
                   </span>
@@ -203,78 +212,79 @@ export default function OrdersPage() {
                 {isActive && order.vertical === 'package' && (
                   <button
                     onClick={() => router.push('/package/tracking')}
-                    className="flex-1 text-center text-[12px] font-semibold text-[#0A3D2C] bg-[#E9F3D8] rounded-xl py-2 hover:bg-[#D4EAC0] transition-colors"
+                    className="flex-1 text-center text-[12px] font-semibold text-emerald bg-tile rounded-xl py-2 hover:bg-[#D4EAC0] transition-colors"
                   >
                     Track order
                   </button>
                 )}
                 <button
                   onClick={() => openDetail(order.id)}
-                  className="flex-1 text-center text-[12px] font-semibold text-[#63636E] bg-[#F7F5EF] rounded-xl py-2 hover:bg-[#EFECE3] transition-colors"
+                  className="flex-1 text-center text-[12px] font-semibold text-mid bg-sand rounded-xl py-2 hover:bg-[#EFECE3] transition-colors"
                 >
                   Details
                 </button>
                 <button
                   onClick={() => openReceipt(order.id)}
-                  className="flex-1 text-center text-[12px] font-semibold text-[#63636E] bg-[#F7F5EF] rounded-xl py-2 hover:bg-[#EFECE3] transition-colors"
+                  className="flex-1 text-center text-[12px] font-semibold text-mid bg-sand rounded-xl py-2 hover:bg-[#EFECE3] transition-colors"
                 >
                   Receipt
                 </button>
+                {isActive && (
+                  <button
+                    onClick={() => setReportOrderId(order.id)}
+                    className="flex-1 text-center text-[12px] font-semibold text-red-600 bg-red-50 rounded-xl py-2 hover:bg-[#FEE2E2] transition-colors"
+                  >
+                    Report issue
+                  </button>
+                )}
                 {isDelivered && (
                   <button
                     onClick={() => setReviewOrder({ orderId: order.id, driverId: order.driverId ?? undefined, merchantId: order.merchantId })}
-                    className="flex-1 text-center text-[12px] font-semibold text-[#0A3D2C] border border-[#0A3D2C]/20 rounded-xl py-2 hover:bg-[#E9F3D8] transition-colors"
+                    className="flex-1 text-center text-[12px] font-semibold text-emerald border border-emerald/20 rounded-xl py-2 hover:bg-tile transition-colors"
                   >
                     Rate & review
                   </button>
                 )}
               </div>
-            </div>
+            </ListCard>
           );
         })}
       </div>
 
       {/* Order detail modal */}
-      {detailOrder && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4" onClick={() => setDetailOrder(null)}>
-          <div className="bg-white w-full sm:max-w-[480px] rounded-t-3xl sm:rounded-2xl p-6 flex flex-col gap-3 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <p className="font-display font-semibold text-[16px] text-[#121216] capitalize">{detailOrder.vertical} order</p>
-              <button onClick={() => setDetailOrder(null)} className="text-[#9A968D] hover:text-[#121216]">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-              </button>
-            </div>
-            <p className="text-[11px] text-[#9A968D]">#{detailOrder.id.slice(0, 8).toUpperCase()}</p>
-            <div className="flex flex-col gap-1.5 text-[13px]">
-              <div className="flex justify-between"><span className="text-[#63636E]">Status</span><span className="font-semibold text-[#121216] capitalize">{STATUS_LABEL[detailOrder.status] ?? detailOrder.status}</span></div>
-              <div className="flex justify-between"><span className="text-[#63636E]">Total</span><span className="font-semibold text-[#121216]">{naira(detailOrder.total.amount)}</span></div>
-              <div className="flex justify-between"><span className="text-[#63636E]">Placed</span><span className="font-semibold text-[#121216]">{fmt(detailOrder.createdAt)}</span></div>
-            </div>
+      <Modal
+        isOpen={!!detailOrder}
+        onClose={() => setDetailOrder(null)}
+        title={detailOrder ? `${detailOrder.vertical.charAt(0).toUpperCase()}${detailOrder.vertical.slice(1)} order` : undefined}
+        description={detailOrder ? `#${detailOrder.id.slice(0, 8).toUpperCase()}` : undefined}
+        className="sm:max-w-[480px] max-h-[80vh] overflow-y-auto"
+      >
+        {detailOrder && (
+          <div className="flex flex-col gap-1.5 text-[13px]">
+            <div className="flex justify-between"><span className="text-mid">Status</span><span className="font-semibold text-ink capitalize">{STATUS_LABEL[detailOrder.status] ?? detailOrder.status}</span></div>
+            <div className="flex justify-between"><span className="text-mid">Total</span><span className="font-semibold text-ink">{naira(detailOrder.total.amount)}</span></div>
+            <div className="flex justify-between"><span className="text-mid">Placed</span><span className="font-semibold text-ink">{fmt(detailOrder.createdAt)}</span></div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
       {/* Receipt modal */}
-      {receiptOrder && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4" onClick={() => setReceiptOrder(null)}>
-          <div className="bg-white w-full sm:max-w-[480px] rounded-t-3xl sm:rounded-2xl p-6 flex flex-col gap-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-display font-bold text-[18px] text-[#121216]">Receipt</p>
-                <p className="text-[11px] text-[#9A968D] mt-0.5">#{receiptOrder.orderId.slice(0, 8).toUpperCase()}</p>
-              </div>
-              <button onClick={() => setReceiptOrder(null)} className="w-8 h-8 rounded-full bg-[#F7F5EF] flex items-center justify-center hover:bg-[#EFECE3] transition-colors">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#63636E" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-              </button>
-            </div>
-
+      <Modal
+        isOpen={!!receiptOrder}
+        onClose={() => setReceiptOrder(null)}
+        title="Receipt"
+        description={receiptOrder ? `#${receiptOrder.orderId.slice(0, 8).toUpperCase()}` : undefined}
+        className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto"
+      >
+        {receiptOrder && (
+          <div className="flex flex-col gap-4">
             {/* Meta */}
-            <div className="bg-[#F7F5EF] rounded-xl px-4 py-3 flex flex-col gap-1.5 text-[12px]">
-              <div className="flex justify-between"><span className="text-[#63636E]">From</span><span className="font-semibold text-[#121216]">{receiptOrder.merchantName}</span></div>
-              {receiptOrder.driverName && <div className="flex justify-between"><span className="text-[#63636E]">Rider</span><span className="font-semibold text-[#121216]">{receiptOrder.driverName}</span></div>}
-              <div className="flex justify-between"><span className="text-[#63636E]">Payment</span><span className="font-semibold capitalize text-[#121216]">{receiptOrder.paymentMethod.replace('_', ' ')}</span></div>
-              <div className="flex justify-between"><span className="text-[#63636E]">Date</span><span className="font-semibold text-[#121216]">{fmt(receiptOrder.createdAt)}</span></div>
-              {receiptOrder.deliveredAt && <div className="flex justify-between"><span className="text-[#63636E]">Delivered</span><span className="font-semibold text-[#121216]">{fmt(receiptOrder.deliveredAt)}</span></div>}
+            <div className="bg-sand rounded-xl px-4 py-3 flex flex-col gap-1.5 text-[12px]">
+              <div className="flex justify-between"><span className="text-mid">From</span><span className="font-semibold text-ink">{receiptOrder.merchantName}</span></div>
+              {receiptOrder.driverName && <div className="flex justify-between"><span className="text-mid">Rider</span><span className="font-semibold text-ink">{receiptOrder.driverName}</span></div>}
+              <div className="flex justify-between"><span className="text-mid">Payment</span><span className="font-semibold capitalize text-ink">{receiptOrder.paymentMethod.replace('_', ' ')}</span></div>
+              <div className="flex justify-between"><span className="text-mid">Date</span><span className="font-semibold text-ink">{fmt(receiptOrder.createdAt)}</span></div>
+              {receiptOrder.deliveredAt && <div className="flex justify-between"><span className="text-mid">Delivered</span><span className="font-semibold text-ink">{fmt(receiptOrder.deliveredAt)}</span></div>}
             </div>
 
             {/* Items */}
@@ -282,25 +292,25 @@ export default function OrdersPage() {
               <p className="text-[10.5px] font-semibold text-[#9A968D] tracking-[0.6px]">ITEMS</p>
               {receiptOrder.items.map((item, i) => (
                 <div key={i} className="flex justify-between text-[13px]">
-                  <span className="text-[#121216]">{item.name} <span className="text-[#9A968D]">×{item.quantity}</span></span>
-                  <span className="font-medium text-[#121216]">{naira(item.totalKobo)}</span>
+                  <span className="text-ink">{item.name} <span className="text-[#9A968D]">×{item.quantity}</span></span>
+                  <span className="font-medium text-ink">{naira(item.totalKobo)}</span>
                 </div>
               ))}
             </div>
 
             {/* Totals */}
-            <div className="border-t border-[#E4E0D6] pt-3 flex flex-col gap-1.5">
-              <div className="flex justify-between text-[12px] text-[#63636E]"><span>Subtotal</span><span>{naira(receiptOrder.subtotalKobo)}</span></div>
-              <div className="flex justify-between text-[12px] text-[#63636E]"><span>Delivery</span><span>{naira(receiptOrder.deliveryKobo)}</span></div>
-              {receiptOrder.serviceKobo > 0 && <div className="flex justify-between text-[12px] text-[#63636E]"><span>Service fee</span><span>{naira(receiptOrder.serviceKobo)}</span></div>}
-              {receiptOrder.tipKobo > 0 && <div className="flex justify-between text-[12px] text-[#63636E]"><span>Tip</span><span>{naira(receiptOrder.tipKobo)}</span></div>}
-              <div className="flex justify-between text-[15px] font-bold text-[#0A3D2C] mt-1"><span>Total</span><span>{naira(receiptOrder.totalKobo)}</span></div>
+            <div className="border-t border-line pt-3 flex flex-col gap-1.5">
+              <div className="flex justify-between text-[12px] text-mid"><span>Subtotal</span><span>{naira(receiptOrder.subtotalKobo)}</span></div>
+              <div className="flex justify-between text-[12px] text-mid"><span>Delivery</span><span>{naira(receiptOrder.deliveryKobo)}</span></div>
+              {receiptOrder.serviceKobo > 0 && <div className="flex justify-between text-[12px] text-mid"><span>Service fee</span><span>{naira(receiptOrder.serviceKobo)}</span></div>}
+              {receiptOrder.tipKobo > 0 && <div className="flex justify-between text-[12px] text-mid"><span>Tip</span><span>{naira(receiptOrder.tipKobo)}</span></div>}
+              <div className="flex justify-between text-[15px] font-bold text-emerald mt-1"><span>Total</span><span>{naira(receiptOrder.totalKobo)}</span></div>
             </div>
 
             {/* Existing review */}
             {receiptOrder.review && (
-              <div className="bg-[#E9F3D8] rounded-xl px-4 py-3">
-                <p className="text-[11px] font-semibold text-[#0A3D2C] mb-1">Your review</p>
+              <div className="bg-tile rounded-xl px-4 py-3">
+                <p className="text-[11px] font-semibold text-emerald mb-1">Your review</p>
                 <div className="flex gap-0.5 mb-1">
                   {[1,2,3,4,5].map((s) => (
                     <svg key={s} width="14" height="14" viewBox="0 0 24 24" fill={s <= receiptOrder.review!.rating ? '#E8B14E' : 'none'} stroke={s <= receiptOrder.review!.rating ? '#E8B14E' : '#D5D2C8'} strokeWidth={1.5}>
@@ -308,40 +318,38 @@ export default function OrdersPage() {
                     </svg>
                   ))}
                 </div>
-                {receiptOrder.review.comment && <p className="text-[12px] text-[#0A3D2C]/80 italic">"{receiptOrder.review.comment}"</p>}
+                {receiptOrder.review.comment && <p className="text-[12px] text-emerald/80 italic">&quot;{receiptOrder.review.comment}&quot;</p>}
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
       {/* Review modal */}
-      {reviewOrder && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4" onClick={() => setReviewOrder(null)}>
-          <div className="bg-white w-full sm:max-w-[420px] rounded-t-3xl sm:rounded-2xl p-6 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <p className="font-display font-bold text-[18px]">Rate your delivery</p>
-              <button onClick={() => setReviewOrder(null)} className="w-8 h-8 rounded-full bg-[#F7F5EF] flex items-center justify-center">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#63636E" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-              </button>
-            </div>
-
+      <Modal
+        isOpen={!!reviewOrder}
+        onClose={() => setReviewOrder(null)}
+        title="Rate your delivery"
+        className="sm:max-w-[420px]"
+      >
+        {reviewOrder && (
+          <div className="flex flex-col gap-4">
             {/* Who to review */}
             <div className="flex gap-2">
               {reviewOrder.driverId && (
                 <button onClick={() => setReviewTarget('driver')}
-                  className={`flex-1 rounded-xl py-2 text-[12px] font-semibold transition-colors ${reviewTarget === 'driver' ? 'bg-[#0A3D2C] text-white' : 'bg-[#F7F5EF] text-[#63636E]'}`}>
+                  className={`flex-1 rounded-xl py-2 text-[12px] font-semibold transition-colors ${reviewTarget === 'driver' ? 'bg-emerald text-white' : 'bg-sand text-mid'}`}>
                   Rate rider
                 </button>
               )}
               <button onClick={() => setReviewTarget('merchant')}
-                className={`flex-1 rounded-xl py-2 text-[12px] font-semibold transition-colors ${reviewTarget === 'merchant' ? 'bg-[#0A3D2C] text-white' : 'bg-[#F7F5EF] text-[#63636E]'}`}>
+                className={`flex-1 rounded-xl py-2 text-[12px] font-semibold transition-colors ${reviewTarget === 'merchant' ? 'bg-emerald text-white' : 'bg-sand text-mid'}`}>
                 Rate merchant
               </button>
             </div>
 
             <div className="flex flex-col items-center gap-2">
-              <p className="text-[13px] text-[#63636E]">How was your experience?</p>
+              <p className="text-[13px] text-mid">How was your experience?</p>
               <StarRating value={rating} onChange={setRating} />
             </div>
 
@@ -350,28 +358,47 @@ export default function OrdersPage() {
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               rows={3}
-              className="border border-[#E4E0D6] rounded-xl px-3 py-2.5 text-[13px] resize-none focus:outline-none focus:ring-2 focus:ring-[#0A3D2C]"
+              className="border border-line rounded-xl px-3 py-2.5 text-[13px] resize-none focus:outline-none focus:ring-2 focus:ring-emerald"
             />
 
             {reviewMutation.isError && (
-              <p className="text-[12px] text-[#DC2626]">{(reviewMutation.error as Error).message}</p>
+              <p className="text-[12px] text-red-600">{(reviewMutation.error as Error).message}</p>
             )}
 
             <button
               onClick={submitReview}
               disabled={reviewMutation.isPending}
-              className="w-full font-display text-sm font-semibold text-[#0A3D2C] bg-[#C6F24E] rounded-xl py-3 hover:bg-[#B8E040] transition-colors disabled:opacity-50"
+              className="w-full font-display text-sm font-semibold text-emerald bg-lime rounded-xl py-3 hover:bg-[#B8E040] transition-colors disabled:opacity-50"
             >
               {reviewMutation.isPending ? 'Submitting…' : 'Submit review'}
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
-      <style>{`
-        @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .scrollbar-none::-webkit-scrollbar { display: none; }
-      `}</style>
-    </main>
-  );
+      {/* Report issue modal */}
+      <Modal
+        isOpen={!!reportOrderId}
+        onClose={() => setReportOrderId(null)}
+        title="Report an issue"
+        description="What's the problem? We'll connect you with support on WhatsApp."
+        className="sm:max-w-[420px]"
+      >
+        {reportOrderId && (
+          <div className="flex flex-col gap-2">
+            {SUPPORT_ISSUES.map((issue) => (
+              <button
+                key={issue}
+                onClick={() => openWhatsAppSupport(reportOrderId, issue)}
+                className="w-full text-left px-4 py-3 rounded-xl border border-line text-[13px] font-medium text-ink hover:border-emerald/30 hover:bg-sand transition-colors"
+              >
+                {issue}
+              </button>
+            ))}
+          </div>
+        )}
+      </Modal>
+
+
+    </main>  );
 }

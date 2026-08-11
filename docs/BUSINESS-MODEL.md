@@ -32,8 +32,7 @@ one of those three; anything else is scope creep.
 
 Additional charges, all live in code:
 
-- **Weather surcharge: ₦200 flat** on rain/storm (WMO 51–99) or >38 °C heat,
-  via Open-Meteo at quote time. Compensates riders for the riskiest hours.
+- **Weather surcharge: admin-controlled, default off.** When enabled, a flat amount (default ₦200, admin-tunable) is added to the quote total when Open-Meteo reports rain/storm (WMO 51–99) or extreme heat (>38 °C). The amount is frozen on the quote at creation time, included in the signed hash, and held in escrow with the rest of the total. Compensates riders for the riskiest hours. Toggle: Admin → Settings → Weather surcharge.
 - **Package size surcharge:** medium ₦150, large ₦400 (on top of weight).
 - Distance is **road distance from OSRM**, not straight-line; ETA comes from
   OSRM duration + 5 min pickup buffer.
@@ -134,7 +133,7 @@ source instrument. Stablecoin/diaspora rails: parked until demand shows
 | Rider code-phishing ("read me the code") | Partially mitigated | GPS flag on far-away confirmations; customer-education copy still needed in app. |
 | POD ghosting | Mitigated by design | Tier gate + ₦10k cap + one active POD + demotion on failure (checkout itself still disabled pending settlement work). |
 | Referral farming | Mitigated | ₦2,000 minimum qualifying order, self-referral checks, frozen-account exclusion. |
-| Weather surcharge unexplained on receipts | Open | Surface "rain surcharge ₦200" as a labelled line item in the customer apps. |
+| Weather surcharge unexplained on receipts | Closed | Admin-controlled toggle (default off). When on, shown as a labelled line on every quote screen. |
 | Subscriptions advertised but dead | Open | Keep out of marketing; unpause only with the charge path + tests. |
 
 ## Operating discipline

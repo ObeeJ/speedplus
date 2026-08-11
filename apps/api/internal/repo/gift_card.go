@@ -10,6 +10,7 @@ import (
 
 type GiftCardRepo interface {
 	Create(ctx context.Context, gc *model.GiftCard) error
+	CreateTx(ctx context.Context, tx *gorm.DB, gc *model.GiftCard) error
 	Transaction(ctx context.Context, fn func(tx *gorm.DB) error) error
 	LockByCodeHash(ctx context.Context, tx *gorm.DB, codeHash string) (*model.GiftCard, error)
 	SaveTx(ctx context.Context, tx *gorm.DB, gc *model.GiftCard) error
@@ -21,6 +22,10 @@ func NewGiftCardRepo(db *gorm.DB) GiftCardRepo { return &giftCardRepo{db: db} }
 
 func (r *giftCardRepo) Create(ctx context.Context, gc *model.GiftCard) error {
 	return r.db.WithContext(ctx).Create(gc).Error
+}
+
+func (r *giftCardRepo) CreateTx(ctx context.Context, tx *gorm.DB, gc *model.GiftCard) error {
+	return tx.WithContext(ctx).Create(gc).Error
 }
 
 func (r *giftCardRepo) Transaction(ctx context.Context, fn func(tx *gorm.DB) error) error {

@@ -64,6 +64,12 @@ func (s *SubscriptionService) Create(ctx context.Context, customerID, merchantID
 	return sub, nil
 }
 
+// ListMine returns the caller's own subscriptions. The customer id is supplied
+// by the handler from the JWT, so there is no id in the request to tamper with.
+func (s *SubscriptionService) ListMine(ctx context.Context, customerID uuid.UUID) ([]model.Subscription, error) {
+	return s.repo.ListByCustomer(ctx, customerID)
+}
+
 func (s *SubscriptionService) Pause(ctx context.Context, customerID, subID uuid.UUID) error {
 	return s.repo.PauseByCustomer(ctx, subID, customerID)
 }
@@ -83,13 +89,19 @@ func (s *SubscriptionService) ProcessDue(ctx context.Context) error {
 		if err := s.chargeOne(ctx, sub); err != nil {
 			observability.CaptureError(ctx, err, "subscription charge failed",
 				"subscription_id", sub.ID.String(), "customer_id", sub.CustomerID.String())
-			s.repo.UpdateDunning(ctx, sub.ID, sub.DunningCount+1, time.Now().Add(24*time.Hour))
+			if dErr := s.repo.UpdateDunning(ctx, sub.ID, sub.DunningCount+1, time.Now().Add(24*time.Hour)); dErr != nil {
+				observability.CaptureError(ctx, dErr, "subscription: UpdateDunning failed", "subscription_id", sub.ID.String())
+			}
 			if sub.DunningCount+1 >= 3 {
-				s.repo.PauseByID(ctx, sub.ID)
+				if pErr := s.repo.PauseByID(ctx, sub.ID); pErr != nil {
+					observability.CaptureError(ctx, pErr, "subscription: PauseByID failed", "subscription_id", sub.ID.String())
+				}
 			}
 			continue
 		}
-		s.repo.UpdateNextCharge(ctx, sub.ID, nextChargeFor(sub))
+		if nErr := s.repo.UpdateNextCharge(ctx, sub.ID, nextChargeFor(sub)); nErr != nil {
+			observability.CaptureError(ctx, nErr, "subscription: UpdateNextCharge failed", "subscription_id", sub.ID.String())
+		}
 	}
 	return nil
 }

@@ -27,3 +27,16 @@ type OnboardingRunner interface {
 	Run(ctx context.Context, user *model.User) error
 	RunByID(ctx context.Context, userID string) error
 }
+
+// WhatsAppNotifier is the subset of whatsapp.Client used by OrderService.
+// Accepting an interface here keeps service/order.go decoupled from the
+// concrete HTTP client and makes the service testable without network calls.
+type WhatsAppNotifier interface {
+	OrderConfirmed(phone, orderID, merchantName, total string)
+	RiderAssigned(phone, riderName, eta string)
+	DeliveryCode(phone, code string)
+	OrderDelivered(phone, orderID string)
+	OrderCancelled(phone, reason, refundAmount string)
+	PrescriptionReady(phone, pharmacyName string)
+	SendOTP(phone, code, purpose string)
+}

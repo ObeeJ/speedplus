@@ -46,9 +46,33 @@ export const authApi = {
     if (!data.success) throw new Error(data.error.message);
   },
 
+  // Fresh tokens are returned on success (purpose === 'phone_verification'
+  // flips users.is_verified server-side, and the old token would still read
+  // unverified since that claim is baked in at issue time) — stored here so
+  // the caller doesn't have to remember to.
   async verifyOtpCode(phone: string, otp: string, purpose: string): Promise<{ verified: boolean }> {
-    const { data } = await apiClient.post<ApiResponse<{ verified: boolean }>>('/otp/verify', { phone, otp, purpose });
+    const { data } = await apiClient.post<ApiResponse<{ verified: boolean; accessToken?: string; refreshToken?: string }>>(
+      '/otp/verify',
+      { phone, otp, purpose },
+    );
     if (!data.success) throw new Error(data.error.message);
+    if (data.data.accessToken) setAuthToken(data.data.accessToken);
+    if (data.data.refreshToken) setRefreshToken(data.data.refreshToken);
+    return { verified: data.data.verified };
+  },
+
+  /** Explicit token refresh — the axios interceptor calls this automatically,
+   *  but expose it for manual use (e.g. background tab wake-up). */
+  async refresh(refreshToken: string): Promise<AuthTokens> {
+    const { data } = await apiClient.post<ApiResponse<AuthTokens>>('/auth/refresh', { refreshToken });
+    if (!data.success) throw new Error(data.error.message);
+    setAuthToken(data.data.accessToken);
+    setRefreshToken(data.data.refreshToken);
     return data.data;
+  },
+
+  async resetPassword(payload: { phone: string; otp: string; newPassword: string }): Promise<void> {
+    const { data } = await apiClient.post<ApiResponse<{ message: string }>>('/auth/reset-password', payload);
+    if (!data.success) throw new Error(data.error.message);
   },
 };

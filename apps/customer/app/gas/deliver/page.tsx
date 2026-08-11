@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button } from '@speedplus/ui';
+import { Button, Skeleton } from '@speedplus/ui';
 import { FlowHeader } from '../../components/flow-header';
 import { useGasFlowStore } from '../../../lib/store/gas-flow.store';
 import { usersApi, type SavedAddress } from '@speedplus/api-client';
@@ -30,7 +30,10 @@ export default function GasDeliverPage() {
         <section className="flex flex-col gap-2.5">
           <span className="text-[13px] font-semibold text-mid">Delivery address</span>
           {loading ? (
-            <span className="text-[13px] text-mid">Loading addresses…</span>
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-[58px] rounded-2xl" />
+              <Skeleton className="h-[58px] rounded-2xl" />
+            </div>
           ) : addresses.length === 0 ? (
             <span className="text-[13px] text-mid">No saved addresses. Add one in your profile first.</span>
           ) : (
