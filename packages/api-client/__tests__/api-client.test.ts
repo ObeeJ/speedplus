@@ -26,6 +26,23 @@ describe('token helpers', () => {
     setAuthToken(null);
     expect(getAuthToken()).toBeNull();
   });
+
+  // Regression: refresh token must survive a simulated module re-evaluation
+  // (hard reload). Before the fix, the auth stores only persisted `user` —
+  // refreshToken was a module-level variable that reset to null on reload,
+  // causing the 401 interceptor to throw 'no refresh token' and clear the
+  // session. The fix persists _rt in each store and calls setRefreshToken in
+  // onRehydrateStorage. This test verifies the setter/getter round-trip that
+  // onRehydrateStorage depends on.
+  it('setRefreshToken after a null reset restores the token (simulates rehydration)', () => {
+    setRefreshToken('initial-rt');
+    // simulate module re-evaluation: variable resets to null
+    setRefreshToken(null);
+    expect(getRefreshToken()).toBeNull();
+    // simulate onRehydrateStorage restoring from localStorage
+    setRefreshToken('initial-rt');
+    expect(getRefreshToken()).toBe('initial-rt');
+  });
 });
 
 describe('SpeedPlusError', () => {

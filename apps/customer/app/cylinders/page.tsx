@@ -107,6 +107,7 @@ export default function CylindersPage() {
         {adding && (
           <form onSubmit={handleSubmit} className="bg-white border border-line rounded-2xl p-4 flex flex-col gap-3">
             <select
+              aria-label="Cylinder size"
               required
               value={form.specId}
               onChange={(e) => setForm((f) => ({ ...f, specId: e.target.value }))}

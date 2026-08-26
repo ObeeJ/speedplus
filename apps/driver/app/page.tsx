@@ -604,6 +604,7 @@ export default function DriverAppPage() {
               <div className="bg-white border border-line rounded-2xl p-4 flex flex-col gap-2.5">
                 <span className="text-[10.5px] font-semibold text-mid tracking-[.5px]">BANK ACCOUNT</span>
                 <select
+                  aria-label="Bank"
                   value={bankDraft.bankCode}
                   onChange={(e) => {
                     const selected = bankList?.find((b) => b.code === e.target.value);

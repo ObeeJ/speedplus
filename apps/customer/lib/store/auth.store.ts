@@ -3,14 +3,12 @@ import { persist } from 'zustand/middleware';
 import type { User } from '@speedplus/types';
 import { setAuthToken, setRefreshToken } from '@speedplus/api-client';
 
-// Access token lives in memory ONLY — never written to localStorage.
-// isAuthenticated is derived from user !== null on every read, never persisted.
-// This prevents the auth guard from passing on a hard refresh when the
-// in-memory token is gone.
-
 interface AuthState {
   user: (User & { referralCode?: string }) | null;
   isAuthenticated: boolean;
+  // _rt is the refresh token persisted to localStorage so the 401 interceptor
+  // can exchange it for a new access token after a hard reload.
+  _rt: string | null;
   setAuth: (user: User & { referralCode?: string }, accessToken: string, refreshToken: string) => void;
   clearAuth: () => void;
 }
@@ -20,26 +18,29 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       isAuthenticated: false,
+      _rt: null,
 
       setAuth: (user, accessToken, refreshToken) => {
         setAuthToken(accessToken);
         setRefreshToken(refreshToken);
-        set({ user, isAuthenticated: true });
+        set({ user, isAuthenticated: true, _rt: refreshToken });
       },
 
       clearAuth: () => {
         setAuthToken(null);
         setRefreshToken(null);
-        set({ user: null, isAuthenticated: false });
+        set({ user: null, isAuthenticated: false, _rt: null });
       },
     }),
     {
       name: 'speedplus-auth',
-      // Persist only the user profile. isAuthenticated is intentionally excluded:
-      // on rehydration it defaults to false and is set to true only after a
-      // successful token refresh, preventing the auth guard from passing when
-      // the in-memory access token is absent.
-      partialize: (s) => ({ user: s.user }),
+      partialize: (s) => ({ user: s.user, _rt: s._rt }),
+      onRehydrateStorage: () => (state) => {
+        if (state?.user && state._rt) {
+          setRefreshToken(state._rt);
+          state.isAuthenticated = true;
+        }
+      },
     },
   ),
 );

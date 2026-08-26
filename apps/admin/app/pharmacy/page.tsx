@@ -153,7 +153,7 @@ export default function PharmacyPage() {
                 placeholder="Review note (required for rejection)…"
                 rows={3}
                 className="w-full rounded-[11px] border border-line bg-[#F7F5EF] px-3.5 py-2.5 text-[13px] text-ink placeholder:text-mid focus:outline-none focus:border-[#0A3D2C]/40 resize-none"
-              />
+              aria-label="Review note (required for rejection)" />
               <div className="flex gap-3">
                 <button
                   disabled={isPending}

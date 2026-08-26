@@ -242,7 +242,7 @@ export default function DisputesPage() {
               rows={3}
               className="border border-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald"
               placeholder="Why is this action being taken?"
-            />
+            aria-label="Why is this action being taken?" />
 
             <label className="text-sm font-semibold">
               Type the amount shown above (<span className="font-mono">{expectedConfirmText}</span>) to confirm

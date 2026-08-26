@@ -116,7 +116,7 @@ export default function GasOpsPage() {
                   style={{ color: accuracyPct < 0.95 ? '#B4231F' : '#0A3D2C' }}
                 >
                   {accuracyPct < 0.95
-                    ? '⚠️ Below 95% — risk of delisting. Improve fill accuracy to stay on the platform.'
+                    ? 'Below 95% risk of delisting. Improve fill accuracy to stay on the platform.'
                     : '✓ Good standing'}
                 </p>
               )}

@@ -92,6 +92,7 @@ export default function OrdersPage() {
           placeholder="Search by order ID or customer ID…"
           className="flex-1 min-w-[200px] border border-line rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald" aria-label="Search by order ID or customer ID"/>
         <select
+          aria-label="Filter by order status"
           value={status}
           onChange={(e) => setStatus(e.target.value)}
           className="border border-line rounded-xl px-3 py-2 text-sm focus:outline-none"

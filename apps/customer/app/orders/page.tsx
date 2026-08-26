@@ -359,7 +359,7 @@ export default function OrdersPage() {
               onChange={(e) => setComment(e.target.value)}
               rows={3}
               className="border border-line rounded-xl px-3 py-2.5 text-[13px] resize-none focus:outline-none focus:ring-2 focus:ring-emerald"
-            />
+            aria-label="Leave a comment (optional)" />
 
             {reviewMutation.isError && (
               <p className="text-[12px] text-red-600">{(reviewMutation.error as Error).message}</p>

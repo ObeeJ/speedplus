@@ -103,8 +103,7 @@ export default function USSDBankPage() {
                   required
                   value={bankCode}
                   onChange={(e) => setBankCode(e.target.value)}
-                  className="w-full border border-[#E4E0D6] rounded-xl px-4 py-3 text-[14px] text-[#121216] focus:outline-none focus:border-[#0A3D2C] transition-colors bg-white"
-                >
+                  className="w-full border border-[#E4E0D6] rounded-xl px-4 py-3 text-[14px] text-[#121216] focus:outline-none focus:border-[#0A3D2C] transition-colors bg-white" aria-label="Your bank">
                   <option value="">Select bank</option>
                   {banks.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}
                 </select>

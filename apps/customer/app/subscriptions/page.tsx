@@ -136,6 +136,7 @@ export default function SubscriptionsPage() {
                 <p className="text-[12px] text-mid">No saved addresses. <a href="/profile" className="text-emerald underline">Add one first.</a></p>
               ) : (
                 <select
+                  aria-label="Deliver to address"
                   required
                   value={addressId}
                   onChange={(e) => setAddressId(e.target.value)}
