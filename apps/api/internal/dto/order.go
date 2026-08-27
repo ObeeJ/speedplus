@@ -56,32 +56,8 @@ type MultiStopQuoteRequest struct {
 }
 
 // ── Orders ────────────────────────────────────────────────────────────────────
-
-type OrderItemRequest struct {
-	ProductID        string  `json:"productId"             binding:"required"`
-	Name             string  `json:"name"                  binding:"required"`
-	Quantity         int     `json:"quantity"              binding:"required,min=1"`
-	UnitPriceKobo    int64   `json:"unitPriceKobo"         binding:"required,min=1"`
-	WeightKg         float64 `json:"weightKg"`
-	SizeCategory     string  `json:"sizeCategory"`
-	Customizations   *string `json:"customizations"`
-	SubstitutionPref *string `json:"substitutionPreference"`
-}
-
-type CreateOrderRequest struct {
-	MerchantID     string             `json:"merchantId"       binding:"required"`
-	QuoteID        string             `json:"quoteId"          binding:"required"`
-	Vertical       string             `json:"vertical"         binding:"required"`
-	DeliveryAddrID string             `json:"deliveryAddressId" binding:"required"`
-	PrescriptionID *string            `json:"prescriptionId"`
-	TipKobo        int64              `json:"tipKobo"`
-	ScheduledFor   *time.Time         `json:"scheduledFor"`
-	Items          []OrderItemRequest `json:"items"            binding:"required,min=1"`
-}
-
-type CancelOrderRequest struct {
-	Reason string `json:"reason" binding:"required"`
-}
+// Note: order creation and cancellation request binding is done via inline
+// structs in handler/orders.go — these DTO types are not used there.
 
 type MoneyResponse struct {
 	Amount   int64  `json:"amount"`
@@ -129,11 +105,6 @@ type OrderResponse struct {
 	DeclaredValueKobo *int64              `json:"declaredValueKobo,omitempty"`
 	CreatedAt         time.Time           `json:"createdAt"`
 	UpdatedAt         time.Time           `json:"updatedAt"`
-}
-
-type OrderListResponse struct {
-	Orders     []OrderResponse `json:"orders"`
-	NextCursor *uuid.UUID      `json:"nextCursor,omitempty"`
 }
 
 // FromModel converts a model.Order to OrderResponse.
