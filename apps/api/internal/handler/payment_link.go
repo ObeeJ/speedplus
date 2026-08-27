@@ -85,8 +85,20 @@ func (h *PaymentLinkHandler) PayByWallet(c *gin.Context) {
 
 // InitiateGuestPayment — no auth, guest pays by card via Paystack.
 // POST /pay/:slug/guest
+//
+// The standard Idempotency middleware cannot be used here: it scopes its Redis
+// key by CtxUserID, which is empty for an unauthenticated caller, so every
+// guest would share one dedup namespace and could see each other's payment
+// responses. Idempotency is enforced in the service instead, against the
+// idempotency_keys table (the same mechanism Transfer/Cashout use).
 func (h *PaymentLinkHandler) InitiateGuestPayment(c *gin.Context) {
 	slug := c.Param("slug")
+
+	idempotencyKey := c.GetHeader("Idempotency-Key")
+	if idempotencyKey == "" {
+		c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Idempotency-Key header is required", "Idempotency-Key"))
+		return
+	}
 
 	var req struct {
 		Email       string `json:"email"       binding:"required,email"`
@@ -97,7 +109,7 @@ func (h *PaymentLinkHandler) InitiateGuestPayment(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.links.InitiateGuestPayment(c.Request.Context(), slug, req.Email, req.CallbackURL)
+	resp, err := h.links.InitiateGuestPayment(c.Request.Context(), slug, req.Email, req.CallbackURL, idempotencyKey)
 	if err != nil {
 		c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", err.Error(), ""))
 		return

@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { useMerchantAuthStore } from '@/lib/store/auth.store';
+import { useDriverAuthStore } from '@/lib/store/auth.store';
 
 const PUBLIC_PATHS = ['/login', '/forgot-password'];
 
@@ -10,10 +10,10 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 }
 
-export function MerchantAuthGuard({ children }: { children: React.ReactNode }) {
+export function DriverAuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const isAuthenticated = useMerchantAuthStore((s) => s.isAuthenticated);
+  const isAuthenticated = useDriverAuthStore((s) => s.isAuthenticated);
   const isPublic = isPublicPath(pathname);
 
   useEffect(() => {

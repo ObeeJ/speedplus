@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -447,9 +448,26 @@ func (h *WalletHandler) handleWebhook(verifier webhookVerifier, sigHeader, succe
 			ref = payload.Data.TxRef
 		}
 
-		eventID := ""
-		if id, ok := payload.Data.ID.(string); ok {
-			eventID = id
+		// Providers disagree on the JSON type of data.id: Paystack and
+		// Flutterwave send a number, others send a string. encoding/json decodes
+		// a JSON number into an interface{} as float64, so a bare .(string)
+		// assertion silently yields "" for every numeric-ID provider. Because
+		// webhook_events carries UNIQUE(provider, event_id), an empty ID makes
+		// the first event permanently shadow every later one at the replay
+		// guard in WalletService.ProcessWebhook — acking real payments without
+		// crediting them. Normalise across types, then fall back to the
+		// transaction reference so the dedup key can never be empty.
+		var eventID string
+		switch v := payload.Data.ID.(type) {
+		case string:
+			eventID = v
+		case float64:
+			eventID = strconv.FormatInt(int64(v), 10)
+		case json.Number:
+			eventID = v.String()
+		}
+		if eventID == "" {
+			eventID = ref
 		}
 
 		wp := service.WebhookPayload{

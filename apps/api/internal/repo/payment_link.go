@@ -20,6 +20,7 @@ type PaymentLinkRepo interface {
 	SaveLinkTx(ctx context.Context, tx *gorm.DB, pl *model.PaymentLink) error
 	CreateIdempotencyKeyTx(ctx context.Context, tx *gorm.DB, k *model.IdempotencyKey) error
 	CreatePaymentIntent(ctx context.Context, intent *model.PaymentIntent) error
+	FindPaymentIntentByKey(ctx context.Context, key string) (*model.PaymentIntent, error)
 	UpdateLinkProviderRef(ctx context.Context, id uuid.UUID, ref, email string) error
 }
 
@@ -72,6 +73,12 @@ func (r *paymentLinkRepo) CreateIdempotencyKeyTx(ctx context.Context, tx *gorm.D
 
 func (r *paymentLinkRepo) CreatePaymentIntent(ctx context.Context, intent *model.PaymentIntent) error {
 	return r.db.WithContext(ctx).Create(intent).Error
+}
+
+func (r *paymentLinkRepo) FindPaymentIntentByKey(ctx context.Context, key string) (*model.PaymentIntent, error) {
+	var i model.PaymentIntent
+	err := r.db.WithContext(ctx).Where("idempotency_key = ?", key).First(&i).Error
+	return &i, err
 }
 
 func (r *paymentLinkRepo) UpdateLinkProviderRef(ctx context.Context, id uuid.UUID, ref, email string) error {

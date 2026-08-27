@@ -139,20 +139,29 @@ func (s *PaymentLinkService) PayByWallet(ctx context.Context, slug string, payer
 	})
 }
 
-func (s *PaymentLinkService) InitiateGuestPayment(ctx context.Context, slug, email, callbackURL string) (*payment.ChargeResponse, error) {
+func (s *PaymentLinkService) InitiateGuestPayment(ctx context.Context, slug, email, callbackURL, idempotencyKey string) (*payment.ChargeResponse, error) {
 	pl, err := s.Get(ctx, slug)
 	if err != nil {
 		return nil, err
 	}
 
+	// Idempotency: if this key was already used, return the cached reference
+	// so the caller can redirect the guest to the same Paystack checkout URL.
+	if idempotencyKey != "" {
+		if existing, err := s.repo.FindPaymentIntentByKey(ctx, idempotencyKey); err == nil {
+			return &payment.ChargeResponse{Reference: *existing.ProviderRef}, nil
+		}
+	}
+
 	ref := uuid.NewString()
 	intent := model.PaymentIntent{
-		ID:          uuid.New(),
-		UserID:      pl.CreatorID,
-		AmountKobo:  pl.AmountKobo,
-		Provider:    s.provider.Name(),
-		Status:      "pending",
-		ProviderRef: &ref,
+		ID:             uuid.New(),
+		UserID:         pl.CreatorID,
+		AmountKobo:     pl.AmountKobo,
+		Provider:       s.provider.Name(),
+		Status:         "pending",
+		IdempotencyKey: idempotencyKey,
+		ProviderRef:    &ref,
 	}
 	if err := s.repo.CreatePaymentIntent(ctx, &intent); err != nil {
 		return nil, err
