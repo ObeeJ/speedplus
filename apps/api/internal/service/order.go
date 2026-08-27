@@ -871,21 +871,31 @@ func (s *OrderService) ListForCustomer(ctx context.Context, customerID uuid.UUID
 
 // ReceiptResponse is the full invoice view of a completed order.
 type ReceiptResponse struct {
-	OrderID       string             `json:"orderId"`
-	Vertical      string             `json:"vertical"`
-	Status        string             `json:"status"`
-	PaymentMethod string             `json:"paymentMethod"`
-	Items         []model.OrderItem  `json:"items"`
-	SubtotalKobo  int64              `json:"subtotalKobo"`
-	DeliveryKobo  int64              `json:"deliveryKobo"`
-	ServiceKobo   int64              `json:"serviceKobo"`
-	TipKobo       int64              `json:"tipKobo"`
-	TotalKobo     int64              `json:"totalKobo"`
-	MerchantName  string             `json:"merchantName"`
-	DriverName    string             `json:"driverName,omitempty"`
-	CreatedAt     string             `json:"createdAt"`
-	DeliveredAt   *string            `json:"deliveredAt,omitempty"`
-	Review        *model.OrderReview `json:"review,omitempty"`
+	OrderID       string              `json:"orderId"`
+	Vertical      string              `json:"vertical"`
+	Status        string              `json:"status"`
+	PaymentMethod string              `json:"paymentMethod"`
+	Items         []ReceiptItemView   `json:"items"`
+	SubtotalKobo  int64               `json:"subtotalKobo"`
+	DeliveryKobo  int64               `json:"deliveryKobo"`
+	ServiceKobo   int64               `json:"serviceKobo"`
+	TipKobo       int64               `json:"tipKobo"`
+	TotalKobo     int64               `json:"totalKobo"`
+	MerchantName  string              `json:"merchantName"`
+	DriverName    string              `json:"driverName,omitempty"`
+	CreatedAt     string              `json:"createdAt"`
+	DeliveredAt   *string             `json:"deliveredAt,omitempty"`
+	Review        *model.OrderReview  `json:"review,omitempty"`
+}
+
+// ReceiptItemView is the camelCase-tagged projection of model.OrderItem for
+// the receipt endpoint. model.OrderItem has no json tags (GORM convention),
+// so embedding it directly serialises as PascalCase — breaking the frontend.
+type ReceiptItemView struct {
+	Name          string `json:"name"`
+	Quantity      int    `json:"quantity"`
+	UnitPriceKobo int64  `json:"unitPriceKobo"`
+	TotalKobo     int64  `json:"totalKobo"`
 }
 
 // GetReceipt returns the full invoice for an order the caller owns.
@@ -927,7 +937,18 @@ func (s *OrderService) GetReceipt(ctx context.Context, orderID, customerID uuid.
 		Vertical:      order.Vertical,
 		Status:        string(order.Status),
 		PaymentMethod: order.PaymentMethod,
-		Items:         order.Items,
+		Items: func() []ReceiptItemView {
+			views := make([]ReceiptItemView, len(order.Items))
+			for i, it := range order.Items {
+				views[i] = ReceiptItemView{
+					Name:          it.Name,
+					Quantity:      it.Quantity,
+					UnitPriceKobo: it.UnitPriceKobo,
+					TotalKobo:     it.TotalKobo,
+				}
+			}
+			return views
+		}(),
 		SubtotalKobo:  order.SubtotalKobo,
 		DeliveryKobo:  order.DeliveryKobo,
 		ServiceKobo:   order.ServiceKobo,

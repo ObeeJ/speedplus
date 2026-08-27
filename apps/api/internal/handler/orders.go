@@ -161,8 +161,9 @@ func (h *OrderHandler) Create(c *gin.Context) {
 		}
 		return
 	}
-
-	c.JSON(http.StatusCreated, successResp(order))
+	// Return the DTO shape (camelCase Money fields) so the frontend Order type
+	// matches. model.Order has no json tags and serialises as PascalCase.
+	c.JSON(http.StatusCreated, successResp(h.orders.ToResponse(c.Request.Context(), order)))
 }
 
 func (h *OrderHandler) GetByID(c *gin.Context) {
@@ -303,7 +304,14 @@ func (h *OrderHandler) List(c *gin.Context) {
 		internalError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, successResp(gin.H{"orders": orders}))
+	// Project through DTO so money fields serialise as {amount, currency}
+	// matching the frontend Order type. model.Order has no json tags.
+	ctx := c.Request.Context()
+	resps := make([]interface{}, len(orders))
+	for i := range orders {
+		resps[i] = h.orders.ToResponse(ctx, &orders[i])
+	}
+	c.JSON(http.StatusOK, successResp(gin.H{"orders": resps}))
 }
 
 // Receipt — GET /orders/:id/receipt

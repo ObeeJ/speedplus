@@ -89,7 +89,14 @@ func (h *MerchantHandler) ListOrders(c *gin.Context) {
 		internalError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, successResp(gin.H{"orders": orders}))
+	// Project through DTO so money fields serialise as {amount, currency}
+	// matching the frontend MerchantOrder type. model.Order has no json tags.
+	ctx := c.Request.Context()
+	resps := make([]interface{}, len(orders))
+	for i := range orders {
+		resps[i] = h.orders.ToResponse(ctx, &orders[i])
+	}
+	c.JSON(http.StatusOK, successResp(gin.H{"orders": resps}))
 }
 
 // TransitionOrder — POST /merchant/orders/:id/transition {to: "confirmed"|"preparing"|"ready_for_pickup"|"cancelled"}
