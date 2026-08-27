@@ -15,11 +15,24 @@ import (
 // Set failClosed=true for auth/OTP endpoints to prevent brute-force during Redis outages.
 func RateLimit(rdb *redis.Client, routeKey string, limit int, window time.Duration, failClosed ...bool) gin.HandlerFunc {
 	closed := len(failClosed) > 0 && failClosed[0]
+	// Lua script: atomically increment and set TTL only on first call.
+	// KEYS[1] = rate-limit key, ARGV[1] = window seconds.
+	// Returns the new counter value.
+	// Using a script eliminates the race between INCR and EXPIRE: if the
+	// process dies after INCR but before EXPIRE the key would have no TTL
+	// and permanently lock out the IP.
+	const luaIncr = `
+local v = redis.call('INCR', KEYS[1])
+if v == 1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+return v
+`
 	return func(c *gin.Context) {
 		key := fmt.Sprintf("rl:%s:%s", routeKey, c.ClientIP())
 		ctx := c.Request.Context()
 
-		count, err := rdb.Incr(ctx, key).Result()
+		res, err := rdb.Eval(ctx, luaIncr, []string{key}, int(window.Seconds())).Int64()
 		if err != nil {
 			if closed {
 				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
@@ -27,13 +40,10 @@ func RateLimit(rdb *redis.Client, routeKey string, limit int, window time.Durati
 				})
 				return
 			}
-			// fail open for non-critical endpoints
 			c.Next()
 			return
 		}
-		if count == 1 {
-			rdb.Expire(ctx, key, window)
-		}
+		count := res
 
 		c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
 		remaining := int64(limit) - count

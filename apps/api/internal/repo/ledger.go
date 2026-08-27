@@ -267,9 +267,16 @@ func (r *ledgerRepo) FindPaymentIntentByKey(ctx context.Context, key string) (*m
 
 func (r *ledgerRepo) LockPaymentIntentByRef(ctx context.Context, tx *gorm.DB, providerRef string) (*model.PaymentIntent, error) {
 	var i model.PaymentIntent
+	// Do NOT filter on status='pending'. The caller must distinguish
+	// "no intent exists" (race — retry) from "intent already settled"
+	// (genuine replay — ack). Filtering on pending collapses both into
+	// ErrRecordNotFound and makes them indistinguishable, causing the
+	// webhook processor to force a provider retry on every replay of a
+	// settled payment, rolling back the dedup row each time and
+	// eventually double-crediting the wallet.
 	err := tx.WithContext(ctx).
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("provider_ref = ? AND status = 'pending'", providerRef).
+		Where("provider_ref = ?", providerRef).
 		First(&i).Error
 	return &i, err
 }

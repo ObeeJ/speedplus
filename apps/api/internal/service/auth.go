@@ -161,16 +161,14 @@ func (s *AuthService) Register(ctx context.Context, in RegisterInput) (*model.Us
 	}
 
 	// Wire referral link if a valid code was supplied.
+	// Synchronous: this is a local DB write with no external calls.
+	// A goroutine here loses the referral silently on any failure with no
+	// retry path, and runs outside the caller's context.
 	if referralCode != "" && s.referrals != nil {
 		if referrer, err := s.repo.FindByReferralCode(ctx, referralCode); err == nil {
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						slog.Error("referral record goroutine panic", "panic", r)
-					}
-				}()
-				_ = s.referrals.Record(context.Background(), user.ID, referrer.ID)
-			}()
+			if recErr := s.referrals.Record(ctx, user.ID, referrer.ID); recErr != nil {
+				slog.WarnContext(ctx, "referral record failed", "error", recErr, "user_id", user.ID)
+			}
 		}
 	}
 

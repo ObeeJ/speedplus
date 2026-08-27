@@ -524,7 +524,8 @@ func (s *WalletService) WeeklyAutoPayout(ctx context.Context) error {
 			continue
 		}
 
-		key := fmt.Sprintf("weekly-payout:%s:%s", driverID, time.Now().Format("2006-W01"))
+		isoYear, isoWeek := time.Now().ISOWeek()
+		key := fmt.Sprintf("weekly-payout:%s:%d-W%02d", driverID, isoYear, isoWeek)
 		if err := s.EWACashout(ctx, driverID, total, key); err != nil {
 			observability.CaptureError(ctx, err, "weekly payout failed", "driver_id", driverID.String())
 			continue
@@ -699,16 +700,22 @@ func (s *WalletService) ReverseCashout(ctx context.Context, cashout *model.Casho
 		}
 
 		// Determine which wallet to credit back
-		var ownerID uuid.UUID
+		var wallet *model.LedgerAccount
 		if cashout.ActorType == "merchant" && cashout.MerchantID != nil {
-			ownerID = *cashout.MerchantID
+			// EnsureMerchantWallet resolves merchants.id → user_id before
+			// touching ledger_accounts. Passing merchantID directly to
+			// EnsureWallet violates the FK on ledger_accounts.owner_id → users(id).
+			var walletErr error
+			wallet, walletErr = s.ledger.EnsureMerchantWallet(ctx, tx, *cashout.MerchantID)
+			if walletErr != nil {
+				return fmt.Errorf("reverse cashout: merchant wallet: %w", walletErr)
+			}
 		} else {
-			ownerID = cashout.DriverID
-		}
-
-		wallet, err := s.ledger.EnsureWallet(ctx, tx, ownerID)
-		if err != nil {
-			return fmt.Errorf("reverse cashout: wallet: %w", err)
+			var walletErr error
+			wallet, walletErr = s.ledger.EnsureWallet(ctx, tx, cashout.DriverID)
+			if walletErr != nil {
+				return fmt.Errorf("reverse cashout: wallet: %w", walletErr)
+			}
 		}
 		revenueAcct, err := s.ledger.platformAccount(ctx, tx, model.AccountRevenue)
 		if err != nil {

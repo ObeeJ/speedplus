@@ -11,12 +11,17 @@ import (
 )
 
 type OrderHandler struct {
-	orders *service.OrderService
+	orders   *service.OrderService
+	merchant *service.MerchantService
 }
 
 func NewOrderHandler(orders *service.OrderService) *OrderHandler {
 	return &OrderHandler{orders: orders}
 }
+
+// InjectMerchant wires MerchantService after construction so GetByID can
+// resolve merchants.id from the JWT user ID for the merchant role.
+func (h *OrderHandler) InjectMerchant(m *service.MerchantService) { h.merchant = m }
 
 func (h *OrderHandler) Create(c *gin.Context) {
 	idempotencyKey := c.GetHeader("Idempotency-Key")
@@ -169,6 +174,17 @@ func (h *OrderHandler) GetByID(c *gin.Context) {
 
 	requesterID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
 	requesterRole := c.GetString(middleware.CtxUserRole)
+
+	// For the merchant role, order.MerchantID is a merchants.id (not users.id).
+	// Resolve the merchant entity ID from the JWT user ID before the ownership check.
+	if requesterRole == "merchant" && h.merchant != nil {
+		merchant, err := h.merchant.ResolveByUserID(c.Request.Context(), requesterID)
+		if err != nil {
+			c.JSON(http.StatusForbidden, errResp("FORBIDDEN", "Merchant profile not found", ""))
+			return
+		}
+		requesterID = merchant.ID
+	}
 
 	order, err := h.orders.GetByID(c.Request.Context(), orderID, requesterID, requesterRole)
 	if err != nil {

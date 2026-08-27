@@ -63,6 +63,18 @@ func Idempotency(rdb *redis.Client, ttl time.Duration, strict ...bool) gin.Handl
 		// Idempotency-Key value can't collide (cross-user cached response leak).
 		// All idempotency-protected routes sit behind Auth, so CtxUserID is set.
 		userID := c.GetString(CtxUserID)
+		if userID == "" {
+			// Idempotency middleware must sit behind Auth. An empty userID means
+			// Auth has not run yet — all callers would share the same key namespace,
+			// letting any user replay another user's cached response.
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+				"error": gin.H{
+					"code":    "INTERNAL_ERROR",
+					"message": "An unexpected error occurred",
+				},
+			})
+			return
+		}
 		redisKey := "idem:" + userID + ":" + key
 		ctx := c.Request.Context()
 

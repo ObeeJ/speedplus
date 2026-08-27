@@ -331,32 +331,17 @@ func (s *LedgerService) Settle(ctx context.Context, tx *gorm.DB, order *model.Or
 	// within this same balanced journal.
 	var shortfallRefundKobo int64
 	if order.Vertical == "gas" {
-		orderedKg := gasOrderedKg // already loaded and plausibility-checked above
-		if orderedKg > 0 {
-			shortKg := orderedKg - gasMeasuredKg
-			if shortKg > orderedKg*shortfallTolerance {
-				// price per kg = subtotal / orderedKg. In new_cylinder mode
-				// the subtotal includes the cylinder body, not just the
-				// gas fill, so subtotal/kg overstates ₦/kg — price off the
-				// LPG index instead when one is available.
-				pricePerKg := float64(order.SubtotalKobo) / orderedKg
-				if order.GasMode != nil && *order.GasMode == "new_cylinder" {
-					lpgPriceKobo, err := s.liveLPGPriceKobo(ctx, tx, "Lagos")
-					if err != nil {
-						return fmt.Errorf("settle: lpg price: %w", err)
-					}
-					if lpgPriceKobo > 0 {
-						pricePerKg = float64(lpgPriceKobo)
-					}
-				}
-				shortfallRefundKobo = int64(shortKg * pricePerKg)
-				// Cap at merchant's share — never go negative
-				if shortfallRefundKobo > merchantShareKobo {
-					shortfallRefundKobo = merchantShareKobo
-				}
-				merchantShareKobo -= shortfallRefundKobo
-			}
+		orderedKg := gasOrderedKg
+		var sfErr error
+		shortfallRefundKobo, sfErr = s.shortfallRefundKobo(ctx, tx, order, gasMeasuredKg, orderedKg)
+		if sfErr != nil {
+			return fmt.Errorf("settle: shortfall: %w", sfErr)
 		}
+		// Cap at merchant's share — never go negative
+		if shortfallRefundKobo > merchantShareKobo {
+			shortfallRefundKobo = merchantShareKobo
+		}
+		merchantShareKobo -= shortfallRefundKobo
 	}
 
 	platformTotal := (order.SubtotalKobo - merchantShareKobo) + (order.DeliveryKobo - driverEarningKobo) + order.ServiceKobo
@@ -517,6 +502,7 @@ func (s *LedgerService) shortfallRefundKobo(ctx context.Context, tx *gorm.DB, or
 	}
 	pricePerKg := float64(order.SubtotalKobo) / orderedKg
 	if order.GasMode != nil && *order.GasMode == "new_cylinder" {
+		// TODO: replace "Lagos" with order.Region once the field is added to the Order model.
 		lpgPriceKobo, err := s.liveLPGPriceKobo(ctx, tx, "Lagos")
 		if err != nil {
 			return 0, err
@@ -532,7 +518,12 @@ func (s *LedgerService) shortfallRefundKobo(ctx context.Context, tx *gorm.DB, or
 
 func (s *LedgerService) ProcessCancellationRefund(ctx context.Context, tx *gorm.DB, order *model.Order) error {
 	rule, err := s.repo.FindCancellationRule(ctx, order.Vertical, string(order.Status))
-	if err != nil || rule.FullRefund {
+	if err != nil {
+		// A DB error must not silently trigger a full refund. Log and fail closed.
+		// The caller's transaction will roll back; the operator must retry.
+		return fmt.Errorf("cancellation refund: load rule for vertical=%s status=%s: %w", order.Vertical, order.Status, err)
+	}
+	if rule.FullRefund {
 		return s.fullRefund(ctx, tx, order)
 	}
 

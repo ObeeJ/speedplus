@@ -227,6 +227,7 @@ func main() {
 	usersH := handler.NewUsersHandler(userRepo)
 	kycH := handler.NewKYCHandler(kycSvc)
 	orderH := handler.NewOrderHandler(orderSvc)
+	orderH.InjectMerchant(merchantSvc)
 	proofMediaH := handler.NewProofMediaHandler(proofMediaSvc)
 	walletH := handler.NewWalletHandler(walletSvc, ledgerSvc, userRepo)
 	if cfg.BridgeEnabled && cfg.BridgeAPIKey != "" {
