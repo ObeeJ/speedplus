@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { SpeedPlusLogo } from '@speedplus/ui';
 
 // ── Area ticker ───────────────────────────────────────────────────────────────
-const AREAS = ['Lekki', 'Ikeja', 'Surulere', 'Yaba', 'Ajah', 'VI', 'Ikoyi'];
+const AREAS = ['in your hands.', 'at your door.', 'confirmed by you.', 'with you.'];
 
 // ── Area ticker component ─────────────────────────────────────────────────────
 function AreaTicker() {
@@ -40,9 +40,9 @@ function AreaTicker() {
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
 const STATS = [
-  { value: 'Same day', label: 'delivery, always' },
-  { value: 'No queue', label: 'order from your phone' },
-  { value: 'Pay easy', label: 'wallet or card' },
+  { value: 'You stay in control', label: 'of your money' },
+  { value: 'Pay when it arrives', label: 'not before' },
+  { value: 'Gas, meds, packages', label: 'all in one place' },
 ];
 
 // ── Services ──────────────────────────────────────────────────────────────────
@@ -138,7 +138,7 @@ export default function LandingPage() {
             playsInline
             preload="metadata"
             className="w-full h-full object-cover"
-            style={{ opacity: 0.2, mixBlendMode: 'luminosity' }}
+            style={{ opacity: 0.07, mixBlendMode: 'luminosity' }}
           />
           {/* Solid dark wash — no multi-stop gradient */}
           <div className="absolute inset-0" style={{ background: 'rgba(8,15,10,0.52)' }} />
@@ -152,29 +152,20 @@ export default function LandingPage() {
         {/* Content */}
         <div className="relative z-10 flex flex-col flex-1 items-center text-center px-6 pt-12 pb-16 lg:pt-24 w-full max-w-4xl mx-auto">
 
-          {/* Location tag */}
-          <div className="flex items-center justify-center mb-8 animate-fade-up">
-            <span
-              className="text-[11px] font-semibold tracking-[0.1em] uppercase px-3 py-1.5 rounded border"
-              style={{ color: 'rgba(198,242,78,0.7)', borderColor: 'rgba(198,242,78,0.2)', background: 'rgba(198,242,78,0.06)' }}
-            >
-              Now in Lagos
-            </span>
-          </div>
-
           {/* Headline */}
           <h1
             className="font-display font-bold text-white leading-[1.03] tracking-tight animate-fade-up-1 text-center"
             style={{ fontSize: 'clamp(38px, 7.5vw, 76px)' }}
           >
-            Gas. Meds. Packages.
+            You pay only
             <br />
+            <span style={{ color: 'rgba(255,255,255,0.28)' }}>when it is </span>
             <AreaTicker />
           </h1>
 
           {/* Body */}
           <p className="mt-5 text-[15px] leading-relaxed max-w-sm mx-auto animate-fade-up-2" style={{ color: 'rgba(255,255,255,0.4)', fontFamily: 'var(--font-body)' }}>
-            Order cooking gas, medicine, or send a package — we pick it up and bring it to you. No app download needed.
+            Gas, medicine and packages delivered across Lagos. You only pay when your order is in your hands.
           </p>
 
           {/* CTAs */}
