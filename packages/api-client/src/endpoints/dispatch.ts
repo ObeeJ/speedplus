@@ -2,6 +2,12 @@ import { apiClient } from '../client';
 import type { ApiResponse } from '@speedplus/types';
 
 export const dispatchApi = {
+  async setOnline(online: boolean) {
+    const { data } = await apiClient.patch<ApiResponse<{ message: string }>>('/drivers/online', { online });
+    if (!data.success) throw new Error(data.error.message);
+    return data.data;
+  },
+
   async updateLocation(lat: number, lng: number) {
     const { data } = await apiClient.post<ApiResponse<{ message: string }>>('/drivers/location', { lat, lng });
     if (!data.success) throw new Error(data.error.message);

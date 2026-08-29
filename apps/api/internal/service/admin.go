@@ -64,6 +64,9 @@ func (s *AdminService) SetMerchantStatus(ctx context.Context, merchantID, adminI
 		if err := s.repo.SaveMerchantProfileTx(ctx, tx, mp); err != nil {
 			return err
 		}
+		if err := s.repo.UpdateMerchantStatusByUserIDTx(ctx, tx, mp.UserID, mp.Status); err != nil {
+			return err
+		}
 		return s.repo.CreateAuditLogTx(ctx, tx, &model.AdminAuditLog{
 			ID:         uuid.New(),
 			AdminID:    adminID,

@@ -145,6 +145,10 @@ func (s *DispatchService) UpdateLocation(ctx context.Context, driverID uuid.UUID
 	return s.repo.UpsertDriverLocation(ctx, driverID, lat, lng, heading)
 }
 
+func (s *DispatchService) SetOnline(ctx context.Context, driverID uuid.UUID, online bool) error {
+	return s.repo.SetDriverOnline(ctx, driverID, online)
+}
+
 func (s *DispatchService) ExpireOffers(ctx context.Context) error {
 	return s.repo.ExpireStaleOffers(ctx)
 }
@@ -155,6 +159,19 @@ func (s *DispatchService) RejectOffer(ctx context.Context, offerID, driverID uui
 
 func (s *DispatchService) ManualAssign(ctx context.Context, orderID, driverID uuid.UUID) error {
 	return s.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		// Advisory lock serializes concurrent ManualAssign calls for this driver
+		// so the active-order check below can't race with another assignment
+		// that hasn't committed yet (TOCTOU double-booking).
+		if err := s.repo.LockDriverForAssignmentTx(ctx, tx, driverID); err != nil {
+			return fmt.Errorf("double-booking check: %w", err)
+		}
+		hasActive, err := s.repo.HasActiveOrderTx(ctx, tx, driverID)
+		if err != nil {
+			return fmt.Errorf("double-booking check: %w", err)
+		}
+		if hasActive {
+			return fmt.Errorf("driver already has an active delivery")
+		}
 		order, err := s.repo.LockOrderTx(ctx, tx, orderID)
 		if err != nil {
 			return err

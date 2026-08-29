@@ -4,8 +4,8 @@ import type { ApiResponse } from '@speedplus/types';
 export const kycApi = {
   async submitBVN(bvn: string) {
     const { data } = await apiClient.post<ApiResponse<{ status: string }>>('/kyc/check', {
-      type: 'bvn',
-      value: bvn,
+      docType: 'bvn',
+      params: { bvn },
     });
     if (!data.success) throw new Error(data.error.message);
     return data.data;
@@ -13,8 +13,8 @@ export const kycApi = {
 
   async submitNIN(nin: string) {
     const { data } = await apiClient.post<ApiResponse<{ status: string }>>('/kyc/check', {
-      type: 'nin',
-      value: nin,
+      docType: 'nin',
+      params: { nin },
     });
     if (!data.success) throw new Error(data.error.message);
     return data.data;

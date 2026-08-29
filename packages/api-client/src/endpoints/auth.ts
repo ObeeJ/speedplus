@@ -2,7 +2,7 @@ import type { ApiResponse, User } from '@speedplus/types';
 import { apiClient, setAuthToken, setRefreshToken } from '../client';
 
 interface LoginPayload { phone: string; password: string }
-interface RegisterPayload { firstName: string; lastName: string; phone: string; password: string; referralCode?: string }
+interface RegisterPayload { firstName: string; lastName: string; phone: string; password: string; referralCode?: string; role?: 'customer' | 'driver' | 'merchant'; vehicleType?: string; vehiclePlate?: string }
 interface AuthTokens { accessToken: string; refreshToken: string; user: User }
 
 export const authApi = {

@@ -1,11 +1,11 @@
 import type { Metadata, Viewport } from 'next';
-import { Instrument_Sans, Space_Grotesk } from 'next/font/google';
+import { Instrument_Sans, DM_Sans } from 'next/font/google';
 import { Providers } from './providers';
 import { AuthGuard } from './components/auth-guard';
 import './globals.css';
 
 const instrumentSans = Instrument_Sans({ subsets: ['latin'], variable: '--font-body', display: 'swap' });
-const spaceGrotesk = Space_Grotesk({
+const dmSans = DM_Sans({
   subsets: ['latin'],
   variable: '--font-display',
   weight: ['400', '500', '600', '700'],
@@ -21,7 +21,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${instrumentSans.variable} ${spaceGrotesk.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${instrumentSans.variable} ${dmSans.variable}`} suppressHydrationWarning>
       <body>
         <Providers>
           <AuthGuard>{children}</AuthGuard>

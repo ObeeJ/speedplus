@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Skeleton } from '@speedplus/ui';
@@ -30,6 +30,11 @@ export default function GasPricePage() {
   const { cylinder, mode, deliverToId, deliverToAddress, quote, setQuote, setOrderId } = useGasFlowStore();
   const requestQuote = useRequestQuote();
   const createOrder = useCreateOrder();
+  // Stable per mount — regenerated only when the component unmounts and remounts
+  // (i.e. the user navigates away and back, starting a fresh checkout attempt).
+  // Calling crypto.randomUUID() inline in handleConfirm would generate a new key
+  // on every button press, defeating idempotency on slow-connection double-taps.
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
 
   // Live LPG price index — subtotal must come from the backend, not hard-coded constants.
   const { data: lpgPrice, isLoading: lpgLoading, isError: lpgError } = useQuery({
@@ -73,7 +78,7 @@ export default function GasPricePage() {
           deliveryAddressId: deliverToId,
           paymentMethod: 'wallet',
         },
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey,
       },
       {
         onSuccess: (order) => {

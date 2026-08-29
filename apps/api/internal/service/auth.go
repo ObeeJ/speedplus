@@ -45,6 +45,7 @@ type Claims struct {
 
 type AuthService struct {
 	repo       repo.UserRepo
+	merchants  repo.MerchantRepo
 	cfg        *config.Config
 	onboarding ports.OnboardingRunner
 	email      emailSender
@@ -67,6 +68,12 @@ type emailSender interface {
 
 func NewAuthService(r repo.UserRepo, cfg *config.Config, onboarding ports.OnboardingRunner, email emailSender) *AuthService {
 	return &AuthService{repo: r, cfg: cfg, onboarding: onboarding, email: email}
+}
+
+// InjectMerchantRepo wires the merchant repo so Register can create the
+// operational Merchant row for role=merchant signups.
+func (s *AuthService) InjectMerchantRepo(m repo.MerchantRepo) {
+	s.merchants = m
 }
 
 // InjectWhatsApp wires the WhatsApp notifier for OTP delivery to phone-only users.
@@ -157,6 +164,18 @@ func (s *AuthService) Register(ctx context.Context, in RegisterInput) (*model.Us
 			VehiclePlate: in.VehiclePlate,
 		}); err != nil {
 			return nil, "", "", fmt.Errorf("create driver profile: %w", err)
+		}
+	}
+
+	// Merchant row is created synchronously so every merchant endpoint that
+	// resolves via Merchant.ID (orders, catalog, wallet) works immediately.
+	if role == model.RoleMerchant && s.merchants != nil {
+		if err := s.merchants.CreateMerchant(ctx, &model.Merchant{
+			ID:     uuid.New(),
+			UserID: user.ID,
+			Status: model.MerchantPending,
+		}); err != nil {
+			return nil, "", "", fmt.Errorf("create merchant: %w", err)
 		}
 	}
 

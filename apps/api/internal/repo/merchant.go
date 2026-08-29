@@ -9,6 +9,7 @@ import (
 )
 
 type MerchantRepo interface {
+	CreateMerchant(ctx context.Context, m *model.Merchant) error
 	FindByUserID(ctx context.Context, userID uuid.UUID) (*model.Merchant, error)
 	FindProfileByUserID(ctx context.Context, userID uuid.UUID) (*model.MerchantProfile, error)
 	SetOpen(ctx context.Context, merchantID uuid.UUID, isOpen bool) error
@@ -19,6 +20,10 @@ type MerchantRepo interface {
 type merchantRepo struct{ db *gorm.DB }
 
 func NewMerchantRepo(db *gorm.DB) MerchantRepo { return &merchantRepo{db: db} }
+
+func (r *merchantRepo) CreateMerchant(ctx context.Context, m *model.Merchant) error {
+	return r.db.WithContext(ctx).Create(m).Error
+}
 
 func (r *merchantRepo) FindByUserID(ctx context.Context, userID uuid.UUID) (*model.Merchant, error) {
 	var m model.Merchant

@@ -288,10 +288,13 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 
 	var order *model.Order
 	err = s.orders.Transaction(ctx, func(tx *gorm.DB) error {
-		// Check merchant is open + KYC approved
+		// Check merchant is open + not suspended + KYC approved
 		merchant, err := s.orders.FindMerchant(ctx, in.MerchantID)
 		if err != nil {
 			return fmt.Errorf("merchant not found")
+		}
+		if merchant.Status != model.MerchantActive {
+			return fmt.Errorf("merchant is not active")
 		}
 		if !merchant.IsOpen {
 			return ErrMerchantClosed

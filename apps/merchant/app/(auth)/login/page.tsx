@@ -123,6 +123,11 @@ export default function MerchantLoginPage() {
         >
           Sign in to Partner Portal
         </Button>
+
+        <p className="text-center text-sm text-mid mt-4">
+          New merchant?{' '}
+          <a href="/signup" className="font-semibold text-emerald hover:underline">Create an account</a>
+        </p>
       </form>
     </AuthShell>
   );

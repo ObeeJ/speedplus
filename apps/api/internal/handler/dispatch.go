@@ -18,6 +18,22 @@ func NewDispatchHandler(dispatch *service.DispatchService) *DispatchHandler {
 	return &DispatchHandler{dispatch: dispatch}
 }
 
+func (h *DispatchHandler) SetOnline(c *gin.Context) {
+	var req struct {
+		Online bool `json:"online"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.Fail("VALIDATION_ERROR", "Invalid request body", ""))
+		return
+	}
+	driverID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	if err := h.dispatch.SetOnline(c.Request.Context(), driverID, req.Online); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.Fail("INTERNAL_ERROR", "An unexpected error occurred", ""))
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(dto.MessageResponse{Message: "status updated"}))
+}
+
 func (h *DispatchHandler) UpdateLocation(c *gin.Context) {
 	var req struct {
 		Lat     float64  `json:"lat"     binding:"required"`

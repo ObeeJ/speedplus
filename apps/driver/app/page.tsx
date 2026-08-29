@@ -90,6 +90,8 @@ export default function DriverAppPage() {
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [cashoutLoading, setCashoutLoading] = useState(false);
   const [cashoutDone, setCashoutDone] = useState(false);
+  // Stable per mount — prevents double-payout on retry after a timeout.
+  const [cashoutKey] = useState(() => `cashout-${crypto.randomUUID()}`);
   const [emptyCollected, setEmptyCollected] = useState(false);
   const [emptyCylinderSerial, setEmptyCylinderSerial] = useState('');
 
@@ -139,18 +141,40 @@ export default function DriverAppPage() {
   const activeOrderId = activeJob?.orderId;
   useEffect(() => {
     if (!activeOrderId) return;
-    const ws = new WebSocket(buildWsUrl(), buildWsProtocols());
-    ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', channel: `order:${activeOrderId}` }));
-    ws.onmessage = (evt) => {
-      try {
-        const msg = JSON.parse(evt.data as string) as { event: string };
-        if (msg.event === 'order_cancelled') {
-          clearJob();
-          setTab('home');
-        }
-      } catch { /* ignore */ }
+    let ws: WebSocket;
+    let retryTimeout: ReturnType<typeof setTimeout>;
+    let attempt = 0;
+    let destroyed = false;
+
+    function connect() {
+      ws = new WebSocket(buildWsUrl(), buildWsProtocols());
+      ws.onopen = () => {
+        attempt = 0;
+        ws.send(JSON.stringify({ action: 'subscribe', channel: `order:${activeOrderId}` }));
+      };
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data as string) as { event: string };
+          if (msg.event === 'order_cancelled') {
+            clearJob();
+            setTab('home');
+          }
+        } catch { /* ignore */ }
+      };
+      ws.onclose = () => {
+        if (destroyed) return;
+        const delay = Math.min(1000 * 2 ** attempt, 30_000);
+        attempt++;
+        retryTimeout = setTimeout(connect, delay);
+      };
+    }
+
+    connect();
+    return () => {
+      destroyed = true;
+      clearTimeout(retryTimeout);
+      ws?.close();
     };
-    return () => ws.close();
   }, [activeOrderId, clearJob, setTab]);
 
   // Location updates when online
@@ -171,31 +195,50 @@ export default function DriverAppPage() {
     return () => { if (locationRef.current) clearInterval(locationRef.current); };
   }, [online, sendLocation]);
 
-  // WS connection for offer push
+  // WS connection for offer push — reconnects with exponential backoff on drop.
   useEffect(() => {
-    const ws = new WebSocket(buildWsUrl(), buildWsProtocols());
-    wsRef.current = ws;
+    let ws: WebSocket;
+    let retryTimeout: ReturnType<typeof setTimeout>;
+    let attempt = 0;
+    let destroyed = false;
 
-    ws.onmessage = (evt) => {
-      try {
-        const msg = JSON.parse(evt.data as string) as { event: string; data: Record<string, unknown> };
-        if (msg.event === 'new_offer') {
-          setPendingOffer({
-            offerId: msg.data.offerId as string,
-            orderId: msg.data.orderId as string,
-            vertical: msg.data.vertical as string,
-            totalKobo: msg.data.totalKobo as number,
-            pickupAddress: (msg.data.pickupAddress as string) ?? 'Pickup address',
-            dropoffAddress: (msg.data.dropoffAddress as string) ?? 'Drop-off address',
-            distanceKm: (msg.data.distanceKm as number) ?? 0,
-          });
-        }
-      } catch {
-        // ignore malformed
-      }
+    function connect() {
+      ws = new WebSocket(buildWsUrl(), buildWsProtocols());
+      wsRef.current = ws;
+
+      ws.onopen = () => { attempt = 0; };
+
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data as string) as { event: string; data: Record<string, unknown> };
+          if (msg.event === 'new_offer') {
+            setPendingOffer({
+              offerId: msg.data.offerId as string,
+              orderId: msg.data.orderId as string,
+              vertical: msg.data.vertical as string,
+              totalKobo: msg.data.totalKobo as number,
+              pickupAddress: (msg.data.pickupAddress as string) ?? 'Pickup address',
+              dropoffAddress: (msg.data.dropoffAddress as string) ?? 'Drop-off address',
+              distanceKm: (msg.data.distanceKm as number) ?? 0,
+            });
+          }
+        } catch { /* ignore malformed */ }
+      };
+
+      ws.onclose = () => {
+        if (destroyed) return;
+        const delay = Math.min(1000 * 2 ** attempt, 30_000);
+        attempt++;
+        retryTimeout = setTimeout(connect, delay);
+      };
+    }
+
+    connect();
+    return () => {
+      destroyed = true;
+      clearTimeout(retryTimeout);
+      ws?.close();
     };
-
-    return () => ws.close();
   }, [setPendingOffer]);
 
   async function handleAcceptOffer() {
@@ -315,19 +358,22 @@ export default function DriverAppPage() {
 
   async function handleToggleOnline() {
     const next = !online;
-    setOnline(next);
+    try {
+      await dispatchApi.setOnline(next);
+      setOnline(next);
+    } catch {
+      // revert on failure — don't let UI lie about online state
+    }
   }
 
   async function handleCashout() {
     if (!walletData || cashoutDone) return;
     setCashoutLoading(true);
     try {
-      // EWA cashout — full unpaid balance
-      const key = `cashout-${Date.now()}`;
-      await earningsApi.cashout(walletData.balanceKobo, key);
+      await earningsApi.cashout(walletData.balanceKobo, cashoutKey);
       setCashoutDone(true);
     } catch {
-      // show nothing — user can retry
+      // show nothing — user can retry; same key ensures server deduplication
     } finally {
       setCashoutLoading(false);
     }
@@ -339,7 +385,7 @@ export default function DriverAppPage() {
 
   return (
     <main className="min-h-screen flex justify-center p-3 min-[500px]:p-6 bg-sand">
-      <div className="w-full max-w-[430px] bg-sand rounded-3xl overflow-hidden shadow-[0_24px_60px_rgba(10,61,44,.18)] flex flex-col min-h-[780px]">
+      <div className="w-full max-w-[430px] bg-sand rounded-3xl overflow-hidden flex flex-col min-h-[780px]">
 
         {/* Header */}
         <div className="bg-emerald px-5 py-4 flex items-center gap-3">
@@ -365,7 +411,7 @@ export default function DriverAppPage() {
             {/* Offer card */}
             {showOffer && pendingOffer && (
               <div
-                className="animate-slide-down bg-emerald rounded-[18px] p-4 flex flex-col gap-3 shadow-[0_12px_30px_rgba(10,61,44,.3)]"
+                className="animate-slide-down bg-emerald rounded-[18px] p-4 flex flex-col gap-3 border border-emerald-600"
               >
                 <div className="flex items-center gap-2.5">
                   <span className="w-2 h-2 rounded-full bg-lime animate-pulse" />
@@ -675,6 +721,20 @@ export default function DriverAppPage() {
                 <span className="text-[11.5px] text-mid">Rider · SpeedPlus</span>
               </span>
             </div>
+
+            {/* KYC verification */}
+            <button
+              onClick={() => router.push('/kyc')}
+              className="w-full flex items-center justify-between bg-white border border-line rounded-2xl px-4 py-3.5 hover:border-emerald/40 transition-colors"
+            >
+              <span className="flex flex-col items-start gap-0.5">
+                <span className="text-[13px] font-semibold text-ink">Identity verification</span>
+                <span className="text-[11px] text-mid">Required to receive deliveries</span>
+              </span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9A968D" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
 
             {/* Badges */}
             {badgesData && badgesData.length > 0 && (

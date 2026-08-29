@@ -74,7 +74,7 @@
   --color-icon-accent:  #7BA05B;  /* icon olive accent stroke */
 
   /* Typography */
-  --font-display: 'Space Grotesk', sans-serif;  /* headings, buttons, numbers */
+  --font-display: 'DM Sans', sans-serif;       /* headings, buttons, numbers */
   --font-body:    'Instrument Sans', sans-serif; /* body, labels, captions */
 
   /* Radius */

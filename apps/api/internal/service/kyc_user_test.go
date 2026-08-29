@@ -88,6 +88,15 @@ func (r *kycUserRepo) FindMerchantProfileTx(_ context.Context, _ *gorm.DB, _ uui
 func (r *kycUserRepo) SaveMerchantProfileTx(_ context.Context, _ *gorm.DB, _ *model.MerchantProfile) error {
 	panic("unexpected")
 }
+func (r *kycUserRepo) UpdateMerchantStatusByUserIDTx(_ context.Context, _ *gorm.DB, _ uuid.UUID, _ model.MerchantStatus) error {
+	panic("unexpected")
+}
+func (r *kycUserRepo) LockDriverForAssignmentTx(_ context.Context, _ *gorm.DB, _ uuid.UUID) error {
+	panic("unexpected")
+}
+func (r *kycUserRepo) HasActiveOrderTx(_ context.Context, _ *gorm.DB, _ uuid.UUID) (bool, error) {
+	panic("unexpected")
+}
 func (r *kycUserRepo) AcceptOfferTx(_ context.Context, _ *gorm.DB, _, _ uuid.UUID) (int64, error) {
 	panic("unexpected")
 }
@@ -104,6 +113,12 @@ func (r *kycUserRepo) LockOrderTx(_ context.Context, _ *gorm.DB, _ uuid.UUID) (*
 	panic("unexpected")
 }
 func (r *kycUserRepo) SaveOrderTx(_ context.Context, _ *gorm.DB, _ *model.Order) error {
+	panic("unexpected")
+}
+func (r *kycUserRepo) SetDriverOnline(_ context.Context, _ uuid.UUID, _ bool) error {
+	panic("unexpected")
+}
+func (r *kycUserRepo) HasActiveOrder(_ context.Context, _ uuid.UUID) (bool, error) {
 	panic("unexpected")
 }
 

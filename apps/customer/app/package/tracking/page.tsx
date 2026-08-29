@@ -34,28 +34,47 @@ export default function PackageTrackingPage() {
   const [cancelError, setCancelError] = useState('');
   const [deliveryCode, setDeliveryCode] = useState<string | null>(null);
 
-  // WS listener for delivery code and real-time status updates
+  // WS listener for delivery code and real-time status updates — reconnects with backoff.
   useEffect(() => {
     if (!orderId) return;
-    const ws = new WebSocket(buildWsUrl(), buildWsProtocols());
-    ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', channel: `order:${orderId}` }));
-    ws.onmessage = (evt) => {
-      try {
-        const msg = JSON.parse(evt.data as string) as { event: string; data: { code?: string; status?: string } };
-        if (msg.event === 'delivery_code' && msg.data.code) setDeliveryCode(msg.data.code);
-        if (msg.event === 'order_status_changed' || msg.event === 'order_delivered' || msg.event === 'driver_assigned') {
-          // Invalidate the tracking query so it refetches immediately
-          void import('@tanstack/react-query').then(({ useQueryClient: _ }) => {});
-          // Force refetch by invalidating — simplest approach without importing qc here
-          window.dispatchEvent(new CustomEvent('speedplus:order_update', { detail: { orderId } }));
-        }
-        if (msg.event === 'order_cancelled') {
-          reset();
-          router.replace('/');
-        }
-      } catch { /* ignore */ }
+    let ws: WebSocket;
+    let retryTimeout: ReturnType<typeof setTimeout>;
+    let attempt = 0;
+    let destroyed = false;
+
+    function connect() {
+      ws = new WebSocket(buildWsUrl(), buildWsProtocols());
+      ws.onopen = () => {
+        attempt = 0;
+        ws.send(JSON.stringify({ action: 'subscribe', channel: `order:${orderId}` }));
+      };
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data as string) as { event: string; data: { code?: string; status?: string } };
+          if (msg.event === 'delivery_code' && msg.data.code) setDeliveryCode(msg.data.code);
+          if (msg.event === 'order_status_changed' || msg.event === 'order_delivered' || msg.event === 'driver_assigned') {
+            window.dispatchEvent(new CustomEvent('speedplus:order_update', { detail: { orderId } }));
+          }
+          if (msg.event === 'order_cancelled') {
+            reset();
+            router.replace('/');
+          }
+        } catch { /* ignore */ }
+      };
+      ws.onclose = () => {
+        if (destroyed) return;
+        const delay = Math.min(1000 * 2 ** attempt, 30_000);
+        attempt++;
+        retryTimeout = setTimeout(connect, delay);
+      };
+    }
+
+    connect();
+    return () => {
+      destroyed = true;
+      clearTimeout(retryTimeout);
+      ws?.close();
     };
-    return () => ws.close();
   }, [orderId, reset, router]);
 
   const stepIndex = order ? (STATUS_STEP[order.status] ?? 0) : 0;

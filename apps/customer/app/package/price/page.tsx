@@ -38,6 +38,8 @@ export default function PackagePricePage() {
   const requestMultiStopQuote = useRequestMultiStopQuote();
   const createOrder = useCreateOrder();
   const { data: walletData } = useWalletBalance();
+  // Stable per mount — see gas/price/page.tsx for the same pattern and rationale.
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
 
   const { data: trustTier } = useQuery({ queryKey: ['trust-tier'], queryFn: () => cardApi.getTrustTier(), staleTime: 60_000 });
   const canPayOnArrival = trustTier?.canPayOnArrival ?? false;
@@ -80,7 +82,7 @@ export default function PackagePricePage() {
           recipientPhone: !isMultiDrop ? recipientPhone || undefined : undefined,
           stops: isMultiDrop ? stops.map((s) => ({ sequence: s.sequence, addressId: s.address.id, recipientName: s.recipientName, recipientPhone: s.recipientPhone, notes: s.notes || undefined })) : undefined,
         },
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey,
       },
       {
         onSuccess: (order) => { setOrderId(order.id); router.push('/package/finding'); },

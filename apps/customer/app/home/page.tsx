@@ -122,13 +122,14 @@ export default function HomePage() {
   const [query, setQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const [activeOrder, setActiveOrder] = useState<{ id: string; vertical: string; status: string } | null>(null);
+  const [orderLoading, setOrderLoading] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     ordersApi.list({}).then((data) => {
       const active = data.orders.find((o) => ACTIVE_STATUSES.has(o.status));
       if (active) setActiveOrder({ id: active.id, vertical: active.vertical, status: active.status });
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => setOrderLoading(false));
   }, []);
 
   const intent = resolveIntent(query);
@@ -203,7 +204,7 @@ export default function HomePage() {
       >
         <form onSubmit={handleSearch}>
           <motion.div
-            className="flex items-center gap-3 rounded-2xl px-4 py-3.5 border"
+            className="flex items-center gap-3 rounded-xl px-4 py-3.5 border"
             animate={
               searchFocused
                 ? { borderColor: 'rgba(198,242,78,0.4)', backgroundColor: 'rgba(255,255,255,0.10)' }
@@ -287,37 +288,49 @@ export default function HomePage() {
       </motion.div>
 
       {/* ── Active order banner ───────────────────────────────────────────── */}
-      <AnimatePresence>
-        {activeOrder && (
-          <motion.div
-            className="px-5 pb-4"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ ...spring.smooth }}
+      {orderLoading ? (
+        <div className="px-5 pb-4">
+          <div
+            className="w-full h-[58px] rounded-2xl border border-white/[0.06]"
+            style={{ background: 'rgba(255,255,255,0.04)' }}
+            aria-hidden="true"
           >
-            <button
-              onClick={() => router.push(activeOrder.vertical === 'package' ? '/package/tracking' : '/orders')}
-              className="w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 border border-lime/20 hover:border-lime/40 transition-colors text-left"
-              style={{ background: 'rgba(198,242,78,0.06)' }}
+            <div className="h-full rounded-2xl animate-pulse" style={{ background: 'rgba(255,255,255,0.04)' }} />
+          </div>
+        </div>
+      ) : (
+        <AnimatePresence>
+          {activeOrder && (
+            <motion.div
+              className="px-5 pb-4"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ ...spring.smooth }}
             >
-              <span className="relative flex-shrink-0">
-                <span className="w-2 h-2 rounded-full bg-lime block" />
-                <span className="absolute inset-0 rounded-full bg-lime animate-ping opacity-60" />
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-semibold text-lime capitalize truncate">
-                  {activeOrder.vertical} delivery in progress
-                </p>
-                <p className="text-[11px] text-white/40 mt-0.5 capitalize">
-                  {activeOrder.status.replace(/_/g, ' ')} · tap to track
-                </p>
-              </div>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(198,242,78,0.6)" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              <button
+                onClick={() => router.push(activeOrder.vertical === 'package' ? '/package/tracking' : '/orders')}
+                className="w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 border border-lime/20 hover:border-lime/40 transition-colors text-left"
+                style={{ background: 'rgba(198,242,78,0.06)' }}
+              >
+                <span className="relative flex-shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-lime block" />
+                  <span className="absolute inset-0 rounded-full bg-lime animate-ping opacity-60" />
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-semibold text-lime capitalize truncate">
+                    {activeOrder.vertical} delivery in progress
+                  </p>
+                  <p className="text-[11px] text-white/40 mt-0.5 capitalize">
+                    {activeOrder.status.replace(/_/g, ' ')} · tap to track
+                  </p>
+                </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(198,242,78,0.6)" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
 
       {/* ── Verticals ─────────────────────────────────────────────────────── */}
       <motion.div
@@ -347,9 +360,7 @@ export default function HomePage() {
                     : 'border-white/[0.07] hover:border-white/[0.14]',
                 ].join(' ')}
                 style={{
-                  background: v.featured
-                    ? 'linear-gradient(135deg, rgba(10,61,44,0.9) 0%, rgba(6,30,20,0.95) 100%)'
-                    : 'rgba(255,255,255,0.04)',
+                  background: v.featured ? 'rgba(10,61,44,0.92)' : 'rgba(255,255,255,0.04)',
                   gridColumn: v.featured ? 'span 2' : undefined,
                 }}
               >
@@ -388,7 +399,7 @@ export default function HomePage() {
             <Link
               key={link.href}
               href={link.href}
-              className="flex flex-col items-center gap-1 text-white/35 hover:text-white/80 transition-colors py-1.5 px-4 rounded-xl hover:bg-white/[0.05]"
+              className="flex flex-col items-center gap-1 text-white/35 hover:text-white/80 transition-colors py-1.5 px-4 rounded-lg hover:bg-white/[0.05]"
             >
               {link.icon}
               <span className="text-[10px] font-semibold tracking-wide">{link.label}</span>

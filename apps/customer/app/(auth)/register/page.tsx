@@ -31,7 +31,7 @@ export default function RegisterPage() {
         referralCode: form.referralCode || undefined,
       });
       setAuth(result.user as User & { referralCode?: string }, result.accessToken, result.refreshToken);
-      router.replace('/');
+      router.replace('/home');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not create account. Try again.');
     } finally {

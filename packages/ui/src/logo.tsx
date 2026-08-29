@@ -79,7 +79,7 @@ export function SpeedPlusLogo({ variant = 'full', theme = 'dark', size = 'md', c
   const wordmark = (
     <span
       style={{
-        fontFamily: 'var(--font-display, "Space Grotesk", sans-serif)',
+        fontFamily: 'var(--font-display, "DM Sans", sans-serif)',
         fontWeight: 800,
         fontSize: text,
         lineHeight: 1,

@@ -14,11 +14,15 @@ import (
 
 type DispatchRepo interface {
 	UpsertDriverLocation(ctx context.Context, driverID uuid.UUID, lat, lng, heading float64) error
+	SetDriverOnline(ctx context.Context, driverID uuid.UUID, online bool) error
 	CreateOffer(ctx context.Context, offer *model.DeliveryOffer) error
 	AtomicAcceptOffer(ctx context.Context, offerID, driverID uuid.UUID) (bool, error)
 	ExpireStaleOffers(ctx context.Context) error
 	AssignDriverToOrder(ctx context.Context, tx *gorm.DB, orderID, driverID uuid.UUID) error
 	NearbyDrivers(ctx context.Context, lat, lng, radiusMetres float64, minVehicle model.VehicleType, requireHazmat bool, limit int) ([]NearbyDriver, error)
+	HasActiveOrder(ctx context.Context, driverID uuid.UUID) (bool, error)
+	LockDriverForAssignmentTx(ctx context.Context, tx *gorm.DB, driverID uuid.UUID) error
+	HasActiveOrderTx(ctx context.Context, tx *gorm.DB, driverID uuid.UUID) (bool, error)
 
 	// KYC
 	CreateKYCCheck(ctx context.Context, check *model.KYCCheck) error
@@ -37,6 +41,7 @@ type DispatchRepo interface {
 	SaveDriverProfileTx(ctx context.Context, tx *gorm.DB, dp *model.DriverProfile) error
 	FindMerchantProfileTx(ctx context.Context, tx *gorm.DB, userID uuid.UUID) (*model.MerchantProfile, error)
 	SaveMerchantProfileTx(ctx context.Context, tx *gorm.DB, mp *model.MerchantProfile) error
+	UpdateMerchantStatusByUserIDTx(ctx context.Context, tx *gorm.DB, userID uuid.UUID, status model.MerchantStatus) error
 
 	// Dispatch tx helpers
 	AcceptOfferTx(ctx context.Context, tx *gorm.DB, offerID, driverID uuid.UUID) (int64, error)
@@ -56,6 +61,45 @@ type NearbyDriver struct {
 type dispatchRepo struct{ db *gorm.DB }
 
 func NewDispatchRepo(db *gorm.DB) DispatchRepo { return &dispatchRepo{db: db} }
+
+func (r *dispatchRepo) SetDriverOnline(ctx context.Context, driverID uuid.UUID, online bool) error {
+	return r.db.WithContext(ctx).
+		Model(&model.DriverProfile{}).
+		Where("user_id = ?", driverID).
+		Update("is_online", online).Error
+}
+
+func (r *dispatchRepo) HasActiveOrder(ctx context.Context, driverID uuid.UUID) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&model.Order{}).
+		Where("driver_id = ? AND status IN ?", driverID, []model.OrderStatus{
+			model.OrderDriverAssigned, model.OrderInTransit,
+			model.OrderAwaitingCollection, model.OrderEmptyCollected, model.OrderAtPlant,
+		}).
+		Count(&count).Error
+	return count > 0, err
+}
+
+// LockDriverForAssignmentTx serializes concurrent ManualAssign calls for the
+// same driver via a Postgres transaction-scoped advisory lock. hashtext(driverID)
+// is a stable per-driver key; the lock is released automatically at commit/rollback.
+// Without this, two concurrent HasActiveOrder checks for the same driver can both
+// read "no active order" before either assignment commits — a classic TOCTOU
+// double-booking race.
+func (r *dispatchRepo) LockDriverForAssignmentTx(ctx context.Context, tx *gorm.DB, driverID uuid.UUID) error {
+	return tx.WithContext(ctx).Exec("SELECT pg_advisory_xact_lock(hashtext(?))", driverID.String()).Error
+}
+
+func (r *dispatchRepo) HasActiveOrderTx(ctx context.Context, tx *gorm.DB, driverID uuid.UUID) (bool, error) {
+	var count int64
+	err := tx.WithContext(ctx).Model(&model.Order{}).
+		Where("driver_id = ? AND status IN ?", driverID, []model.OrderStatus{
+			model.OrderDriverAssigned, model.OrderInTransit,
+			model.OrderAwaitingCollection, model.OrderEmptyCollected, model.OrderAtPlant,
+		}).
+		Count(&count).Error
+	return count > 0, err
+}
 
 func (r *dispatchRepo) UpsertDriverLocation(ctx context.Context, driverID uuid.UUID, lat, lng, heading float64) error {
 	return r.db.WithContext(ctx).Exec(`
@@ -234,6 +278,23 @@ func (r *dispatchRepo) FindMerchantProfileTx(ctx context.Context, tx *gorm.DB, u
 
 func (r *dispatchRepo) SaveMerchantProfileTx(ctx context.Context, tx *gorm.DB, mp *model.MerchantProfile) error {
 	return tx.WithContext(ctx).Save(mp).Error
+}
+
+// UpdateMerchantStatusByUserIDTx keeps the operational model.Merchant row (which
+// order/catalog/wallet code reads) in sync with the MerchantProfile row (which
+// KYC/admin approval writes) — these are two separate tables keyed on the same
+// user_id, and order eligibility checks model.Merchant.Status directly.
+func (r *dispatchRepo) UpdateMerchantStatusByUserIDTx(ctx context.Context, tx *gorm.DB, userID uuid.UUID, status model.MerchantStatus) error {
+	result := tx.WithContext(ctx).Model(&model.Merchant{}).
+		Where("user_id = ?", userID).
+		Update("status", status)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("no merchant row found for user %s — MerchantProfile approved but operational Merchant row is missing", userID)
+	}
+	return nil
 }
 
 func (r *dispatchRepo) AcceptOfferTx(ctx context.Context, tx *gorm.DB, offerID, driverID uuid.UUID) (int64, error) {

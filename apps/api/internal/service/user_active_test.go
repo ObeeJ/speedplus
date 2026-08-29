@@ -66,6 +66,9 @@ func (r *userActiveRepo) LockMerchantProfileTx(_ context.Context, _ *gorm.DB, _ 
 func (r *userActiveRepo) SaveMerchantProfileTx(_ context.Context, _ *gorm.DB, _ *model.MerchantProfile) error {
 	panic("unexpected")
 }
+func (r *userActiveRepo) UpdateMerchantStatusByUserIDTx(_ context.Context, _ *gorm.DB, _ uuid.UUID, _ model.MerchantStatus) error {
+	panic("unexpected")
+}
 func (r *userActiveRepo) ListDriverProfiles(_ context.Context, _ string, _ *uuid.UUID, _ int) ([]model.DriverProfile, error) {
 	panic("unexpected")
 }

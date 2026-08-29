@@ -23,7 +23,7 @@ import type { User } from '@speedplus/types';
 export default function LoginPage() {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get('next') ?? '/';
+  const next = params.get('next') ?? '/home';
   const setAuth = useAuthStore((s) => s.setAuth);
 
   const [phone, setPhone] = useState('');

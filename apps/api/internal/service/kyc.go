@@ -173,7 +173,10 @@ func (s *KYCService) tryActivateProfile(ctx context.Context, tx *gorm.DB, userID
 			return nil
 		}
 		mp.Status = model.MerchantActive
-		return s.repo.SaveMerchantProfileTx(ctx, tx, mp)
+		if err := s.repo.SaveMerchantProfileTx(ctx, tx, mp); err != nil {
+			return err
+		}
+		return s.repo.UpdateMerchantStatusByUserIDTx(ctx, tx, mp.UserID, model.MerchantActive)
 	}
 	return nil
 }

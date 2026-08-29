@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/model"
@@ -14,6 +15,7 @@ type AdminRepo interface {
 	Transaction(ctx context.Context, fn func(tx *gorm.DB) error) error
 	LockMerchantProfileTx(ctx context.Context, tx *gorm.DB, id uuid.UUID) (*model.MerchantProfile, error)
 	SaveMerchantProfileTx(ctx context.Context, tx *gorm.DB, mp *model.MerchantProfile) error
+	UpdateMerchantStatusByUserIDTx(ctx context.Context, tx *gorm.DB, userID uuid.UUID, status model.MerchantStatus) error
 	CreateAuditLogTx(ctx context.Context, tx *gorm.DB, log *model.AdminAuditLog) error
 	ListDriverProfiles(ctx context.Context, status string, cursor *uuid.UUID, limit int) ([]model.DriverProfile, error)
 	LockDriverProfileTx(ctx context.Context, tx *gorm.DB, id uuid.UUID) (*model.DriverProfile, error)
@@ -78,6 +80,23 @@ func (r *adminRepo) LockMerchantProfileTx(ctx context.Context, tx *gorm.DB, id u
 
 func (r *adminRepo) SaveMerchantProfileTx(ctx context.Context, tx *gorm.DB, mp *model.MerchantProfile) error {
 	return tx.WithContext(ctx).Save(mp).Error
+}
+
+// UpdateMerchantStatusByUserIDTx keeps the operational model.Merchant row (which
+// order/catalog/wallet code reads) in sync with the MerchantProfile row (which
+// admin approval/suspension writes) — these are two separate tables keyed on the
+// same user_id, and order eligibility checks model.Merchant.Status directly.
+func (r *adminRepo) UpdateMerchantStatusByUserIDTx(ctx context.Context, tx *gorm.DB, userID uuid.UUID, status model.MerchantStatus) error {
+	result := tx.WithContext(ctx).Model(&model.Merchant{}).
+		Where("user_id = ?", userID).
+		Update("status", status)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("no merchant row found for user %s — MerchantProfile updated but operational Merchant row is missing", userID)
+	}
+	return nil
 }
 
 func (r *adminRepo) CreateAuditLogTx(ctx context.Context, tx *gorm.DB, log *model.AdminAuditLog) error {

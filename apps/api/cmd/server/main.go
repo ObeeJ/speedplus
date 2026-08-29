@@ -94,6 +94,7 @@ func main() {
 	onboardingSvc := service.NewOnboardingService(onboardingRepo, cfg, monnifyProvider)
 	onboardingSvc.InjectUserRepo(userRepo)
 	authSvc := service.NewAuthService(userRepo, cfg, onboardingSvc, emailClient)
+	authSvc.InjectMerchantRepo(merchantRepo)
 	kycProvider := kyc.NewPrembly(cfg.PremblyAPIKey, cfg.PremblyBaseURL, cfg.PremblyAppID)
 	kycSvc := service.NewKYCService(dispatchRepo, kycProvider)
 	kycSvc.InjectEmail(emailClient)
@@ -495,6 +496,7 @@ func main() {
 	drivers := authed.Group("/drivers")
 	drivers.Use(middleware.RequireRole("driver"))
 	{
+		drivers.PATCH("/online", dispatchH.SetOnline)
 		drivers.POST("/location", dispatchH.UpdateLocation)
 		drivers.POST("/offers/:id/accept", dispatchH.AcceptOffer)
 		drivers.POST("/offers/:id/reject", dispatchH.RejectOffer)
