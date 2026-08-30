@@ -36,6 +36,7 @@ type LedgerRepo interface {
 	LockEscrowHold(ctx context.Context, tx *gorm.DB, orderID uuid.UUID, status model.EscrowStatus) (*model.EscrowHold, error)
 	SaveEscrowHold(ctx context.Context, tx *gorm.DB, hold *model.EscrowHold) error
 	FindOverdueFrozenEscrows(ctx context.Context) ([]model.EscrowHold, error)
+	FindEscrowHoldByOrder(ctx context.Context, orderID uuid.UUID) (*model.EscrowHold, error)
 
 	// Cancellation rules
 	FindCancellationRule(ctx context.Context, vertical, statusAtCancel string) (*model.CancellationRule, error)
@@ -223,6 +224,15 @@ func (r *ledgerRepo) FindOverdueFrozenEscrows(ctx context.Context) ([]model.Escr
 		Where("status = ? AND frozen_sla_deadline IS NOT NULL AND frozen_sla_deadline < NOW()", model.EscrowFrozen).
 		Find(&holds).Error
 	return holds, err
+}
+
+func (r *ledgerRepo) FindEscrowHoldByOrder(ctx context.Context, orderID uuid.UUID) (*model.EscrowHold, error) {
+	var hold model.EscrowHold
+	err := r.db.WithContext(ctx).
+		Where("order_id = ?", orderID).
+		Order("created_at DESC").
+		First(&hold).Error
+	return &hold, err
 }
 
 func (r *ledgerRepo) FindCancellationRule(ctx context.Context, vertical, statusAtCancel string) (*model.CancellationRule, error) {

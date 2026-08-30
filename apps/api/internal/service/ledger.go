@@ -191,6 +191,10 @@ func (s *LedgerService) HoldEscrow(ctx context.Context, tx *gorm.DB, orderID, cu
 // is issued. 2% on a 12.5kg cylinder = 250g tolerance.
 const shortfallTolerance = 0.02
 
+// disputeSLAHoursLedger is the SLA window for customer-raised disputes.
+// Matches the admin-side disputeSLAHours in service/admin.go.
+const disputeSLAHoursLedger = 72 * time.Hour
+
 // weightProof loads the weight_photo proof row for a gas order and returns
 // the measured kg. Returns 0, nil only when no weight_photo row exists yet —
 // any other DB error is propagated, never swallowed. A swallowed error here
@@ -751,6 +755,56 @@ func (s *LedgerService) SnapshotPlatformBalances(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// FreezeEscrowForCustomer is the customer-facing dispute entry point.
+// It freezes the escrow hold and sets the 72h SLA deadline, identical to the
+// admin FreezeEscrow path but without auto-adjudication (the admin team reviews).
+// Must be called inside a transaction supplied by the caller.
+func (s *LedgerService) FreezeEscrowForCustomer(ctx context.Context, tx *gorm.DB, order *model.Order, reason string) error {
+	hold, err := s.repo.LockEscrowHold(ctx, tx, order.ID, model.EscrowHeld)
+	if err != nil {
+		return fmt.Errorf("no held escrow found — dispute cannot be raised on this order")
+	}
+	escrowAcct, err := s.platformAccount(ctx, tx, model.AccountEscrow)
+	if err != nil {
+		return fmt.Errorf("escrow account: %w", err)
+	}
+	disputedAcct, err := s.platformAccount(ctx, tx, model.AccountDisputedEscrow)
+	if err != nil {
+		return fmt.Errorf("disputed escrow account: %w", err)
+	}
+	journalID := uuid.New()
+	entries := []model.LedgerEntry{
+		{ID: uuid.New(), JournalID: journalID, AccountID: escrowAcct.ID, AmountKobo: -hold.AmountKobo, Description: "customer dispute freeze: debit escrow", RefType: "dispute", RefID: &order.ID},
+		{ID: uuid.New(), JournalID: journalID, AccountID: disputedAcct.ID, AmountKobo: hold.AmountKobo, Description: "customer dispute freeze: credit disputed_escrow", RefType: "dispute", RefID: &order.ID},
+	}
+	if err := s.journal(ctx, tx, entries); err != nil {
+		return err
+	}
+	if err := s.adjustBalance(ctx, tx, escrowAcct.ID, -hold.AmountKobo); err != nil {
+		return err
+	}
+	if err := s.adjustBalance(ctx, tx, disputedAcct.ID, hold.AmountKobo); err != nil {
+		return err
+	}
+	now := time.Now()
+	slaDeadline := now.Add(disputeSLAHoursLedger)
+	hold.Status = model.EscrowFrozen
+	hold.FrozenAt = &now
+	hold.FrozenReason = &reason
+	hold.FrozenSLADeadline = &slaDeadline
+	hold.AccountID = disputedAcct.ID
+	return s.repo.SaveEscrowHold(ctx, tx, hold)
+}
+
+// GetEscrowStatus returns the current status of the escrow hold for an order.
+func (s *LedgerService) GetEscrowStatus(ctx context.Context, orderID uuid.UUID) (model.EscrowStatus, error) {
+	hold, err := s.repo.FindEscrowHoldByOrder(ctx, orderID)
+	if err != nil {
+		return "", fmt.Errorf("no escrow record found")
+	}
+	return hold.Status, nil
 }
 
 // ── Queries ───────────────────────────────────────────────────────────────────

@@ -363,6 +363,60 @@ func (h *OrderHandler) Review(c *gin.Context) {
 	c.JSON(http.StatusCreated, successResp(gin.H{"message": "review submitted"}))
 }
 
+// RaiseDispute — POST /orders/:id/dispute
+// Customer-facing entry point for a post-delivery complaint.
+// Freezes escrow and sets the 72h SLA deadline the worker already monitors.
+func (h *OrderHandler) RaiseDispute(c *gin.Context) {
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Invalid order ID", "id"))
+		return
+	}
+	var req struct {
+		Reason string `json:"reason" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		validationError(c, err)
+		return
+	}
+	customerID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	if err := h.orders.RaiseDispute(c.Request.Context(), orderID, customerID, req.Reason); err != nil {
+		switch {
+		case errors.Is(err, service.ErrOrderNotFound):
+			c.JSON(http.StatusNotFound, errResp("NOT_FOUND", "Order not found", ""))
+		case errors.Is(err, service.ErrOrderForbidden):
+			c.JSON(http.StatusForbidden, errResp("FORBIDDEN", "Access denied", ""))
+		default:
+			c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", err.Error(), ""))
+		}
+		return
+	}
+	c.JSON(http.StatusCreated, successResp(gin.H{"message": "dispute raised — our team will review within 72 hours"}))
+}
+
+// GetDisputeStatus — GET /orders/:id/dispute
+func (h *OrderHandler) GetDisputeStatus(c *gin.Context) {
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Invalid order ID", "id"))
+		return
+	}
+	customerID, _ := uuid.Parse(c.GetString(middleware.CtxUserID))
+	status, err := h.orders.GetDisputeStatus(c.Request.Context(), orderID, customerID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrOrderNotFound):
+			c.JSON(http.StatusNotFound, errResp("NOT_FOUND", "Order not found", ""))
+		case errors.Is(err, service.ErrOrderForbidden):
+			c.JSON(http.StatusForbidden, errResp("FORBIDDEN", "Access denied", ""))
+		default:
+			c.JSON(http.StatusNotFound, errResp("NOT_FOUND", "No dispute found for this order", ""))
+		}
+		return
+	}
+	c.JSON(http.StatusOK, successResp(gin.H{"status": status}))
+}
+
 // Badges — GET /drivers/:id/badges
 func (h *OrderHandler) DriverBadges(c *gin.Context) {
 	driverID, err := uuid.Parse(c.Param("id"))

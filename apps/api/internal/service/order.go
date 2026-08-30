@@ -1287,7 +1287,43 @@ func (s *OrderService) ConfirmStop(ctx context.Context, orderID, driverID uuid.U
 	})
 }
 
-// RecertReminderResult is one cylinder approaching recertification expiry.
+// RaiseDispute is the customer-facing entry point for a post-delivery complaint.
+// It freezes the escrow hold and sets the 72h SLA deadline the worker already
+// monitors. The admin team resolves via FreezeEscrow/ReleaseEscrow.
+// Only the order's customer may raise a dispute, and only on a delivered order
+// whose escrow has not already been frozen or released.
+func (s *OrderService) RaiseDispute(ctx context.Context, orderID, customerID uuid.UUID, reason string) error {
+	order, err := s.orders.FindByID(ctx, orderID)
+	if err != nil {
+		return ErrOrderNotFound
+	}
+	if order.CustomerID != customerID {
+		return ErrOrderForbidden
+	}
+	if order.Status != model.OrderDelivered {
+		return fmt.Errorf("disputes can only be raised on delivered orders")
+	}
+	return s.orders.Transaction(ctx, func(tx *gorm.DB) error {
+		return s.ledger.FreezeEscrowForCustomer(ctx, tx, order, reason)
+	})
+}
+
+// GetDisputeStatus returns the current escrow hold status for an order the
+// caller owns, so the customer can see whether their dispute is pending review.
+func (s *OrderService) GetDisputeStatus(ctx context.Context, orderID, customerID uuid.UUID) (string, error) {
+	order, err := s.orders.FindByID(ctx, orderID)
+	if err != nil {
+		return "", ErrOrderNotFound
+	}
+	if order.CustomerID != customerID {
+		return "", ErrOrderForbidden
+	}
+	status, err := s.ledger.GetEscrowStatus(ctx, orderID)
+	if err != nil {
+		return "", fmt.Errorf("no escrow record found for order")
+	}
+	return string(status), nil
+}
 type RecertReminderResult struct {
 	CylinderID      uuid.UUID
 	UserID          uuid.UUID

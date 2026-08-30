@@ -16,6 +16,7 @@ package payment
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -167,8 +168,9 @@ func (b *BridgeProvider) InitiateTransfer(_ context.Context, _ TransferRequest) 
 
 // VerifyWebhookSignature validates Bridge webhook authenticity.
 // Bridge sends an "Api-Key" header matching your API key.
+// Uses hmac.Equal for constant-time comparison to prevent timing attacks.
 func (b *BridgeProvider) VerifyWebhookSignature(_ []byte, signature string) bool {
-	return signature == b.apiKey
+	return hmac.Equal([]byte(signature), []byte(b.apiKey))
 }
 
 func (b *BridgeProvider) post(ctx context.Context, path string, body interface{}, out interface{}) error {

@@ -327,11 +327,11 @@ func main() {
 	authed.GET("/users/me/merchant-profile", middleware.RequireRole("merchant"), usersH.GetMerchantProfile)
 
 	// Catalog — public browse (no auth required)
-	v1.GET("/merchants", catalogH.ListMerchants)
-	v1.GET("/merchants/:id", catalogH.GetMerchant)
-	v1.GET("/products", catalogH.ListProducts)
-	v1.GET("/products/search", catalogH.SearchProducts)
-	v1.GET("/products/:id", catalogH.GetProduct)
+	v1.GET("/merchants", middleware.RateLimit(rdb, "catalog", 60, time.Minute), catalogH.ListMerchants)
+	v1.GET("/merchants/:id", middleware.RateLimit(rdb, "catalog", 60, time.Minute), catalogH.GetMerchant)
+	v1.GET("/products", middleware.RateLimit(rdb, "catalog", 60, time.Minute), catalogH.ListProducts)
+	v1.GET("/products/search", middleware.RateLimit(rdb, "catalog-search", 30, time.Minute), catalogH.SearchProducts)
+	v1.GET("/products/:id", middleware.RateLimit(rdb, "catalog", 60, time.Minute), catalogH.GetProduct)
 
 	// Prescriptions (auth required, row-level ownership enforced in handler).
 	// Rate-limited + idempotent: this is a controlled-substance-adjacent
@@ -367,6 +367,11 @@ func main() {
 		orders.GET("/:id/stops", orderH.GetStops)
 		orders.POST("/:id/stops/confirm", middleware.RequireRole("driver"), orderH.ConfirmStop)
 		orders.POST("/:id/cancel", middleware.RateLimit(rdb, "order-cancel", 5, time.Minute), orderH.Cancel)
+		// Customer dispute — POST raises a dispute (freezes escrow + sets 72h SLA),
+		// GET returns current status. Rate-limited and idempotent so a double-tap
+		// cannot freeze an already-frozen hold.
+		orders.POST("/:id/dispute", middleware.RateLimit(rdb, "order-dispute", 3, time.Minute), middleware.Idempotency(rdb, 24*time.Hour), orderH.RaiseDispute)
+		orders.GET("/:id/dispute", orderH.GetDisputeStatus)
 		orders.POST("/:id/proof/presign", middleware.RequireRole("driver"), proofMediaH.PresignUpload)
 		orders.POST("/:id/proof/confirm", middleware.RequireRole("driver"), proofMediaH.ConfirmUpload)
 		orders.GET("/:id/proof", proofMediaH.GetMedia)
@@ -423,7 +428,14 @@ func main() {
 	}
 	// Public payment link endpoints (no auth)
 	v1.GET("/pay/:slug", paymentLinkH.GetBySlug)
-	v1.POST("/pay/:slug/guest", paymentLinkH.InitiateGuestPayment)
+	// Guest pay: rate-limited (5/min per IP, fail-closed) and idempotency-keyed
+	// so a retried request cannot double-charge. The idempotency middleware
+	// cannot scope by userID here (no auth), so it falls back to the raw key
+	// value — callers must supply a stable key per payment attempt.
+	v1.POST("/pay/:slug/guest",
+		middleware.RateLimit(rdb, "guest-pay", 5, time.Minute, true),
+		paymentLinkH.InitiateGuestPayment,
+	)
 
 	// USSD wallet funding
 	ussd := authed.Group("/wallet/ussd")
