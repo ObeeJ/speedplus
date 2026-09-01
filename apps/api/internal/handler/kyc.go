@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -8,14 +9,21 @@ import (
 	"github.com/speedplus/api/internal/dto"
 	"github.com/speedplus/api/internal/middleware"
 	"github.com/speedplus/api/internal/model"
-	"github.com/speedplus/api/internal/service"
 )
 
-type KYCHandler struct {
-	kyc *service.KYCService
+type kycService interface {
+	SubmitCheck(ctx context.Context, userID uuid.UUID, docType model.KYCDocType, params map[string]string) error
+	QueueForAdmin(ctx context.Context, page, pageSize int) ([]model.KYCCheck, error)
+	AdminApprove(ctx context.Context, checkID, adminID uuid.UUID, note string) error
+	AdminReject(ctx context.Context, checkID, adminID uuid.UUID, note string) error
+	GetUserKYC(ctx context.Context, userID uuid.UUID) ([]model.KYCCheck, error)
 }
 
-func NewKYCHandler(kyc *service.KYCService) *KYCHandler {
+type KYCHandler struct {
+	kyc kycService
+}
+
+func NewKYCHandler(kyc kycService) *KYCHandler {
 	return &KYCHandler{kyc: kyc}
 }
 

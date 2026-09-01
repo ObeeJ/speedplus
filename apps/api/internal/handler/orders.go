@@ -1,17 +1,35 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/speedplus/api/internal/dto"
 	"github.com/speedplus/api/internal/middleware"
+	"github.com/speedplus/api/internal/model"
 	"github.com/speedplus/api/internal/service"
 )
 
+type orderService interface {
+	Create(ctx context.Context, input service.CreateOrderInput) (*model.Order, error)
+	GetByID(ctx context.Context, id, customerID uuid.UUID, role string) (*model.Order, error)
+	ListForCustomer(ctx context.Context, customerID uuid.UUID, vertical, status string, cursor *uuid.UUID, limit int) ([]model.Order, error)
+	Cancel(ctx context.Context, orderID, customerID uuid.UUID, reason string, role string) error
+	SubmitReview(ctx context.Context, orderID, reviewerID uuid.UUID, revieweeType string, rating int, comment *string) error
+	GetStops(ctx context.Context, orderID, requesterID uuid.UUID, requesterRole string) ([]service.OrderStopOut, error)
+	ConfirmStop(ctx context.Context, orderID, driverID uuid.UUID, stopSequence int, input service.ConfirmStopInput) error
+	RaiseDispute(ctx context.Context, orderID, customerID uuid.UUID, reason string) error
+	GetDisputeStatus(ctx context.Context, orderID, customerID uuid.UUID) (string, error)
+	GetReceipt(ctx context.Context, orderID, customerID uuid.UUID) (*service.ReceiptResponse, error)
+	GetDriverBadges(ctx context.Context, driverID uuid.UUID) ([]model.DriverBadge, error)
+	ToResponse(ctx context.Context, o *model.Order) dto.OrderResponse
+}
+
 type OrderHandler struct {
-	orders   *service.OrderService
+	orders   orderService
 	merchant *service.MerchantService
 }
 

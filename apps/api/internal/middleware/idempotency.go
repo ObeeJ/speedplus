@@ -95,7 +95,17 @@ func Idempotency(rdb *redis.Client, ttl time.Duration, strict ...bool) gin.Handl
 
 		if !claimed {
 			raw, getErr := rdb.Get(ctx, redisKey).Bytes()
-			if getErr == nil && string(raw) != idemProcessingSentinel {
+			if getErr == redis.Nil {
+				// Key expired between SetNX and Get. Re-attempt SetNX once.
+				claimed, err = rdb.SetNX(ctx, redisKey, idemProcessingSentinel, idemProcessingWaitTTL).Result()
+				if err == nil && !claimed {
+					// Re-fetch raw if another request claimed it
+					raw, getErr = rdb.Get(ctx, redisKey).Bytes()
+				}
+			}
+			if claimed {
+				// Successfully claimed on retry after expiration
+			} else if getErr == nil && string(raw) != idemProcessingSentinel {
 				var cached cachedResponse
 				if json.Unmarshal(raw, &cached) == nil {
 					// Body mismatch — same key, different payload: reject per IETF semantics
@@ -112,14 +122,15 @@ func Idempotency(rdb *redis.Client, ttl time.Duration, strict ...bool) gin.Handl
 					c.Abort()
 					return
 				}
+			} else {
+				c.AbortWithStatusJSON(http.StatusConflict, gin.H{
+					"error": gin.H{
+						"code":    "REQUEST_IN_PROGRESS",
+						"message": "A request with this Idempotency-Key is already being processed",
+					},
+				})
+				return
 			}
-			c.AbortWithStatusJSON(http.StatusConflict, gin.H{
-				"error": gin.H{
-					"code":    "REQUEST_IN_PROGRESS",
-					"message": "A request with this Idempotency-Key is already being processed",
-				},
-			})
-			return
 		}
 
 		w := &responseWriter{ResponseWriter: c.Writer, body: &bytes.Buffer{}}

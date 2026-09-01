@@ -34,6 +34,7 @@ const (
 	TaskRecertReminders     = "gas:recert_reminders"
 	TaskProviderReconcile   = "ledger:provider_reconcile"
 	TaskDisputeSLACheck     = "ledger:dispute_sla_check"
+	TaskSendSMS             = "notification:sms" // queued SMS delivery with retry
 )
 
 // ── Scheduler (cron) ──────────────────────────────────────────────────────────
@@ -78,6 +79,19 @@ func NewServer(redisURL string) *asynq.Server {
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
+// smsSender is the subset of sms.Client used by the worker.
+// Narrow interface so the worker package does not import sms directly.
+type smsSender interface {
+	Send(ctx context.Context, to, message string) error
+}
+
+// phoneResolver resolves a user's E.164 phone number from their UUID.
+// Satisfied by repo.UserRepo — injected via InjectPhoneResolver to avoid
+// importing the repo package directly into the worker.
+type phoneResolver interface {
+	PhoneByID(ctx context.Context, userID uuid.UUID) (string, error)
+}
+
 // Handlers holds all worker dependencies.
 type Handlers struct {
 	subscriptions  *service.SubscriptionService
@@ -89,6 +103,8 @@ type Handlers struct {
 	runs           *service.RunService
 	asynqClient    *asynq.Client
 	reconciliation *service.ReconciliationService
+	sms            smsSender    // nil = SMS disabled
+	phones         phoneResolver // nil = recert SMS skipped
 	// FIX #3: explicit *gorm.DB so the worker never calls wallet.DB() which
 	// returns nil and causes a guaranteed nil-pointer panic on every cashout task.
 	db *gorm.DB
@@ -116,6 +132,14 @@ func (h *Handlers) InjectOrders(o *service.OrderService) { h.orders = o }
 // InjectReconciliation wires ReconciliationService after construction.
 func (h *Handlers) InjectReconciliation(r *service.ReconciliationService) { h.reconciliation = r }
 
+// InjectSMS wires the SMS sender after construction.
+// Until called, TaskSendSMS tasks are processed but sends are no-ops.
+func (h *Handlers) InjectSMS(s smsSender) { h.sms = s }
+
+// InjectPhoneResolver wires the phone lookup used by handleRecertReminders.
+// Until called, recert SMS tasks are enqueued but skipped (logged as warnings).
+func (h *Handlers) InjectPhoneResolver(r phoneResolver) { h.phones = r }
+
 func (h *Handlers) Register(mux *asynq.ServeMux) {
 	mux.HandleFunc(TaskWeeklyPayout, h.handleWeeklyPayout)
 	mux.HandleFunc(TaskExpireOffers, h.handleExpireOffers)
@@ -133,6 +157,7 @@ func (h *Handlers) Register(mux *asynq.ServeMux) {
 	mux.HandleFunc(TaskRecertReminders, h.handleRecertReminders)
 	mux.HandleFunc(TaskProviderReconcile, h.handleProviderReconcile)
 	mux.HandleFunc(TaskDisputeSLACheck, h.handleDisputeSLACheck)
+	mux.HandleFunc(TaskSendSMS, h.handleSendSMS)
 }
 
 func (h *Handlers) handleWeeklyPayout(ctx context.Context, _ *asynq.Task) error {
@@ -406,6 +431,30 @@ func (h *Handlers) handleRecertReminders(ctx context.Context, _ *asynq.Task) err
 			"serial", r.Serial,
 			"days_until_expiry", r.DaysUntilExpiry,
 		)
+		// Enqueue per-user SMS via the durable queue — not a bare goroutine.
+		// Each reminder is independent; one failure must not block the rest.
+		if h.asynqClient == nil {
+			continue
+		}
+		if h.phones == nil {
+			slog.Warn("worker: recert SMS skipped — phone resolver not wired",
+				"user_id", r.UserID)
+			continue
+		}
+		phone, err := h.phones.PhoneByID(ctx, r.UserID)
+		if err != nil {
+			observability.CaptureError(ctx, err, "recert: phone lookup failed",
+				"user_id", r.UserID.String())
+			continue
+		}
+		msg := fmt.Sprintf(
+			"Fourdat: Your cylinder (SN: %s) is due for recertification in %d days.",
+			r.Serial, r.DaysUntilExpiry,
+		)
+		if err := EnqueueSMS(h.asynqClient, phone, msg); err != nil {
+			observability.CaptureError(ctx, err, "recert: enqueue SMS failed",
+				"user_id", r.UserID.String())
+		}
 	}
 	return nil
 }
@@ -426,4 +475,46 @@ func (h *Handlers) handleProviderReconcile(ctx context.Context, _ *asynq.Task) e
 
 func (h *Handlers) handleDisputeSLACheck(ctx context.Context, _ *asynq.Task) error {
 	return h.ledger.AlertOverdueDisputes(ctx)
+}
+
+// ── SMS task ──────────────────────────────────────────────────────────────────
+
+// SMSPayload is the typed payload for queued SMS delivery.
+type SMSPayload struct {
+	Phone   string `json:"phone"`
+	Message string `json:"message"`
+}
+
+// EnqueueSMS enqueues a single SMS for durable delivery with retry.
+// Queue: "default", MaxRetry: 5, backoff handled by asynq.
+// Callers must normalise phone to E.164 without '+' before calling.
+func EnqueueSMS(client *asynq.Client, phone, message string) error {
+	payload, err := json.Marshal(SMSPayload{Phone: phone, Message: message})
+	if err != nil {
+		return fmt.Errorf("enqueue sms: marshal: %w", err)
+	}
+	task := asynq.NewTask(TaskSendSMS, payload,
+		asynq.Queue("default"),
+		asynq.MaxRetry(5),
+		asynq.Timeout(15*time.Second),
+	)
+	_, err = client.Enqueue(task)
+	return err
+}
+
+func (h *Handlers) handleSendSMS(ctx context.Context, t *asynq.Task) error {
+	var p SMSPayload
+	if err := json.Unmarshal(t.Payload(), &p); err != nil {
+		return fmt.Errorf("sms payload: %w", err)
+	}
+	if p.Phone == "" || p.Message == "" {
+		// Malformed payload — do not retry, it will never succeed.
+		slog.Error("worker: sms task has empty phone or message — skipping")
+		return nil
+	}
+	if h.sms == nil {
+		// SMS client not wired — treat as disabled, not an error.
+		return nil
+	}
+	return h.sms.Send(ctx, p.Phone, p.Message)
 }

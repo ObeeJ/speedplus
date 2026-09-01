@@ -50,7 +50,7 @@ func TestVerifyOTP_MarksUserVerifiedAndIssuesFreshTokens(t *testing.T) {
 		}
 		mustCreate(t, tx, otp)
 
-		access, refresh, err := auth.VerifyOTP(ctx, phone, code, "phone_verification")
+		_, access, refresh, err := auth.VerifyOTP(ctx, phone, code, "phone_verification")
 		if err != nil {
 			t.Fatalf("VerifyOTP: %v", err)
 		}
@@ -91,7 +91,7 @@ func TestVerifyOTP_WrongCodeRejected(t *testing.T) {
 		}
 		mustCreate(t, tx, otp)
 
-		_, _, err := auth.VerifyOTP(ctx, phone, "000000", "phone_verification")
+		_, _, _, err := auth.VerifyOTP(ctx, phone, "000000", "phone_verification")
 		if err == nil {
 			t.Fatal("expected error for wrong OTP code, got nil")
 		}

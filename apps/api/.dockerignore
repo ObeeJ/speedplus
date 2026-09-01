@@ -1,0 +1,10 @@
+.git
+.env
+.env.*
+!.env.example
+*.test
+*_test.go
+coverage.out
+seed
+server
+cmd/server/migrate_ci

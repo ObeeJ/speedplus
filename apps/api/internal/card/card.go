@@ -1,4 +1,4 @@
-// Package card handles the static identity QR for the SpeedPlus card.
+// Package card handles the static identity QR for the Fourdat card.
 //
 // Format: spd.card.v1.{userID}.{HMAC-SHA256}
 //

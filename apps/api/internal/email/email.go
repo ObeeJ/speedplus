@@ -40,22 +40,22 @@ func (c *Client) SendWelcome(ctx context.Context, toEmail, firstName string) {
 	c.send(ctx, sendbyte.SendEmailRequest{
 		From:    c.from,
 		To:      []string{toEmail},
-		Subject: "Welcome to SpeedPlus",
+		Subject: "Welcome to Fourdat",
 		HTML: fmt.Sprintf(`<p>Hi %s,</p>
-<p>Your SpeedPlus account is ready. Your wallet and virtual account number are waiting in the app.</p>
-<p>The SpeedPlus Team</p>`, firstName),
-		Text:           fmt.Sprintf("Hi %s,\n\nYour SpeedPlus account is ready.\n\nThe SpeedPlus Team", firstName),
+<p>Your Fourdat account is ready. Your wallet and virtual account number are waiting in the app.</p>
+<p>The Fourdat Team</p>`, firstName),
+		Text:           fmt.Sprintf("Hi %s,\n\nYour Fourdat account is ready.\n\nThe Fourdat Team", firstName),
 		IdempotencyKey: "welcome-" + toEmail,
 	})
 }
 
 func (c *Client) SendOTP(ctx context.Context, toEmail, firstName, code, purpose string) {
-	subject := "Your SpeedPlus verification code"
+	subject := "Your Fourdat verification code"
 	switch purpose {
 	case "login":
-		subject = "Your SpeedPlus login code"
+		subject = "Your Fourdat login code"
 	case "reset_pin":
-		subject = "Your SpeedPlus PIN reset code"
+		subject = "Your Fourdat PIN reset code"
 	}
 	c.send(ctx, sendbyte.SendEmailRequest{
 		From:    c.from,
@@ -87,7 +87,7 @@ func (c *Client) SendDeliveryCode(ctx context.Context, toEmail, firstName, code,
 	c.send(ctx, sendbyte.SendEmailRequest{
 		From:    c.from,
 		To:      []string{toEmail},
-		Subject: "Your SpeedPlus delivery code",
+		Subject: "Your Fourdat delivery code",
 		HTML: fmt.Sprintf(`<p>Hi %s,</p>
 <p>Your rider is on the way. Share this code with whoever is collecting your package:</p>
 <p style="font-size:36px;font-weight:bold;letter-spacing:10px;text-align:center;">%s</p>
@@ -116,7 +116,7 @@ func (c *Client) SendWalletFunded(ctx context.Context, toEmail, firstName string
 	c.send(ctx, sendbyte.SendEmailRequest{
 		From:    c.from,
 		To:      []string{toEmail},
-		Subject: fmt.Sprintf("%s added to your SpeedPlus wallet", formatKobo(amountKobo)),
+		Subject: fmt.Sprintf("%s added to your Fourdat wallet", formatKobo(amountKobo)),
 		HTML: fmt.Sprintf(`<p>Hi %s,</p>
 <p><strong>%s</strong> added to your wallet. New balance: <strong>%s</strong></p>`,
 			firstName, formatKobo(amountKobo), formatKobo(newBalanceKobo)),
@@ -155,11 +155,11 @@ func (c *Client) SendKYCApproved(ctx context.Context, toEmail, firstName, docTyp
 	c.send(ctx, sendbyte.SendEmailRequest{
 		From:    c.from,
 		To:      []string{toEmail},
-		Subject: "Your SpeedPlus verification is approved",
+		Subject: "Your Fourdat verification is approved",
 		HTML: fmt.Sprintf(`<p>Hi %s,</p>
 <p>Your <strong>%s</strong> verification has been approved. Your account is now fully active.</p>
-<p>The SpeedPlus Team</p>`, firstName, docType),
-		Text:           fmt.Sprintf("Hi %s,\n\nYour %s verification has been approved. Your account is now fully active.\n\nThe SpeedPlus Team", firstName, docType),
+<p>The Fourdat Team</p>`, firstName, docType),
+		Text:           fmt.Sprintf("Hi %s,\n\nYour %s verification has been approved. Your account is now fully active.\n\nThe Fourdat Team", firstName, docType),
 		IdempotencyKey: fmt.Sprintf("kyc-approved-%s-%s", toEmail, docType),
 	})
 }
@@ -168,13 +168,13 @@ func (c *Client) SendKYCRejected(ctx context.Context, toEmail, firstName, docTyp
 	c.send(ctx, sendbyte.SendEmailRequest{
 		From:    c.from,
 		To:      []string{toEmail},
-		Subject: "Action required: SpeedPlus verification",
+		Subject: "Action required: Fourdat verification",
 		HTML: fmt.Sprintf(`<p>Hi %s,</p>
 <p>Your <strong>%s</strong> verification could not be approved.</p>
 <p>Reason: %s</p>
 <p>Please re-submit with a valid document or contact support.</p>
-<p>The SpeedPlus Team</p>`, firstName, docType, note),
-		Text:           fmt.Sprintf("Hi %s,\n\nYour %s verification could not be approved.\nReason: %s\n\nPlease re-submit or contact support.\n\nThe SpeedPlus Team", firstName, docType, note),
+<p>The Fourdat Team</p>`, firstName, docType, note),
+		Text:           fmt.Sprintf("Hi %s,\n\nYour %s verification could not be approved.\nReason: %s\n\nPlease re-submit or contact support.\n\nThe Fourdat Team", firstName, docType, note),
 		IdempotencyKey: fmt.Sprintf("kyc-rejected-%s-%s", toEmail, docType),
 	})
 }

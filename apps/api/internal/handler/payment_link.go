@@ -38,7 +38,7 @@ func (h *PaymentLinkHandler) Create(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, successResp(gin.H{
 		"slug":       link.Slug,
-		"url":        "https://speedplus.app/pay/" + link.Slug,
+		"url":        "https://fourdat.com/pay/" + link.Slug,
 		"amountKobo": link.AmountKobo,
 		"note":       link.Note,
 		"expiresAt":  link.ExpiresAt,
@@ -63,7 +63,7 @@ func (h *PaymentLinkHandler) GetBySlug(c *gin.Context) {
 	}))
 }
 
-// PayByWallet — authenticated SpeedPlus user pays from their wallet.
+// PayByWallet — authenticated Fourdat user pays from their wallet.
 // POST /api/v1/payment-links/:slug/pay
 func (h *PaymentLinkHandler) PayByWallet(c *gin.Context) {
 	idempotencyKey := c.GetHeader("Idempotency-Key")

@@ -192,6 +192,7 @@ func main() {
 	workerHandlers.InjectDB(gormDB)
 	workerHandlers.InjectOrders(orderSvc)
 	workerHandlers.InjectRuns(runSvc)
+	workerHandlers.InjectPhoneResolver(userRepo)
 	reconciliationRepo := service.NewReconciliationRepo(gormDB)
 	reconciliationSvc := service.NewReconciliationService(reconciliationRepo, paystackProvider, flutterwaveProvider, monnifyProvider)
 	workerHandlers.InjectReconciliation(reconciliationSvc)
@@ -224,7 +225,7 @@ func main() {
 
 	// ── Handlers ───────────────────────────────────────────────────────────────
 	healthH := handler.NewHealthHandler(gormDB, rdb)
-	authH := handler.NewAuthHandler(authSvc)
+	authH := handler.NewAuthHandler(authSvc, cfg.Environment == "production")
 	usersH := handler.NewUsersHandler(userRepo)
 	kycH := handler.NewKYCHandler(kycSvc)
 	orderH := handler.NewOrderHandler(orderSvc)

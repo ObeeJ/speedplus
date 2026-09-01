@@ -458,7 +458,7 @@ type Paycode struct {
 // is dispatched (order transitions to in_transit).
 // The customer shares this code with whoever is collecting the order.
 // The rider enters it on their app to confirm delivery and release escrow.
-// The SpeedPlus card is the fallback when the customer has no phone signal.
+// The Fourdat card is the fallback when the customer has no phone signal.
 type DeliveryCode struct {
 	ID        uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
 	OrderID   uuid.UUID `gorm:"type:uuid;uniqueIndex;not null"` // one active code per order

@@ -40,3 +40,12 @@ type WhatsAppNotifier interface {
 	PrescriptionReady(phone, pharmacyName string)
 	SendOTP(phone, code, purpose string)
 }
+
+// SMSNotifier is the minimal interface for the Kudi SMS client.
+// Each service defines its own narrow sub-interface (e.g. kycSMSSender)
+// that sms.Client and sms.MockClient satisfy by structural typing.
+// This type exists so main.go can wire the concrete client without importing
+// the sms package into every service.
+type SMSNotifier interface {
+	OpsAlert(subject, detail string)
+}

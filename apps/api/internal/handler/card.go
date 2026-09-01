@@ -21,7 +21,7 @@ func NewCardHandler(paycode *service.PaycodeService, auth *service.AuthService, 
 	return &CardHandler{paycode: paycode, auth: auth, db: db}
 }
 
-// ScanCard is called by the rider's app when they scan the customer's SpeedPlus card.
+// ScanCard is called by the rider's app when they scan the customer's Fourdat card.
 //
 // Flow:
 //  1. Rider submits card QR payload
@@ -62,7 +62,7 @@ func (h *CardHandler) ScanCard(c *gin.Context) {
 	c.JSON(http.StatusOK, successResp(gin.H{"message": "delivery confirmed"}))
 }
 
-// GetCard returns the user's digital SpeedPlus card payload.
+// GetCard returns the user's digital Fourdat card payload.
 // The frontend renders this as a QR code on the wallet tab.
 // Can be screenshotted for offline use.
 func (h *CardHandler) GetCard(c *gin.Context) {

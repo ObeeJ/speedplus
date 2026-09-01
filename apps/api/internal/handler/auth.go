@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -11,12 +12,27 @@ import (
 	"github.com/speedplus/api/internal/service"
 )
 
-type AuthHandler struct {
-	auth *service.AuthService
+// authService is the interface AuthHandler depends on.
+// Accept interfaces, return structs — keeps the handler testable with a stub.
+type authService interface {
+	Register(ctx context.Context, in service.RegisterInput) (*model.User, string, string, error)
+	Login(ctx context.Context, phone, password string) (*model.User, string, string, error)
+	Refresh(ctx context.Context, raw string) (*model.User, string, string, error)
+	VerifyOTP(ctx context.Context, phone, code, purpose string) (*model.User, string, string, error)
+	Logout(ctx context.Context, raw string) error
+	RequestOTP(ctx context.Context, phone, purpose string) (string, error)
+	SetPIN(ctx context.Context, userID uuid.UUID, pin string) error
+	VerifyPIN(ctx context.Context, userID uuid.UUID, pin string) error
+	ResetPassword(ctx context.Context, phone, otp, newPassword string) error
 }
 
-func NewAuthHandler(auth *service.AuthService) *AuthHandler {
-	return &AuthHandler{auth: auth}
+type AuthHandler struct {
+	auth   authService
+	secure bool // false in development so cookies work over http://localhost
+}
+
+func NewAuthHandler(auth *service.AuthService, secure bool) *AuthHandler {
+	return &AuthHandler{auth: auth, secure: secure}
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
@@ -64,6 +80,9 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	setRefreshTokenCookie(c, refresh, h.secure)
+	setRoleCookie(c, user.Role, h.secure)
+
 	c.JSON(http.StatusCreated, successResp(gin.H{
 		"accessToken":  access,
 		"refreshToken": refresh,
@@ -88,6 +107,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	setRefreshTokenCookie(c, refresh, h.secure)
+	setRoleCookie(c, user.Role, h.secure)
+
 	c.JSON(http.StatusOK, successResp(gin.H{
 		"accessToken":  access,
 		"refreshToken": refresh,
@@ -97,18 +119,28 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	var req struct {
-		RefreshToken string `json:"refreshToken" binding:"required"`
+		RefreshToken string `json:"refreshToken"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		validationError(c, err)
+	c.ShouldBindJSON(&req)
+	token := req.RefreshToken
+	if token == "" {
+		token, _ = c.Cookie("fourdat_refresh")
+	}
+	if token == "" {
+		c.JSON(http.StatusBadRequest, errResp("VALIDATION_ERROR", "Refresh token required", ""))
 		return
 	}
 
-	access, refresh, err := h.auth.Refresh(c.Request.Context(), req.RefreshToken)
+	user, access, refresh, err := h.auth.Refresh(c.Request.Context(), token)
 	if err != nil {
+		setRefreshTokenCookie(c, "", h.secure, -1)
+		clearRoleCookie(c, h.secure)
 		c.JSON(http.StatusUnauthorized, errResp("UNAUTHORIZED", "Session expired. Please log in again.", ""))
 		return
 	}
+
+	setRefreshTokenCookie(c, refresh, h.secure)
+	setRoleCookie(c, user.Role, h.secure)
 
 	c.JSON(http.StatusOK, successResp(gin.H{
 		"accessToken":  access,
@@ -121,12 +153,15 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		RefreshToken string `json:"refreshToken"`
 	}
 	c.ShouldBindJSON(&req)
-	if req.RefreshToken != "" {
-		if err := h.auth.Logout(c.Request.Context(), req.RefreshToken); err != nil {
-			internalError(c, err)
-			return
-		}
+	token := req.RefreshToken
+	if token == "" {
+		token, _ = c.Cookie("fourdat_refresh")
 	}
+	if token != "" {
+		_ = h.auth.Logout(c.Request.Context(), token)
+	}
+	setRefreshTokenCookie(c, "", h.secure, -1)
+	clearRoleCookie(c, h.secure)
 	c.JSON(http.StatusOK, successResp(gin.H{"message": "logged out"}))
 }
 
@@ -140,11 +175,6 @@ func (h *AuthHandler) RequestOTP(c *gin.Context) {
 		return
 	}
 
-	// The code is delivered via email/SMS inside RequestOTP — it must never
-	// be echoed back in the HTTP response, in any environment. A prior
-	// version gated this behind a "development" context key that was never
-	// actually set (dead code), which was one accidental middleware change
-	// away from leaking OTPs in production responses.
 	if _, err := h.auth.RequestOTP(c.Request.Context(), req.Phone, req.Purpose); err != nil {
 		internalError(c, err)
 		return
@@ -164,14 +194,15 @@ func (h *AuthHandler) VerifyOTP(c *gin.Context) {
 		return
 	}
 
-	access, refresh, err := h.auth.VerifyOTP(c.Request.Context(), req.Phone, req.Code, req.Purpose)
+	user, access, refresh, err := h.auth.VerifyOTP(c.Request.Context(), req.Phone, req.Code, req.Purpose)
 	if err != nil {
 		c.JSON(http.StatusUnprocessableEntity, errResp("VALIDATION_ERROR", "Invalid or expired OTP", "otp"))
 		return
 	}
 
-	// Fresh tokens carry the updated IsVerified claim — the caller must swap
-	// these in for verification to take effect without a re-login.
+	setRefreshTokenCookie(c, refresh, h.secure)
+	setRoleCookie(c, user.Role, h.secure)
+
 	c.JSON(http.StatusOK, successResp(gin.H{
 		"verified":     true,
 		"accessToken":  access,
@@ -274,4 +305,30 @@ func userView(u *model.User) gin.H {
 		"isVerified":   u.IsVerified,
 		"createdAt":    u.CreatedAt,
 	}
+}
+
+func setRefreshTokenCookie(c *gin.Context, token string, secure bool, maxAge ...int) {
+	age := 7 * 24 * 3600
+	if len(maxAge) > 0 {
+		age = maxAge[0]
+	}
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("fourdat_refresh", token, age, "/api/v1/auth", ".fourdat.com", secure, true)
+}
+
+// setRoleCookie writes a non-HttpOnly cookie Cloudflare edge rules read to
+// route the user to the correct subdomain. It carries no secret, only the
+// role string. HttpOnly=false is intentional — Cloudflare needs to read it.
+// SameSite=Lax is intentional — the cookie must be sent on top-level
+// cross-site navigations (e.g. link from WhatsApp) so the edge rule fires.
+func setRoleCookie(c *gin.Context, role model.UserRole, secure bool) {
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("__role", string(role), 7*24*3600, "/", ".fourdat.com", secure, false)
+}
+
+// clearRoleCookie expires the __role cookie. MaxAge=-1 instructs the browser
+// to delete it immediately. Never call setRoleCookie("") — use this instead.
+func clearRoleCookie(c *gin.Context, secure bool) {
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("__role", "", -1, "/", ".fourdat.com", secure, false)
 }

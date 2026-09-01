@@ -25,6 +25,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/speedplus/api/internal/migrations"
 	"golang.org/x/crypto/argon2"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -54,7 +55,7 @@ func main() {
 
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		dsn = "postgres://speedplus:speedplus@localhost:5433/speedplus?sslmode=disable"
+		dsn = "postgres://fourdat:fourdat@localhost:5433/fourdat?sslmode=disable"
 	}
 
 	ctx := context.Background()
@@ -241,6 +242,46 @@ func seed(ctx context.Context, db *gorm.DB) error {
 		return fmt.Errorf("product: %w", err)
 	}
 
+	// ── Pharmacy merchant + OTC product ────────────────────────────────────────
+	// Gas (migration 022) and package (migration 015) verticals already have a
+	// platform merchant seeded via migration. Pharmacy has none anywhere in the
+	// migration history — apps/customer/app/pharmacy/page.tsx calls
+	// catalogApi.listMerchants('pharmacy') and renders an empty state when no
+	// pharmacy merchant exists, so the pharmacy customer flow was previously
+	// impossible to complete end-to-end. Seed one here, mirroring the food
+	// merchant/product pattern above.
+	pharmacyMerchantUserID := uuid.New()
+	if err := db.WithContext(ctx).Table("users").Create(map[string]any{
+		"id": pharmacyMerchantUserID, "role": "merchant",
+		"first_name": "E2E", "last_name": "Pharmacy",
+		"phone": "+2349000000005", "password_hash": hash,
+		"referral_code": "TESTPHRM", "is_verified": true, "is_active": true,
+		"created_at": time.Now(), "updated_at": time.Now(),
+	}).Error; err != nil {
+		return fmt.Errorf("pharmacy merchant user: %w", err)
+	}
+
+	pharmacyMerchantID := uuid.New()
+	if err := db.WithContext(ctx).Table("merchants").Create(map[string]any{
+		"id": pharmacyMerchantID, "user_id": pharmacyMerchantUserID,
+		"business_name": "E2E Pharmacy", "vertical": "pharmacy",
+		"status": "active", "rating": 5.0, "is_open": true,
+		"lat": 6.4531, "lng": 3.3958,
+		"created_at": time.Now(), "updated_at": time.Now(),
+	}).Error; err != nil {
+		return fmt.Errorf("pharmacy merchant: %w", err)
+	}
+
+	pharmacyProductID := uuid.New()
+	if err := db.WithContext(ctx).Table("products").Create(map[string]any{
+		"id": pharmacyProductID, "merchant_id": pharmacyMerchantID,
+		"name": "E2E Paracetamol 500mg", "description": "Pack of 20 tablets",
+		"price_kobo": int64(1500_00), "category": "otc", "is_available": true,
+		"created_at": time.Now(), "updated_at": time.Now(),
+	}).Error; err != nil {
+		return fmt.Errorf("pharmacy product: %w", err)
+	}
+
 	// ── Customer address (inside the zone) ────────────────────────────────────
 	addressID := uuid.New()
 	if err := db.WithContext(ctx).Table("addresses").Create(map[string]any{
@@ -302,6 +343,26 @@ func seed(ctx context.Context, db *gorm.DB) error {
 		return fmt.Errorf("wallet_balances: %w", err)
 	}
 
+	// ── Wallet PINs (customer + driver) ────────────────────────────────────────
+	// WalletService.Transfer requires PINVerifier.VerifyPIN, which does
+	// repo.FindPIN(userID) and fails with "pin not set" if no `pins` row
+	// exists (see internal/service/auth.go VerifyPIN). No prior seed data set
+	// one, so wallet-to-wallet transfer (walletApi.transfer, used by
+	// /wallet/transfer) could never succeed against this fixture set. Set the
+	// same PIN "1234" for both the customer and driver so wallet-flow.spec.ts
+	// can transfer between real seeded accounts.
+	pinHash, err := bcrypt.GenerateFromPassword([]byte("1234"), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash wallet pin: %w", err)
+	}
+	walletPins := []map[string]any{
+		{"id": uuid.New(), "user_id": customerID, "pin_hash": string(pinHash), "created_at": time.Now(), "updated_at": time.Now()},
+		{"id": uuid.New(), "user_id": driverID, "pin_hash": string(pinHash), "created_at": time.Now(), "updated_at": time.Now()},
+	}
+	if err := db.WithContext(ctx).Table("pins").Create(&walletPins).Error; err != nil {
+		return fmt.Errorf("wallet pins: %w", err)
+	}
+
 	// ── User trust tiers ───────────────────────────────────────────────────────
 	trustTiers := []map[string]any{
 		{"user_id": customerID, "tier": 1, "completed_orders": 3, "fraud_flags": 0, "frozen": false, "updated_at": time.Now()},
@@ -309,6 +370,74 @@ func seed(ctx context.Context, db *gorm.DB) error {
 	}
 	if err := db.WithContext(ctx).Table("user_trust_tiers").Create(&trustTiers).Error; err != nil {
 		return fmt.Errorf("trust_tiers: %w", err)
+	}
+
+	// ── Package vertical fee config ─────────────────────────────────────────────
+	// Migration 015 already seeds the platform "Fourdat Logistics" merchant at
+	// the deterministic ID 00000000-0000-0000-0000-000000000002 — which is what
+	// NEXT_PUBLIC_PACKAGE_MERCHANT_ID (apps/customer/.env.local) points at — so
+	// this file must NOT re-insert that merchant/user (would violate the PK and
+	// collide with any other seed rows on the same phone number). What's missing
+	// is a fee_config row for vertical='package': without one, /package/price's
+	// quote request has no pricing rule to apply and the package E2E flow can
+	// never reach a price. Same gap exists for the gas vertical's hardcoded
+	// merchant id (...004 in apps/customer/app/gas/price/page.tsx) but that one
+	// already has a fee_config from migration 022, so only 'package' needs this.
+	if err := db.WithContext(ctx).Table("fee_configs").Create(map[string]any{
+		"id": uuid.New(), "vertical": "package",
+		"base_fee_kobo": int64(5000), "per_km_kobo": int64(3000),
+		"per_kg_kobo": int64(500), "per_stop_kobo": int64(2000),
+		"service_pct": 0.05,
+		"merchant_take_rate": 0.80,
+		"driver_take_rate": 0.85, "platform_take_rate": 0.15,
+		"fuel_price_ref_kobo": int64(0),
+		"effective_at": time.Now().Add(-1 * time.Hour),
+		"updated_by": adminUserID, "reason": "e2e seed",
+		"created_at": time.Now(),
+	}).Error; err != nil {
+		return fmt.Errorf("package fee_config: %w", err)
+	}
+
+	// ── Pending merchant + pending driver (admin approval flow fixtures) ───────
+	pendingMerchantUserID := uuid.New()
+	if err := db.WithContext(ctx).Table("users").Create(map[string]any{
+		"id": pendingMerchantUserID, "role": "merchant",
+		"first_name": "Pending", "last_name": "Merchant",
+		"phone": "+2349000000008", "password_hash": hash,
+		"referral_code": "TESTPEND", "is_verified": true, "is_active": true,
+		"created_at": time.Now(), "updated_at": time.Now(),
+	}).Error; err != nil {
+		return fmt.Errorf("pending merchant user: %w", err)
+	}
+	if err := db.WithContext(ctx).Table("merchants").Create(map[string]any{
+		"id": uuid.New(), "user_id": pendingMerchantUserID,
+		"business_name": "E2E Pending Merchant", "vertical": "food",
+		"status": "pending", "rating": 0.0, "is_open": false,
+		"lat": 6.4531, "lng": 3.3958,
+		"fill_status": "good",
+		"created_at": time.Now(), "updated_at": time.Now(),
+	}).Error; err != nil {
+		return fmt.Errorf("pending merchant: %w", err)
+	}
+
+	pendingDriverUserID := uuid.New()
+	if err := db.WithContext(ctx).Table("users").Create(map[string]any{
+		"id": pendingDriverUserID, "role": "driver",
+		"first_name": "Pending", "last_name": "Driver",
+		"phone": "+2349000000009", "password_hash": hash,
+		"referral_code": "TESTPDRV", "is_verified": true, "is_active": true,
+		"created_at": time.Now(), "updated_at": time.Now(),
+	}).Error; err != nil {
+		return fmt.Errorf("pending driver user: %w", err)
+	}
+	if err := db.WithContext(ctx).Table("driver_profiles").Create(map[string]any{
+		"id": uuid.New(), "user_id": pendingDriverUserID,
+		"status": "pending", "vehicle_type": "motorcycle",
+		"vehicle_plate": "LAG-E2E-99", "rating": 0.0,
+		"total_deliveries": 0, "is_online": false,
+		"created_at": time.Now(), "updated_at": time.Now(),
+	}).Error; err != nil {
+		return fmt.Errorf("pending driver_profile: %w", err)
 	}
 
 	// ── Write fixture IDs to a temp file so tests can read them ─────────────
@@ -320,9 +449,11 @@ PRODUCT_ID=%s
 ADDRESS_ID=%s
 CUSTOMER_ID=%s
 DRIVER_ID=%s
-`, customerPhone(), driverPhone(), pwd, merchantID, productID, addressID, customerID, driverID)
+PHARMACY_MERCHANT_ID=%s
+PHARMACY_PRODUCT_ID=%s
+`, customerPhone(), driverPhone(), pwd, merchantID, productID, addressID, customerID, driverID, pharmacyMerchantID, pharmacyProductID)
 
-	fixturePath := filepath.Join(os.TempDir(), "speedplus-e2e-fixtures.env")
+	fixturePath := filepath.Join(os.TempDir(), "fourdat-e2e-fixtures.env")
 	if err := os.WriteFile(fixturePath, []byte(fixtureContent), 0600); err != nil {
 		slog.Warn("could not write fixtures file", "path", fixturePath, "err", err)
 	} else {

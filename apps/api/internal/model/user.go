@@ -64,7 +64,7 @@ type VirtualAccount struct {
 	CreatedAt     time.Time
 }
 
-// ── SpeedPlus card (identity QR) ──────────────────────────────────────────────
+// ── Fourdat card (identity QR) ──────────────────────────────────────────────
 // The QR payload is: spd.card.v1.{userID}.{HMAC-SHA256}
 // It is static — it never changes. It is an identity QR, not a payment QR.
 // The rider scans it → backend finds the active in_transit order for that user.

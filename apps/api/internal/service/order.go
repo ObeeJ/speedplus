@@ -414,7 +414,7 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*model.
 
 		// Escrow hold — debit customer wallet for wallet-payment orders.
 		// Pay-on-arrival orders skip this: the wallet is debited at the door
-		// when the rider scans the customer's SpeedPlus card + PIN.
+		// when the rider scans the customer's Fourdat card + PIN.
 		if order.PaymentMethod != "pay_on_arrival" {
 			if err := s.ledger.HoldEscrow(ctx, tx, order.ID, in.CustomerID, order.TotalKobo); err != nil {
 				return fmt.Errorf("escrow hold: %w", err)

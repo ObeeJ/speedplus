@@ -240,37 +240,41 @@ func (s *AuthService) Login(ctx context.Context, phone, password string) (*model
 	return user, access, refresh, err
 }
 
-func (s *AuthService) Refresh(ctx context.Context, rawRefresh string) (string, string, error) {
+// Refresh rotates the refresh token and returns the user so the handler can
+// re-set the __role cookie. Returning the user here is the minimal change
+// needed — the user is already fetched inside this method.
+func (s *AuthService) Refresh(ctx context.Context, rawRefresh string) (*model.User, string, string, error) {
 	tokenHash := hashToken(rawRefresh)
 
 	// Look up including revoked tokens to detect reuse attacks
 	rt, err := s.repo.FindRefreshTokenAny(ctx, tokenHash)
 	if err != nil {
-		return "", "", ErrTokenInvalid
+		return nil, "", "", ErrTokenInvalid
 	}
 
 	// Reuse detection: token found but already revoked → revoke entire family
 	if rt.RevokedAt != nil {
 		_ = s.repo.RevokeRefreshFamily(ctx, rt.FamilyID, time.Now())
-		return "", "", ErrTokenInvalid
+		return nil, "", "", ErrTokenInvalid
 	}
 
 	// Token expired
 	if rt.ExpiresAt.Before(time.Now()) {
-		return "", "", ErrTokenExpired
+		return nil, "", "", ErrTokenExpired
 	}
 
 	// Rotate: revoke the presented token, issue a new one in the same family
 	if err := s.repo.RevokeRefreshToken(ctx, tokenHash, time.Now()); err != nil {
-		return "", "", fmt.Errorf("refresh: revoke token: %w", err)
+		return nil, "", "", fmt.Errorf("refresh: revoke token: %w", err)
 	}
 
 	user, err := s.repo.FindByID(ctx, rt.UserID)
 	if err != nil {
-		return "", "", ErrUserNotFound
+		return nil, "", "", ErrUserNotFound
 	}
 
-	return s.issueTokenPairWithFamily(ctx, user, rt.FamilyID)
+	access, refresh, err := s.issueTokenPairWithFamily(ctx, user, rt.FamilyID)
+	return user, access, refresh, err
 }
 
 // ── Logout ────────────────────────────────────────────────────────────────────
@@ -365,27 +369,28 @@ func (s *AuthService) RequestOTP(ctx context.Context, phone, purpose string) (st
 // claim from the JWT at issue time (no DB hit), so a token issued before
 // verification would still read unverified — the caller must swap in these
 // tokens for verification to take effect immediately.
-func (s *AuthService) VerifyOTP(ctx context.Context, phone, code, purpose string) (string, string, error) {
+func (s *AuthService) VerifyOTP(ctx context.Context, phone, code, purpose string) (*model.User, string, string, error) {
 	otp, err := s.repo.FindActiveOTP(ctx, phone, purpose)
 	if err != nil {
-		return "", "", ErrOTPInvalid
+		return nil, "", "", ErrOTPInvalid
 	}
 	if bcrypt.CompareHashAndPassword([]byte(otp.CodeHash), []byte(code)) != nil {
-		return "", "", ErrOTPInvalid
+		return nil, "", "", ErrOTPInvalid
 	}
 	s.repo.MarkOTPUsed(ctx, otp.ID, time.Now())
 
 	user, err := s.repo.FindByPhone(ctx, phone)
 	if err != nil {
-		return "", "", ErrUserNotFound
+		return nil, "", "", ErrUserNotFound
 	}
 	if purpose == "phone_verification" && !user.IsVerified {
 		user.IsVerified = true
 		if err := s.repo.Update(ctx, user); err != nil {
-			return "", "", err
+			return nil, "", "", err
 		}
 	}
-	return s.issueTokenPair(ctx, user)
+	access, refresh, err := s.issueTokenPair(ctx, user)
+	return user, access, refresh, err
 }
 
 // ── Password reset ────────────────────────────────────────────────────────────

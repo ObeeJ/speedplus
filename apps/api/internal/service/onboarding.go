@@ -15,7 +15,7 @@ import (
 
 // OnboardingService runs after a user is created:
 //  1. Creates a Monnify dedicated virtual account (DVA)
-//  2. Generates the static SpeedPlus card QR
+//  2. Generates the static Fourdat card QR
 //  3. Seeds the user_trust_tiers row at Tier 0
 //
 // All three steps are best-effort — a failure does NOT roll back registration.

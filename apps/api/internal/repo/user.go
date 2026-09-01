@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +17,7 @@ type UserRepo interface {
 	FindByID(ctx context.Context, id uuid.UUID) (*model.User, error)
 	FindByUsername(ctx context.Context, username string) (*model.User, error)
 	FindByReferralCode(ctx context.Context, code string) (*model.User, error)
+	PhoneByID(ctx context.Context, id uuid.UUID) (string, error)
 	Update(ctx context.Context, u *model.User) error
 
 	CreateRefreshToken(ctx context.Context, rt *model.RefreshToken) error
@@ -68,6 +70,26 @@ func (r *userRepo) FindByID(ctx context.Context, id uuid.UUID) (*model.User, err
 	var u model.User
 	err := r.db.WithContext(ctx).First(&u, id).Error
 	return &u, err
+}
+
+// PhoneByID returns the phone number for a user by ID.
+// Satisfies the worker's phoneResolver interface via structural typing —
+// intentionally NOT part of UserRepo so adding it here does not break
+// every existing UserRepo stub/mock across the test suite.
+func (r *userRepo) PhoneByID(ctx context.Context, id uuid.UUID) (string, error) {
+	var phone string
+	res := r.db.WithContext(ctx).
+		Model(&model.User{}).
+		Select("phone").
+		Where("id = ?", id).
+		Scan(&phone)
+	if res.Error != nil {
+		return "", fmt.Errorf("PhoneByID %s: %w", id, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return "", fmt.Errorf("PhoneByID: user %s not found", id)
+	}
+	return phone, nil
 }
 
 func (r *userRepo) FindByUsername(ctx context.Context, username string) (*model.User, error) {

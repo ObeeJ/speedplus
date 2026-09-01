@@ -53,6 +53,8 @@ type stubUserRepo struct {
 	otps []*model.OTPCode
 }
 
+func (r *stubUserRepo) PhoneByID(_ context.Context, _ uuid.UUID) (string, error) { return "", nil }
+
 func (r *stubUserRepo) FindByPhone(_ context.Context, _ string) (*model.User, error) {
 	if r.user == nil {
 		return nil, ErrUserNotFound

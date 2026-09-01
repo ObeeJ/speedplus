@@ -343,7 +343,7 @@ func (s *PaycodeService) ConfirmByCode(ctx context.Context, orderID, driverID uu
 }
 
 // ConfirmByCard is the offline delivery path.
-// The rider scans the customer's static SpeedPlus card QR.
+// The rider scans the customer's static Fourdat card QR.
 // The customer then enters their 4-digit wallet PIN on the rider's phone.
 // This is the customer's explicit consent at the door.
 func (s *PaycodeService) ConfirmByCard(ctx context.Context, cardPayload string, driverID uuid.UUID, pin string) error {

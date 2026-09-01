@@ -35,7 +35,7 @@ const deliveryCodeMaxAttempts = 5
 //
 // Fallback flow (customer has no phone signal):
 //  - Rider uses PaycodeService.ConfirmByCard() instead
-//  - Customer shows SpeedPlus card + enters 4-digit wallet PIN
+//  - Customer shows Fourdat card + enters 4-digit wallet PIN
 type DeliveryCodeService struct {
 	repo repo.DeliveryCodeRepo
 }

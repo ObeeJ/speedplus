@@ -1,19 +1,26 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/middleware"
-	"github.com/speedplus/api/internal/service"
+	"github.com/speedplus/api/internal/model"
 )
 
-type LoyaltyHandler struct {
-	loyalty *service.LoyaltyService
+// loyaltyService is the subset of service.LoyaltyService used by LoyaltyHandler.
+type loyaltyService interface {
+	GetBalance(ctx context.Context, userID uuid.UUID) (int, error)
+	History(ctx context.Context, userID uuid.UUID, limit int) ([]model.LoyaltyEvent, error)
 }
 
-func NewLoyaltyHandler(loyalty *service.LoyaltyService) *LoyaltyHandler {
+type LoyaltyHandler struct {
+	loyalty loyaltyService
+}
+
+func NewLoyaltyHandler(loyalty loyaltyService) *LoyaltyHandler {
 	return &LoyaltyHandler{loyalty: loyalty}
 }
 

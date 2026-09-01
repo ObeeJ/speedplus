@@ -51,7 +51,7 @@ func NewBridgeWithURL(apiKey, baseURL string) *BridgeProvider {
 func (b *BridgeProvider) Name() string { return "bridge" }
 
 // EnsureWallet creates a Bridge wallet for the user if one doesn't exist yet.
-// externalID should be the SpeedPlus user UUID (stable, unique).
+// externalID should be the Fourdat user UUID (stable, unique).
 // Returns the Bridge wallet ID.
 func (b *BridgeProvider) EnsureWallet(ctx context.Context, externalID, email, fullName string) (string, error) {
 	body := map[string]interface{}{

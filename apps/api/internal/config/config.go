@@ -42,7 +42,7 @@ type Config struct {
 	BridgeEnabled   bool
 
 	SendbyteAPIKey     string
-	SendbyteFromAddr   string // e.g. "SpeedPlus <noreply@speedplus.app>"
+	SendbyteFromAddr   string // e.g. "Fourdat <noreply@fourdat.com>"
 
 	PINThresholdKobo int64 // require PIN above this amount
 
@@ -57,6 +57,10 @@ type Config struct {
 
 	WhatsAppPhoneNumberID string // Meta Cloud API phone number ID
 	WhatsAppToken         string // Meta Cloud API permanent access token
+
+	KudiSMSToken    string // Kudi SMS API token
+	KudiSMSSenderID string // Approved corporate Sender ID (max 11 chars)
+	KudiSMSOpsPhone string // Internal ops phone for fraud/reconciliation alerts
 }
 
 func Load() (*Config, error) {
@@ -71,7 +75,7 @@ func Load() (*Config, error) {
 		R2AccountID:        getEnv("R2_ACCOUNT_ID", ""),
 		R2AccessKeyID:      getEnv("R2_ACCESS_KEY_ID", ""),
 		R2SecretAccessKey:  getEnv("R2_SECRET_ACCESS_KEY", ""),
-		R2BucketName:       getEnv("R2_BUCKET_NAME", "speedplus-docs"),
+		R2BucketName:       getEnv("R2_BUCKET_NAME", "fourdat-media"),
 		R2PublicURL:        getEnv("R2_PUBLIC_URL", ""),
 		PremblyAPIKey:      getEnv("PREMBLY_API_KEY", ""),
 		PremblyBaseURL:     getEnv("PREMBLY_BASE_URL", "https://api.prembly.com"),
@@ -87,7 +91,7 @@ func Load() (*Config, error) {
 		BridgeAPIKey:       getEnv("BRIDGE_API_KEY", ""),
 		BridgeEnabled:      getEnv("BRIDGE_ENABLED", "false") == "true",
 		SendbyteAPIKey:     getEnv("SENDBYTE_API_KEY", ""),
-		SendbyteFromAddr:   getEnv("SENDBYTE_FROM_ADDRESS", "SpeedPlus <noreply@speedplus.app>"),
+		SendbyteFromAddr:   getEnv("SENDBYTE_FROM_ADDRESS", "Fourdat <noreply@fourdat.com>"),
 		PINThresholdKobo:   int64(getEnvInt("PIN_THRESHOLD_KOBO", 5000000)), // ₦50,000
 		OSRMURL:            getEnv("OSRM_URL", "http://router.project-osrm.org"),
 		EncryptionKey:      getEnv("ENCRYPTION_KEY", ""),
@@ -96,6 +100,9 @@ func Load() (*Config, error) {
 		Environment:           getEnv("ENVIRONMENT", "development"),
 		WhatsAppPhoneNumberID: getEnv("WHATSAPP_PHONE_NUMBER_ID", ""),
 		WhatsAppToken:         getEnv("WHATSAPP_TOKEN", ""),
+		KudiSMSToken:          getEnv("KUDI_SMS_TOKEN", ""),
+		KudiSMSSenderID:       getEnv("KUDI_SMS_SENDER_ID", ""),
+		KudiSMSOpsPhone:       getEnv("KUDI_SMS_OPS_PHONE", ""),
 	}
 
 	if len(cfg.JWTSecret) < 32 {

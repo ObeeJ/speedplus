@@ -473,7 +473,6 @@ func (s *WalletService) EWACashout(ctx context.Context, driverID uuid.UUID, amou
 			{ID: uuid.New(), JournalID: journalID, AccountID: revenueAcct.ID, AmountKobo: EWACashoutFeeKobo, Description: "EWA cashout fee", RefType: "cashout"},
 			// Net payout is a pass-through via earnings until provider confirms
 			{ID: uuid.New(), JournalID: journalID, AccountID: earningsAcct.ID, AmountKobo: amountKobo, Description: "EWA payout staging", RefType: "cashout"},
-			{ID: uuid.New(), JournalID: journalID, AccountID: earningsAcct.ID, AmountKobo: -amountKobo, Description: "EWA payout to bank", RefType: "cashout"},
 		}
 
 		if err := s.ledger.journal(ctx, tx, entries); err != nil {
@@ -798,9 +797,9 @@ func (s *WalletService) ResolveCashoutRecipient(ctx context.Context, cashout *mo
 			return "", "", "", fmt.Errorf("merchant bank account: %w", err)
 		}
 		if s.provider.Name() == "monnify" {
-			return bankAcct.BankCode + ":" + bankAcct.AccountNumber, bankAcct.AccountName, "SpeedPlus merchant payout", nil
+			return bankAcct.BankCode + ":" + bankAcct.AccountNumber, bankAcct.AccountName, "Fourdat merchant payout", nil
 		}
-		return bankAcct.AccountNumber, bankAcct.AccountName, "SpeedPlus merchant payout", nil
+		return bankAcct.AccountNumber, bankAcct.AccountName, "Fourdat merchant payout", nil
 	}
 	// Driver payout
 	bankAcct, err := s.repo.FindDriverBankAccountTx(ctx, nil, cashout.DriverID)
@@ -808,9 +807,9 @@ func (s *WalletService) ResolveCashoutRecipient(ctx context.Context, cashout *mo
 		return "", "", "", fmt.Errorf("driver bank account not found — driver must add a bank account before withdrawing: %w", err)
 	}
 	if s.provider.Name() == "monnify" {
-		return bankAcct.BankCode + ":" + bankAcct.AccountNumber, bankAcct.AccountName, "SpeedPlus driver payout", nil
+		return bankAcct.BankCode + ":" + bankAcct.AccountNumber, bankAcct.AccountName, "Fourdat driver payout", nil
 	}
-	return bankAcct.AccountNumber, bankAcct.AccountName, "SpeedPlus driver payout", nil
+	return bankAcct.AccountNumber, bankAcct.AccountName, "Fourdat driver payout", nil
 }
 
 func formatKobo(k int64) string {

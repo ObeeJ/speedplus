@@ -7,10 +7,10 @@ import (
 )
 
 // PaymentLink is a shareable payment request.
-// The creator requests money; the payer can be a SpeedPlus user (wallet debit)
+// The creator requests money; the payer can be a Fourdat user (wallet debit)
 // or a guest (Paystack card charge — no account required).
 //
-// URL: speedplus.app/pay/{slug}
+// URL: fourdat.com/pay/{slug}
 type PaymentLink struct {
 	ID          uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
 	CreatorID   uuid.UUID  `gorm:"type:uuid;not null;index"`

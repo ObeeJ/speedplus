@@ -1,20 +1,28 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/speedplus/api/internal/dto"
 	"github.com/speedplus/api/internal/middleware"
-	"github.com/speedplus/api/internal/service"
 )
 
-type DispatchHandler struct {
-	dispatch *service.DispatchService
+type dispatchService interface {
+	SetOnline(ctx context.Context, driverID uuid.UUID, online bool) error
+	UpdateLocation(ctx context.Context, driverID uuid.UUID, lat, lng, heading float64) error
+	AcceptOffer(ctx context.Context, offerID, driverID uuid.UUID) error
+	RejectOffer(ctx context.Context, offerID, driverID uuid.UUID) error
+	ManualAssign(ctx context.Context, orderID, driverID uuid.UUID) error
 }
 
-func NewDispatchHandler(dispatch *service.DispatchService) *DispatchHandler {
+type DispatchHandler struct {
+	dispatch dispatchService
+}
+
+func NewDispatchHandler(dispatch dispatchService) *DispatchHandler {
 	return &DispatchHandler{dispatch: dispatch}
 }
 

@@ -512,7 +512,7 @@ func (m *MonnifyProvider) InitiateCharge(ctx context.Context, req ChargeRequest)
 		"amount":             amountNaira,
 		"customerEmail":      req.Email,
 		"paymentReference":   req.Reference,
-		"paymentDescription": "SpeedPlus payment",
+		"paymentDescription": "Fourdat payment",
 		"currencyCode":       "NGN",
 		"contractCode":       m.contractCode,
 		"redirectUrl":        req.CallbackURL,
@@ -654,7 +654,7 @@ func (m *MonnifyProvider) CreateReservedAccount(ctx context.Context, req DVARequ
 
 	body := map[string]interface{}{
 		"accountReference":    req.UserID,
-		"accountName":         "SpeedPlus / " + req.FullName,
+		"accountName":         "Fourdat / " + req.FullName,
 		"currencyCode":        "NGN",
 		"contractCode":        m.contractCode,
 		"customerEmail":       req.Email,
@@ -751,7 +751,7 @@ func (m *MonnifyProvider) InitiateUSSD(ctx context.Context, bankCode string, amo
 		"amount":             amountNaira,
 		"customerEmail":      email,
 		"paymentReference":   ref,
-		"paymentDescription": "SpeedPlus wallet funding",
+		"paymentDescription": "Fourdat wallet funding",
 		"currencyCode":       "NGN",
 		"contractCode":       m.contractCode,
 		"paymentMethods":     []string{"USSD", "ACCOUNT_TRANSFER"},

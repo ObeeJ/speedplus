@@ -44,6 +44,7 @@ func (r *pinOnlyRepo) ResetPINFailures(_ context.Context, _ uuid.UUID) error {
 	return nil
 }
 func (r *pinOnlyRepo) UpsertPIN(_ context.Context, _ uuid.UUID, _ string) error { return nil }
+func (r *pinOnlyRepo) PhoneByID(_ context.Context, _ uuid.UUID) (string, error) { return "", nil }
 
 // Satisfy the rest of UserRepo with panics.
 func (r *pinOnlyRepo) Create(_ context.Context, _ *model.User) error                { panic("unexpected") }

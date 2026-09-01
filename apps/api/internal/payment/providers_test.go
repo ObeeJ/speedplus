@@ -46,7 +46,7 @@ func TestPaystackInitiateCharge(t *testing.T) {
 		AmountKobo:  500000,
 		Email:       "user@example.com",
 		Reference:   "ref-001",
-		CallbackURL: "https://app.speedplus.com/wallet?funded=1",
+		CallbackURL: "https://app.fourdat.com/wallet?funded=1",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestFlutterwaveInitiateCharge(t *testing.T) {
 		AmountKobo:  500000,
 		Email:       "user@example.com",
 		Reference:   "ref-002",
-		CallbackURL: "https://app.speedplus.com/wallet?funded=1",
+		CallbackURL: "https://app.fourdat.com/wallet?funded=1",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -268,7 +268,7 @@ func TestBridgeInitiateCharge(t *testing.T) {
 		AmountKobo:  500000,
 		Email:       "user@example.com",
 		Reference:   "ref-bridge-001",
-		CallbackURL: "https://app.speedplus.com/wallet?funded=1",
+		CallbackURL: "https://app.fourdat.com/wallet?funded=1",
 		Metadata:    map[string]string{"bridge_wallet_id": "wallet-abc"},
 	})
 	if err != nil {
