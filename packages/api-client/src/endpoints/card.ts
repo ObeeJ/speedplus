@@ -1,5 +1,5 @@
 import { apiClient } from '../client';
-import type { ApiResponse } from '@speedplus/types';
+import type { ApiResponse } from '@fourdat/types';
 
 export interface VirtualAccount {
   accountNumber: string;
@@ -18,7 +18,7 @@ export interface TrustTier {
   frozen: boolean;
 }
 
-export interface SpeedPlusCard {
+export interface FourdatCard {
   payload: string;
   createdAt: string;
 }
@@ -37,7 +37,7 @@ export const cardApi = {
   },
 
   async getCard() {
-    const { data } = await apiClient.get<ApiResponse<SpeedPlusCard>>('/users/me/card');
+    const { data } = await apiClient.get<ApiResponse<FourdatCard>>('/users/me/card');
     if (!data.success) throw new Error(data.error.message);
     return data.data;
   },

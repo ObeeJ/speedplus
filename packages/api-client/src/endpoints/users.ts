@@ -1,5 +1,5 @@
 import { apiClient } from '../client';
-import type { ApiResponse, User } from '@speedplus/types';
+import type { ApiResponse, User } from '@fourdat/types';
 
 export interface SavedAddress {
   id: string;

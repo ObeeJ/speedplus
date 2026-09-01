@@ -1,4 +1,4 @@
-import type { ApiResponse, User } from '@speedplus/types';
+import type { ApiResponse, User } from '@fourdat/types';
 import { apiClient, setAuthToken, setRefreshToken } from '../client';
 
 interface LoginPayload { phone: string; password: string }

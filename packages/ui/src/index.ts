@@ -1,4 +1,4 @@
-export { SpeedPlusLogo } from './logo';
+export { FourdatLogo } from './logo';
 export { Button, buttonVariants, type ButtonProps } from './components/button';
 export { Input, type InputProps } from './components/input';
 export { PasswordInput, type PasswordInputProps } from './components/password-input';
@@ -16,6 +16,7 @@ export { ForgotPasswordFlow, type ForgotPasswordFlowProps } from './components/f
 export { Modal, type ModalProps } from './components/modal';
 export { StatCard, StatCardSkeleton, type StatCardProps } from './components/stat-card';
 export { ListCard, type ListCardProps } from './components/list-card';
+export { ErrorFallback, type ErrorFallbackProps } from './components/error-fallback';
 export { cn } from './lib/utils';
 export { iconColors } from './lib/colors';
 export * from './lib/motion';

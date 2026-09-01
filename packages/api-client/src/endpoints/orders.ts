@@ -1,4 +1,4 @@
-import type { ApiResponse, Order, CreateOrderPayload, PaginationMeta } from '@speedplus/types';
+import type { ApiResponse, Order, CreateOrderPayload, PaginationMeta } from '@fourdat/types';
 import { apiClient } from '../client';
 
 export interface OrderStop {

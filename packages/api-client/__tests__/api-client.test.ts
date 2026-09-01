@@ -1,6 +1,6 @@
 import MockAdapter from 'axios-mock-adapter';
 import { createApiClient, setAuthToken, getAuthToken, setRefreshToken, getRefreshToken } from '../src/client';
-import { SpeedPlusError } from '../src/errors';
+import { FourdatError } from '../src/errors';
 
 // keep mock adapter available for future HTTP-level tests
 const _mock = new MockAdapter(createApiClient('http://test'));
@@ -45,34 +45,34 @@ describe('token helpers', () => {
   });
 });
 
-describe('SpeedPlusError', () => {
+describe('FourdatError', () => {
   it('constructs from code and message', () => {
-    const err = new SpeedPlusError('NOT_FOUND', 'not found', undefined, 404);
+    const err = new FourdatError('NOT_FOUND', 'not found', undefined, 404);
     expect(err.code).toBe('NOT_FOUND');
     expect(err.message).toBe('not found');
     expect(err.statusCode).toBe(404);
-    expect(err.name).toBe('SpeedPlusError');
+    expect(err.name).toBe('FourdatError');
   });
 
   it('fromAxios extracts structured error body', () => {
     const axiosErr = { response: { status: 400, data: { error: { code: 'VALIDATION_ERROR', message: 'bad input', field: 'email' } } } };
-    const err = SpeedPlusError.fromAxios(axiosErr);
+    const err = FourdatError.fromAxios(axiosErr);
     expect(err.code).toBe('VALIDATION_ERROR');
     expect(err.field).toBe('email');
   });
 
   it('fromAxios maps 401 to UNAUTHORIZED', () => {
-    const err = SpeedPlusError.fromAxios({ response: { status: 401, data: {} } });
+    const err = FourdatError.fromAxios({ response: { status: 401, data: {} } });
     expect(err.code).toBe('UNAUTHORIZED');
   });
 
   it('fromAxios maps 404 to NOT_FOUND', () => {
-    const err = SpeedPlusError.fromAxios({ response: { status: 404, data: {} } });
+    const err = FourdatError.fromAxios({ response: { status: 404, data: {} } });
     expect(err.code).toBe('NOT_FOUND');
   });
 
   it('fromAxios falls back to INTERNAL_ERROR for unknown shapes', () => {
-    const err = SpeedPlusError.fromAxios('not an axios error');
+    const err = FourdatError.fromAxios('not an axios error');
     expect(err.code).toBe('INTERNAL_ERROR');
   });
 });

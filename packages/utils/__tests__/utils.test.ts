@@ -6,7 +6,7 @@ import {
   isValidPhone,
   isValidEmail,
   isValidPrescriptionFile,
-} from '@speedplus/utils';
+} from '@fourdat/utils';
 
 describe('formatCurrency', () => {
   it('formats kobo as naira', () => {

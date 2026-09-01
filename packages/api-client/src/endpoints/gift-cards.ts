@@ -1,5 +1,5 @@
 import { apiClient } from '../client';
-import type { ApiResponse } from '@speedplus/types';
+import type { ApiResponse } from '@fourdat/types';
 
 export interface GiftCard {
   id: string;

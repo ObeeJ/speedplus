@@ -1,7 +1,7 @@
 'use client';
 
 import { type ReactNode } from 'react';
-import { SpeedPlusLogo } from '../logo';
+import { FourdatLogo } from '../logo';
 
 interface Chip {
   icon: ReactNode;
@@ -67,8 +67,8 @@ export function AuthShell({
         />
 
         {/* Logo */}
-        <a href="/" aria-label="SpeedPlus home" className="relative z-10 w-fit">
-          <SpeedPlusLogo variant="full" theme="dark" size="lg" />
+        <a href="/" aria-label="Fourdat home" className="relative z-10 w-fit">
+          <FourdatLogo variant="full" theme="dark" size="lg" />
         </a>
 
         {/* Headline block */}
@@ -101,7 +101,7 @@ export function AuthShell({
 
         {/* Footer */}
         <p className="relative z-10 text-[10px] tracking-widest uppercase" style={{ color: 'rgba(255,255,255,0.2)' }}>
-          © {new Date().getFullYear()} SpeedPlus Technologies
+          © {new Date().getFullYear()} Fourdat Technologies
         </p>
       </div>
 
@@ -122,8 +122,8 @@ export function AuthShell({
         />
 
         {/* Mobile logo */}
-        <a href="/" aria-label="SpeedPlus home" className="lg:hidden mb-10 mt-14">
-          <SpeedPlusLogo variant="full" theme="light" size="lg" />
+        <a href="/" aria-label="Fourdat home" className="lg:hidden mb-10 mt-14">
+          <FourdatLogo variant="full" theme="light" size="lg" />
         </a>
 
         {/* Form card */}

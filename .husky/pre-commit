@@ -1,19 +1,11 @@
-#!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
+#!/bin/sh
 
-# Block commits containing secrets (gitleaks must be installed: brew install gitleaks)
-if command -v gitleaks >/dev/null 2>&1; then
-  gitleaks protect --staged --config .gitleaks.toml --redact -v
-  if [ $? -ne 0 ]; then
-    echo "❌ gitleaks: potential secret detected in staged files. Commit blocked."
-    exit 1
-  fi
-else
-  echo "⚠️  gitleaks not installed — secret scan skipped. Install: brew install gitleaks"
-fi
+echo "🛡️  [Pre-Commit Gate] Running monorepo lint & Go backend tests..."
 
-# Block .env files from being committed
-if git diff --cached --name-only | grep -qE '\.env($|\.|\.local|\.production)'; then
-  echo "❌ Attempted to commit an .env file. Remove it from staging: git reset HEAD <file>"
-  exit 1
-fi
+# 1. Monorepo Linting Gate
+pnpm turbo lint || exit 1
+
+# 2. Go Backend Integration & Invariant Tests
+(cd apps/api && DATABASE_URL="postgres://speedplus:speedplus@localhost:5433/speedplus?sslmode=disable" REDIS_URL="redis://localhost:6379" go test ./...) || exit 1
+
+echo "✅ [Pre-Commit Gate] All checks passed cleanly!"

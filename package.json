@@ -1,5 +1,5 @@
 {
-  "name": "speedplus",
+  "name": "fourdat",
   "private": true,
   "version": "0.0.1",
   "packageManager": "pnpm@11.1.3",
@@ -10,14 +10,15 @@
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
-    "dev:customer": "turbo dev --filter=@speedplus/customer",
-    "dev:driver": "turbo dev --filter=@speedplus/driver",
-    "dev:merchant": "turbo dev --filter=@speedplus/merchant",
-    "dev:admin": "turbo dev --filter=@speedplus/admin",
+    "dev:customer": "turbo dev --filter=@fourdat/customer",
+    "dev:driver": "turbo dev --filter=@fourdat/driver",
+    "dev:merchant": "turbo dev --filter=@fourdat/merchant",
+    "dev:admin": "turbo dev --filter=@fourdat/admin",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "clean": "turbo clean && rm -rf node_modules",
-    "test": "jest"
+    "test": "jest",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.6",
@@ -25,6 +26,7 @@
     "axios-mock-adapter": "^2.1.0",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.2.12",
+    "husky": "^9.1.7",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.12",
     "turbo": "^2.0.0",

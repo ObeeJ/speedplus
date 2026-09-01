@@ -1,4 +1,4 @@
-import type { ApiResponse } from '@speedplus/types';
+import type { ApiResponse } from '@fourdat/types';
 import { apiClient } from '../client';
 
 export type ProofKind = 'pickup_photo' | 'pickup_video' | 'dropoff_photo' | 'dropoff_video' | 'weight_photo';

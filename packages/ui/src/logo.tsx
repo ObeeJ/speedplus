@@ -1,4 +1,4 @@
-interface SpeedPlusLogoProps {
+interface FourdatLogoProps {
   variant?: 'full' | 'mark' | 'wordmark';
   theme?: 'dark' | 'light';
   size?: 'sm' | 'md' | 'lg' | 'xl';
@@ -64,13 +64,13 @@ function SpeedMark({ px, theme }: { px: number; theme: 'dark' | 'light' }) {
   );
 }
 
-export function SpeedPlusLogo({ variant = 'full', theme = 'dark', size = 'md', className }: SpeedPlusLogoProps) {
+export function FourdatLogo({ variant = 'full', theme = 'dark', size = 'md', className }: FourdatLogoProps) {
   const { mark, text } = sizes[size];
   const textColor = theme === 'dark' ? '#FFFFFF' : '#121216';
 
   if (variant === 'mark') {
     return (
-      <span role="img" aria-label="SpeedPlus" className={className} style={{ display: 'inline-flex' }}>
+      <span role="img" aria-label="Fourdat" className={className} style={{ display: 'inline-flex' }}>
         <SpeedMark px={mark} theme={theme} />
       </span>
     );
@@ -93,7 +93,7 @@ export function SpeedPlusLogo({ variant = 'full', theme = 'dark', size = 'md', c
 
   if (variant === 'wordmark') {
     return (
-      <span role="img" aria-label="SpeedPlus" className={className} style={{ display: 'inline-flex', alignItems: 'center' }}>
+      <span role="img" aria-label="Fourdat" className={className} style={{ display: 'inline-flex', alignItems: 'center' }}>
         {wordmark}
       </span>
     );
@@ -103,7 +103,7 @@ export function SpeedPlusLogo({ variant = 'full', theme = 'dark', size = 'md', c
   return (
     <span
       role="img"
-      aria-label="SpeedPlus"
+      aria-label="Fourdat"
       className={className}
       style={{ display: 'inline-flex', alignItems: 'center', gap: Math.round(mark * 0.18) - 2 }}
     >

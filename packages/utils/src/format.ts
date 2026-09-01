@@ -1,4 +1,4 @@
-import type { Money } from '@speedplus/types';
+import type { Money } from '@fourdat/types';
 
 export function formatCurrency(money: Money): string {
   return new Intl.NumberFormat('en-NG', {

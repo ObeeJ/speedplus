@@ -1,5 +1,5 @@
 import axios, { type AxiosInstance } from 'axios';
-import { SpeedPlusError } from './errors';
+import { FourdatError } from './errors';
 
 let authToken: string | null = null;
 let refreshToken: string | null = null;
@@ -24,6 +24,7 @@ export function createApiClient(baseURL: string): AxiosInstance {
   const client = axios.create({
     baseURL,
     timeout: 15_000,
+    withCredentials: true,
     headers: { 'Content-Type': 'application/json' },
   });
 
@@ -40,11 +41,10 @@ export function createApiClient(baseURL: string): AxiosInstance {
         original._retry = true;
         try {
           const storedRefresh = refreshToken;
-          if (!storedRefresh) throw new Error('no refresh token');
           const { data } = await axios.post(
             `${baseURL}/auth/refresh`,
-            { refreshToken: storedRefresh },
-            { headers: { 'Content-Type': 'application/json' } },
+            storedRefresh ? { refreshToken: storedRefresh } : {},
+            { headers: { 'Content-Type': 'application/json' }, withCredentials: true },
           );
           const tokens = (data as { data: { accessToken: string; refreshToken: string } }).data;
           setAuthToken(tokens.accessToken);
@@ -56,7 +56,7 @@ export function createApiClient(baseURL: string): AxiosInstance {
           setRefreshToken(null);
         }
       }
-      throw SpeedPlusError.fromAxios(error);
+      throw FourdatError.fromAxios(error);
     },
   );
 

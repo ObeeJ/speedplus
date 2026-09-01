@@ -1,6 +1,6 @@
 export { apiClient, setAuthToken, getAuthToken, setRefreshToken, getRefreshToken } from './client';
 export { buildWsUrl, buildWsProtocols } from './ws';
-export { SpeedPlusError } from './errors';
+export { FourdatError } from './errors';
 
 // Auth & users
 export { authApi } from './endpoints/auth';
@@ -33,7 +33,7 @@ export type { AffordabilityResult } from './endpoints/affordability';
 
 // Card, DVA, trust tier
 export { cardApi } from './endpoints/card';
-export type { VirtualAccount, TrustTier, SpeedPlusCard } from './endpoints/card';
+export type { VirtualAccount, TrustTier, FourdatCard } from './endpoints/card';
 
 // Growth
 export { loyaltyApi } from './endpoints/loyalty';

@@ -1,5 +1,5 @@
 {
-  "name": "@speedplus/api-client",
+  "name": "@fourdat/api-client",
   "version": "0.0.1",
   "private": true,
   "main": "./src/index.ts",
@@ -8,7 +8,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@speedplus/types": "workspace:*",
+    "@fourdat/types": "workspace:*",
     "axios": "^1.7.0"
   }
 }

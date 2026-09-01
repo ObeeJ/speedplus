@@ -23,6 +23,9 @@ importers:
       eslint-config-next:
         specifier: ^16.2.12
         version: 16.2.12(@typescript-eslint/parser@8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
+      husky:
+        specifier: ^9.1.7
+        version: 9.1.7
       jest:
         specifier: ^30.4.2
         version: 30.4.2(@types/node@22.20.1)
@@ -41,16 +44,16 @@ importers:
 
   apps/admin:
     dependencies:
-      '@speedplus/api-client':
+      '@fourdat/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
-      '@speedplus/types':
+      '@fourdat/types':
         specifier: workspace:*
         version: link:../../packages/types
-      '@speedplus/ui':
+      '@fourdat/ui':
         specifier: workspace:*
         version: link:../../packages/ui
-      '@speedplus/utils':
+      '@fourdat/utils':
         specifier: workspace:*
         version: link:../../packages/utils
       '@tanstack/react-query':
@@ -81,7 +84,7 @@ importers:
         specifier: ^5.0.0
         version: 5.0.14(@types/react@19.2.17)(react@19.2.7)
     devDependencies:
-      '@speedplus/config':
+      '@fourdat/config':
         specifier: workspace:*
         version: link:../../packages/config
       '@tailwindcss/postcss':
@@ -105,21 +108,21 @@ importers:
 
   apps/customer:
     dependencies:
+      '@fourdat/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
+      '@fourdat/types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      '@fourdat/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      '@fourdat/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       '@hookform/resolvers':
         specifier: ^3.9.0
         version: 3.10.0(react-hook-form@7.81.0(react@19.2.7))
-      '@speedplus/api-client':
-        specifier: workspace:*
-        version: link:../../packages/api-client
-      '@speedplus/types':
-        specifier: workspace:*
-        version: link:../../packages/types
-      '@speedplus/ui':
-        specifier: workspace:*
-        version: link:../../packages/ui
-      '@speedplus/utils':
-        specifier: workspace:*
-        version: link:../../packages/utils
       '@tanstack/react-query':
         specifier: ^5.59.0
         version: 5.101.2(react@19.2.7)
@@ -148,7 +151,7 @@ importers:
         specifier: ^5.0.0
         version: 5.0.14(@types/react@19.2.17)(react@19.2.7)
     devDependencies:
-      '@speedplus/config':
+      '@fourdat/config':
         specifier: workspace:*
         version: link:../../packages/config
       '@tailwindcss/postcss':
@@ -169,24 +172,24 @@ importers:
 
   apps/driver:
     dependencies:
+      '@fourdat/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
+      '@fourdat/types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      '@fourdat/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      '@fourdat/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       '@radix-ui/react-label':
         specifier: ^2.1.15
         version: 2.1.15(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@radix-ui/react-slot':
         specifier: ^1.3.3
         version: 1.3.3(@types/react@19.2.17)(react@19.2.7)
-      '@speedplus/api-client':
-        specifier: workspace:*
-        version: link:../../packages/api-client
-      '@speedplus/types':
-        specifier: workspace:*
-        version: link:../../packages/types
-      '@speedplus/ui':
-        specifier: workspace:*
-        version: link:../../packages/ui
-      '@speedplus/utils':
-        specifier: workspace:*
-        version: link:../../packages/utils
       '@tanstack/react-query':
         specifier: ^5.51.11
         version: 5.101.2(react@19.2.7)
@@ -227,7 +230,7 @@ importers:
         specifier: ^5.0.0
         version: 5.0.14(@types/react@19.2.17)(react@19.2.7)
     devDependencies:
-      '@speedplus/config':
+      '@fourdat/config':
         specifier: workspace:*
         version: link:../../packages/config
       '@tailwindcss/postcss':
@@ -260,16 +263,16 @@ importers:
 
   apps/merchant:
     dependencies:
-      '@speedplus/api-client':
+      '@fourdat/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
-      '@speedplus/types':
+      '@fourdat/types':
         specifier: workspace:*
         version: link:../../packages/types
-      '@speedplus/ui':
+      '@fourdat/ui':
         specifier: workspace:*
         version: link:../../packages/ui
-      '@speedplus/utils':
+      '@fourdat/utils':
         specifier: workspace:*
         version: link:../../packages/utils
       '@tanstack/react-query':
@@ -300,7 +303,7 @@ importers:
         specifier: ^5.0.0
         version: 5.0.14(@types/react@19.2.17)(react@19.2.7)
     devDependencies:
-      '@speedplus/config':
+      '@fourdat/config':
         specifier: workspace:*
         version: link:../../packages/config
       '@tailwindcss/postcss':
@@ -324,7 +327,7 @@ importers:
 
   packages/api-client:
     dependencies:
-      '@speedplus/types':
+      '@fourdat/types':
         specifier: workspace:*
         version: link:../types
       axios:
@@ -371,7 +374,7 @@ importers:
 
   packages/utils:
     dependencies:
-      '@speedplus/types':
+      '@fourdat/types':
         specifier: workspace:*
         version: link:../types
 
@@ -1929,6 +1932,7 @@ packages:
   eslint@9.39.5:
     resolution: {integrity: sha512-DgZS62aPLXKlnxILS/AYCoRvHaZeXceIzlXPkkGGzJWSow1aEk0lbTlxUSlyjC8jcaKxAdOnTDz+o1JFSBsyjw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -2201,6 +2205,11 @@ packages:
   human-signals@2.1.0:
     resolution: {integrity: sha512-B4FFZ6q/T2jhhksgkbEW3HBvWIfDW85snkQgawt07S7J5QXTk6BkNV+0yAeZrM5QpMAdYlocGoljn0sJ/WQkFw==}
     engines: {node: '>=10.17.0'}
+
+  husky@9.1.7:
+    resolution: {integrity: sha512-5gs5ytaNjBrh5Ow3zrvdUUY+0VxIuWVL4i9irt6friV+BqdCfmV11CQTWMiBYWHbXhco+J1kHfTOUkePhCDvMA==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   ignore@5.3.2:
     resolution: {integrity: sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g==}
@@ -5466,6 +5475,8 @@ snapshots:
       - supports-color
 
   human-signals@2.1.0: {}
+
+  husky@9.1.7: {}
 
   ignore@5.3.2: {}
 

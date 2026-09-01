@@ -1,0 +1,8 @@
+#!/bin/sh
+
+echo "🚀 [Pre-Push Gate] Verifying production compilation across all 10 packages..."
+
+# Monorepo Full Build Gate
+pnpm turbo build || exit 1
+
+echo "✅ [Pre-Push Gate] Production build verified cleanly!"
