@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { proofApi, sha256Hex, type ProofKind } from '@speedplus/api-client';
+import { proofApi, sha256Hex, type ProofKind } from '@fourdat/api-client';
 
 /**
  * ProofCapture is the chain-of-custody media step: the rider captures a live

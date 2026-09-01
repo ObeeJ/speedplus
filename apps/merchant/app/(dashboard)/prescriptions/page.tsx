@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { merchantApi, type MerchantPrescription } from '@speedplus/api-client';
-import { Card, Button, Input } from '@speedplus/ui';
+import { merchantApi, type MerchantPrescription } from '@fourdat/api-client';
+import { Card, Button, Input } from '@fourdat/ui';
 
 export default function PrescriptionsPage() {
   const qc = useQueryClient();

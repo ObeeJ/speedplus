@@ -2,8 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { loyaltyApi, type LoyaltyEvent } from '@speedplus/api-client';
-import { Skeleton, ListCard } from '@speedplus/ui';
+import { loyaltyApi, type LoyaltyEvent } from '@fourdat/api-client';
+import { Skeleton, ListCard } from '@fourdat/ui';
 
 const EVENT_LABELS: Record<string, { label: string; positive: boolean }> = {
   order_completed:  { label: 'Order completed',   positive: true  },
@@ -59,7 +59,7 @@ export default function LoyaltyPage() {
             </div>
             <div className="mb-2 flex items-center gap-1.5 bg-white/10 rounded-xl px-3 py-1.5">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="#C6F24E" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
-              <span className="text-[12px] font-semibold text-white/80">SpeedPlus Rewards</span>
+              <span className="text-[12px] font-semibold text-white/80">Fourdat Rewards</span>
             </div>
           </div>
 

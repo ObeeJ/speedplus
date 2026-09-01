@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { adminApi, type LedgerEntry } from '@speedplus/api-client';
-import { Button, ListCard } from '@speedplus/ui';
+import { adminApi, type LedgerEntry } from '@fourdat/api-client';
+import { Button, ListCard } from '@fourdat/ui';
 
 function formatKobo(k: number) {
   const sign = k >= 0 ? '+' : '';

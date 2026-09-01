@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { kycApi } from '@speedplus/api-client';
+import { kycApi } from '@fourdat/api-client';
 
 type DocType = 'bvn' | 'nin';
 

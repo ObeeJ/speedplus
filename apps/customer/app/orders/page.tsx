@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ordersApi, type OrderReceipt } from '@speedplus/api-client';
-import type { Order } from '@speedplus/types';
-import { Skeleton, ListCard, Modal, iconColors } from '@speedplus/ui';
+import { ordersApi, type OrderReceipt } from '@fourdat/api-client';
+import type { Order } from '@fourdat/types';
+import { Skeleton, ListCard, Modal, iconColors } from '@fourdat/ui';
 
 function naira(kobo: number) {
   return `₦${(kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 0 })}`;
@@ -88,7 +88,7 @@ export default function OrdersPage() {
     const supportNumber = process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP;
     if (!supportNumber) return;
     const ref = `SUP-${orderId.slice(0, 8).toUpperCase()}`;
-    const msg = encodeURIComponent(`Hello SpeedPlus Support,\nOrder: #${orderId.slice(0, 8).toUpperCase()}\nIssue: ${issue}\nReference: ${ref}`);
+    const msg = encodeURIComponent(`Hello Fourdat Support,\nOrder: #${orderId.slice(0, 8).toUpperCase()}\nIssue: ${issue}\nReference: ${ref}`);
     window.open(`https://wa.me/${supportNumber}?text=${msg}`, '_blank');
     setReportOrderId(null);
   }

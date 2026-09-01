@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AuthShell, Button, Input, PasswordInput, AlertCircleIcon, type AuthShellChip } from '@speedplus/ui';
+import { AuthShell, Button, Input, PasswordInput, AlertCircleIcon, type AuthShellChip } from '@fourdat/ui';
 
 const chips: [AuthShellChip, AuthShellChip] = [
   {
@@ -15,7 +15,7 @@ const chips: [AuthShellChip, AuthShellChip] = [
     label: '₦2.4M avg monthly earnings',
   },
 ];
-import { authApi, merchantApi } from '@speedplus/api-client';
+import { authApi, merchantApi } from '@fourdat/api-client';
 import { useMerchantAuthStore } from '@/lib/store/auth.store';
 
 export default function MerchantLoginPage() {
@@ -34,7 +34,7 @@ export default function MerchantLoginPage() {
     try {
       const result = await authApi.login({ phone, password });
       if (result.user.role !== 'merchant') {
-        setError('This portal is for SpeedPlus merchant partners only.');
+        setError('This portal is for Fourdat merchant partners only.');
         return;
       }
       setAuth(result.user, result.accessToken, result.refreshToken);

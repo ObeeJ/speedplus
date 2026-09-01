@@ -89,6 +89,6 @@ export const usePharmacyFlowStore = create<PharmacyFlowState>()(
         return tab === 'otc' ? Boolean(otcItemId) : rxStatus === 'approved';
       },
     }),
-    { name: 'speedplus-pharmacy-flow' },
+    { name: 'fourdat-pharmacy-flow' },
   ),
 );

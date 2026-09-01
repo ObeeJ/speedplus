@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Button, ListCard } from '@speedplus/ui';
-import { ussdApi, type USSDIntent } from '@speedplus/api-client';
+import { Button, ListCard } from '@fourdat/ui';
+import { ussdApi, type USSDIntent } from '@fourdat/api-client';
 
 function naira(kobo: number) {
   return `₦${(kobo / 100).toLocaleString('en-NG')}`;

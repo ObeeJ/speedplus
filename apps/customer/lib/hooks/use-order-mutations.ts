@@ -1,9 +1,9 @@
 'use client';
 
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ordersApi, catalogApi, walletApi, quotesApi } from '@speedplus/api-client';
-import type { QuoteResult, QuotePayload, MultiStopQuotePayload } from '@speedplus/api-client';
-import type { CreateOrderPayload } from '@speedplus/types';
+import { ordersApi, catalogApi, walletApi, quotesApi } from '@fourdat/api-client';
+import type { QuoteResult, QuotePayload, MultiStopQuotePayload } from '@fourdat/api-client';
+import type { CreateOrderPayload } from '@fourdat/types';
 
 export function useCreateOrder() {
   return useMutation({

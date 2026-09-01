@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
-import { Button, ListCard } from '@speedplus/ui';
-import { paymentLinksApi } from '@speedplus/api-client';
+import { Button, ListCard } from '@fourdat/ui';
+import { paymentLinksApi } from '@fourdat/api-client';
 
 function naira(kobo: number) {
   return `₦${(kobo / 100).toLocaleString('en-NG')}`;
@@ -67,7 +67,7 @@ export default function PaymentLinksPage() {
                 {copied ? 'Copied!' : 'Copy'}
               </button>
             </div>
-            <p className="text-[11px] text-[#9A968D] text-center">Share this link. Anyone can pay you — no SpeedPlus account needed.</p>
+            <p className="text-[11px] text-[#9A968D] text-center">Share this link. Anyone can pay you — no Fourdat account needed.</p>
             <div className="flex gap-2 w-full">
               <Button variant="ghost" size="sm" onClick={() => { setCreated(null); setAmount(''); setNote(''); }} className="flex-1">New link</Button>
               <Button variant="primary" size="sm" onClick={() => router.push('/wallet')} className="flex-1">Done</Button>
@@ -76,7 +76,7 @@ export default function PaymentLinksPage() {
         ) : (
           <ListCard className="flex flex-col gap-4">
             <p className="text-[14px] font-semibold text-[#121216]">Create a payment link</p>
-            <p className="text-[12px] text-[#63636E]">Share the link — anyone can pay you, even without a SpeedPlus account.</p>
+            <p className="text-[12px] text-[#63636E]">Share the link — anyone can pay you, even without a Fourdat account.</p>
 
             <div className="flex flex-col gap-1.5">
               <label className="text-[12px] font-semibold text-[#63636E]">Amount (₦)</label>

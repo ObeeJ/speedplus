@@ -2,8 +2,8 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { merchantApi } from '@speedplus/api-client';
-import { Card, CardHeader, CardTitle, CardContent, Badge, Button, Progress, StatCard, StatCardSkeleton } from '@speedplus/ui';
+import { merchantApi } from '@fourdat/api-client';
+import { Card, CardHeader, CardTitle, CardContent, Badge, Button, Progress, StatCard, StatCardSkeleton } from '@fourdat/ui';
 import { useMerchantAuthStore } from '@/lib/store/auth.store';
 
 function naira(kobo: number) {

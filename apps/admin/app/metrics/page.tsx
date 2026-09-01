@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { adminApi, type OperationalMetrics } from '@speedplus/api-client';
+import { adminApi, type OperationalMetrics } from '@fourdat/api-client';
 import {
   MetricsIcon,
   ReceiptIcon,
@@ -12,7 +12,7 @@ import {
   StatCard,
   StatCardSkeleton,
   iconColors,
-} from '@speedplus/ui';
+} from '@fourdat/ui';
 
 function naira(kobo: number) {
   if (kobo >= 100_000_00) return `₦${(kobo / 100_000_00).toFixed(1)}M`;

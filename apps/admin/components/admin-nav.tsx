@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAdminAuthStore } from '@/lib/store/auth.store';
-import { authApi } from '@speedplus/api-client';
+import { authApi } from '@fourdat/api-client';
 import {
   MetricsIcon,
   LedgerIcon,
@@ -24,7 +24,7 @@ import {
   RulesIcon,
   PowerIcon,
   type DuotoneIconProps,
-} from '@speedplus/ui';
+} from '@fourdat/ui';
 
 type NavItem = {
   href: string;

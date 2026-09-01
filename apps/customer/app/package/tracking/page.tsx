@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Avatar, StatusSteps, Skeleton, ListCard } from '@speedplus/ui';
+import { Avatar, StatusSteps, Skeleton, ListCard } from '@fourdat/ui';
 import { usePackageFlowStore } from '../../../lib/store/package-flow.store';
 import { useTrackOrder } from '../../../lib/hooks/use-order-mutations';
-import { ordersApi, buildWsUrl, buildWsProtocols } from '@speedplus/api-client';
+import { ordersApi, buildWsUrl, buildWsProtocols } from '@fourdat/api-client';
 
 function naira(n: number) {
   return `₦${(n / 100).toLocaleString('en-NG', { minimumFractionDigits: 0 })}`;
@@ -53,7 +53,7 @@ export default function PackageTrackingPage() {
           const msg = JSON.parse(evt.data as string) as { event: string; data: { code?: string; status?: string } };
           if (msg.event === 'delivery_code' && msg.data.code) setDeliveryCode(msg.data.code);
           if (msg.event === 'order_status_changed' || msg.event === 'order_delivered' || msg.event === 'driver_assigned') {
-            window.dispatchEvent(new CustomEvent('speedplus:order_update', { detail: { orderId } }));
+            window.dispatchEvent(new CustomEvent('fourdat:order_update', { detail: { orderId } }));
           }
           if (msg.event === 'order_cancelled') {
             reset();

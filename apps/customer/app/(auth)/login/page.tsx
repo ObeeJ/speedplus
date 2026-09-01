@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AuthShell, Button, Input, PasswordInput, AlertCircleIcon, type AuthShellChip } from '@speedplus/ui';
+import { AuthShell, Button, Input, PasswordInput, AlertCircleIcon, type AuthShellChip } from '@fourdat/ui';
 
 const chips: [AuthShellChip, AuthShellChip] = [
   {
@@ -16,11 +16,19 @@ const chips: [AuthShellChip, AuthShellChip] = [
     label: '30 min avg delivery',
   },
 ];
-import { authApi } from '@speedplus/api-client';
+import { authApi } from '@fourdat/api-client';
 import { useAuthStore } from '@/lib/store/auth.store';
-import type { User } from '@speedplus/types';
+import type { User } from '@fourdat/types';
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get('next') ?? '/home';
@@ -118,7 +126,7 @@ export default function LoginPage() {
       </div>
 
       <p className="text-center text-[13px] text-mid">
-        New to SpeedPlus?{' '}
+        New to Fourdat?{' '}
         <Link href="/register" className="font-semibold text-emerald hover:text-emerald-600 transition-colors">
           Create an account
         </Link>

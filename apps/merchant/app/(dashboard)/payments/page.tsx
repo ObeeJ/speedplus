@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { paycodesApi } from '@speedplus/api-client';
-import { Card, Button, Input } from '@speedplus/ui';
+import { paycodesApi } from '@fourdat/api-client';
+import { Card, Button, Input } from '@fourdat/ui';
 
 export default function PaymentsPage() {
   const [paycodeOrderId, setPaycodeOrderId] = useState('');
@@ -65,9 +65,9 @@ export default function PaymentsPage() {
 
       {/* Scan card */}
       <Card className="flex flex-col gap-4">
-        <p className="text-xs font-semibold text-mid tracking-widest uppercase">Scan SpeedPlus card</p>
+        <p className="text-xs font-semibold text-mid tracking-widest uppercase">Scan Fourdat card</p>
         <p className="text-sm text-mid -mt-2">
-          Scan a customer&apos;s SpeedPlus card QR payload to confirm payment.
+          Scan a customer&apos;s Fourdat card QR payload to confirm payment.
         </p>
         <Input
           id="scan-payload"

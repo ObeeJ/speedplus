@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { User } from '@speedplus/types';
-import { setAuthToken, setRefreshToken } from '@speedplus/api-client';
+import type { User } from '@fourdat/types';
+import { setAuthToken, setRefreshToken } from '@fourdat/api-client';
 
 interface AuthState {
   user: (User & { referralCode?: string }) | null;
@@ -33,11 +33,10 @@ export const useAuthStore = create<AuthState>()(
       },
     }),
     {
-      name: 'speedplus-auth',
-      partialize: (s) => ({ user: s.user, _rt: s._rt }),
+      name: 'fourdat-auth',
+      partialize: (s) => ({ user: s.user }),
       onRehydrateStorage: () => (state) => {
-        if (state?.user && state._rt) {
-          setRefreshToken(state._rt);
+        if (state?.user) {
           state.isAuthenticated = true;
         }
       },

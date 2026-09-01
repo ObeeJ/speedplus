@@ -2,8 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { catalogApi } from '@speedplus/api-client';
-import { Skeleton } from '@speedplus/ui';
+import { catalogApi } from '@fourdat/api-client';
+import { Skeleton } from '@fourdat/ui';
 import { FlowHeader } from '../components/flow-header';
 import { usePharmacyFlowStore } from '../../lib/store/pharmacy-flow.store';
 

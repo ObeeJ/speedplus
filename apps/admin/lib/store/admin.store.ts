@@ -14,6 +14,6 @@ export const useAdminStore = create<AdminState>()(
       tab: 'kyc',
       setTab: (t) => set({ tab: t }),
     }),
-    { name: 'speedplus-admin-v2' },
+    { name: 'fourdat-admin-v2' },
   ),
 );

@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { adminApi, proofApi, type OrderDetail, type ProofMediaView } from '@speedplus/api-client';
-import { formatCurrency } from '@speedplus/utils';
-import { Card, Button, Badge } from '@speedplus/ui';
+import { adminApi, proofApi, type OrderDetail, type ProofMediaView } from '@fourdat/api-client';
+import { formatCurrency } from '@fourdat/utils';
+import { Card, Button, Badge } from '@fourdat/ui';
 
 type PendingAction =
   | { kind: 'freeze' }

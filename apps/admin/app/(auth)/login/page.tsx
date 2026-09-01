@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AuthShell, Button, Input, PasswordInput, AlertCircleIcon, type AuthShellChip } from '@speedplus/ui';
+import { AuthShell, Button, Input, PasswordInput, AlertCircleIcon, type AuthShellChip } from '@fourdat/ui';
 
 const chips: [AuthShellChip, AuthShellChip] = [
   {
@@ -14,7 +14,7 @@ const chips: [AuthShellChip, AuthShellChip] = [
     label: 'All systems operational',
   },
 ];
-import { authApi } from '@speedplus/api-client';
+import { authApi } from '@fourdat/api-client';
 import { useAdminAuthStore } from '@/lib/store/auth.store';
 
 export default function AdminLoginPage() {
@@ -33,7 +33,7 @@ export default function AdminLoginPage() {
     try {
       const result = await authApi.login({ phone, password });
       if (result.user.role !== 'admin') {
-        setError('Access denied. This portal is for SpeedPlus operations staff only.');
+        setError('Access denied. This portal is for Fourdat operations staff only.');
         return;
       }
       setAuth(result.user, result.accessToken, result.refreshToken);
@@ -48,7 +48,7 @@ export default function AdminLoginPage() {
   return (
     <AuthShell
       headline={<>Operations<br /><span className="text-lime">Command.</span></>}
-      subtext="Internal access only. SpeedPlus operations staff."
+      subtext="Internal access only. Fourdat operations staff."
       heroImage="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1200&q=80"
       portalLabel="Operations"
       chips={chips}

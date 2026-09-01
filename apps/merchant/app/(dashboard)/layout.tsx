@@ -3,15 +3,15 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { merchantApi, authApi } from '@speedplus/api-client';
+import { merchantApi, authApi } from '@fourdat/api-client';
 import {
-  SpeedPlusLogo, Avatar,
+  FourdatLogo, Avatar,
   DashboardIcon, ReceiptIcon, PillIcon, BoxIcon,
   WalletIcon, ShieldCheckIcon, FeeIcon, GasIcon,
   PowerIcon, type DuotoneIconProps,
-} from '@speedplus/ui';
+} from '@fourdat/ui';
 import { useMerchantAuthStore } from '@/lib/store/auth.store';
-import { cn } from '@speedplus/ui';
+import { cn } from '@fourdat/ui';
 
 type NavItem = {
   href: string;
@@ -71,7 +71,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <aside className="hidden lg:flex w-[240px] flex-none flex-col bg-emerald min-h-screen">
         {/* Logo */}
         <div className="px-6 pt-6 pb-4">
-          <SpeedPlusLogo variant="full" theme="dark" size="md" />
+          <FourdatLogo variant="full" theme="dark" size="md" />
           <p className="mt-1.5 text-[11px] text-sand/50 font-medium truncate">
             {profileQuery.data?.businessName ?? '…'}
           </p>
@@ -171,7 +171,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Top bar — mobile only */}
         <header className="lg:hidden flex h-14 items-center justify-between border-b border-line bg-white px-4">
-          <SpeedPlusLogo variant="full" theme="light" size="md" />
+          <FourdatLogo variant="full" theme="light" size="md" />
           <Avatar initials={initials} size="sm" />
         </header>
 

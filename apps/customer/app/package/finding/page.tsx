@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePackageFlowStore } from '../../../lib/store/package-flow.store';
-import { buildWsUrl, buildWsProtocols } from '@speedplus/api-client';
+import { buildWsUrl, buildWsProtocols } from '@fourdat/api-client';
 const TIMEOUT_MS = 90_000;
 
 export default function PackageFindingPage() {

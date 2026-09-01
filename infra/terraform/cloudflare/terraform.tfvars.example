@@ -1,0 +1,23 @@
+# Copy to terraform.tfvars and fill in real values.
+# Never commit terraform.tfvars — it is gitignored.
+
+cloudflare_api_token  = "<your-cloudflare-api-token>"
+cloudflare_account_id = "<your-cloudflare-account-id>"
+cloudflare_zone_id    = "<your-fourdat-com-zone-id>"
+zone_name             = "fourdat.com"
+
+github_owner = "<your-github-org-or-username>"
+github_repo  = "speedplus"
+
+api_url      = "https://api.fourdat.com"
+api_hostname = "<your-vps-or-api-host.example.com>"
+
+r2_media_bucket_name = "fourdat-media"
+
+# Optional: per-app extra env vars
+# customer_app_env = {
+#   NEXT_PUBLIC_PAYSTACK_KEY = "pk_live_..."
+# }
+# driver_app_env   = {}
+# merchant_app_env = {}
+# admin_app_env    = {}

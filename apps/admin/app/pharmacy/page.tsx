@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
-import { adminApi } from '@speedplus/api-client';
-import { PrescriptionIcon, KYCIcon } from '@speedplus/ui';
+import { adminApi } from '@fourdat/api-client';
+import { PrescriptionIcon, KYCIcon } from '@fourdat/ui';
 
 type PrescriptionRow = Awaited<ReturnType<typeof adminApi.listPrescriptions>>['prescriptions'][number];
 type RxStatus = 'pending' | 'approved' | 'rejected' | 'consumed' | 'expired';

@@ -20,7 +20,7 @@ export default function ReferralPage() {
   }
 
   function handleShare() {
-    const text = `Use my SpeedPlus code ${referralCode} when you sign up and we both get ₦500! https://speedplus.app`;
+    const text = `Use my Fourdat code ${referralCode} when you sign up and we both get ₦500! https://fourdat.com`;
     if (navigator.share) {
       navigator.share({ text }).catch(() => {});
     } else {

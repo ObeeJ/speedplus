@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
-import { adminApi, ordersApi, type OrderDetail } from '@speedplus/api-client';
-import { Badge, BoxIcon } from '@speedplus/ui';
+import { adminApi, ordersApi, type OrderDetail } from '@fourdat/api-client';
+import { Badge, BoxIcon } from '@fourdat/ui';
 
 function naira(k: number) {
   return `₦${(k / 100).toLocaleString('en-NG', { minimumFractionDigits: 0 })}`;

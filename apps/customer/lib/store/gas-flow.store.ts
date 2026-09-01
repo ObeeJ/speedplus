@@ -48,6 +48,6 @@ export const useGasFlowStore = create<GasFlowState>()(
       setOrderId: (v) => set({ orderId: v }),
       reset: () => set({ cylinder: null, mode: null, deliverToId: null, deliverToAddress: null, quote: null, orderId: null }),
     }),
-    { name: 'speedplus-gas-flow' },
+    { name: 'fourdat-gas-flow' },
   ),
 );

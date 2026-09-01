@@ -2,7 +2,7 @@
 // Navigation is now handled by Next.js routing — useMerchantStore removed.
 
 import { useMerchantAuthStore } from '../store/auth.store';
-import type { MerchantProfile } from '@speedplus/api-client';
+import type { MerchantProfile } from '@fourdat/api-client';
 
 // ─── useMerchantAuthStore ─────────────────────────────────────────────────────
 

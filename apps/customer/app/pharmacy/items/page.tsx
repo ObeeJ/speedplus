@@ -3,9 +3,9 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Button, CameraIcon, Skeleton } from '@speedplus/ui';
-import { isValidPrescriptionFile } from '@speedplus/utils';
-import { catalogApi } from '@speedplus/api-client';
+import { Button, CameraIcon, Skeleton } from '@fourdat/ui';
+import { isValidPrescriptionFile } from '@fourdat/utils';
+import { catalogApi } from '@fourdat/api-client';
 import { FlowHeader } from '../../components/flow-header';
 import { usePharmacyFlowStore } from '../../../lib/store/pharmacy-flow.store';
 import { useUploadPrescription, usePrescriptionStatus } from '../../../lib/hooks/use-order-mutations';

@@ -1,5 +1,5 @@
 {
-  "extends": "@speedplus/config/typescript/nextjs.json",
+  "extends": "@fourdat/config/typescript/nextjs.json",
   "compilerOptions": {
     "composite": false,
     "baseUrl": ".",
@@ -7,16 +7,16 @@
       "@/*": [
         "./*"
       ],
-      "@speedplus/ui": [
+      "@fourdat/ui": [
         "../../packages/ui/src/index.ts"
       ],
-      "@speedplus/types": [
+      "@fourdat/types": [
         "../../packages/types/src/index.ts"
       ],
-      "@speedplus/api-client": [
+      "@fourdat/api-client": [
         "../../packages/api-client/src/index.ts"
       ],
-      "@speedplus/utils": [
+      "@fourdat/utils": [
         "../../packages/utils/src/index.ts"
       ]
     },

@@ -3,10 +3,10 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { AuthShell, Button, Input, PasswordInput, AlertCircleIcon, Badge } from '@speedplus/ui';
-import { authApi } from '@speedplus/api-client';
+import { AuthShell, Button, Input, PasswordInput, AlertCircleIcon, Badge } from '@fourdat/ui';
+import { authApi } from '@fourdat/api-client';
 import { useAuthStore } from '@/lib/store/auth.store';
-import type { User } from '@speedplus/types';
+import type { User } from '@fourdat/types';
 
 export default function RegisterPage() {
   const router = useRouter();

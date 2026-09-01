@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
-import { Button, Input, SelectionCard, StatusSteps, iconColors } from '@speedplus/ui';
-import { kycApi } from '@speedplus/api-client';
+import { Button, Input, SelectionCard, StatusSteps, iconColors } from '@fourdat/ui';
+import { kycApi } from '@fourdat/api-client';
 import { useAuthStore } from '@/lib/store/auth.store';
 
 type DocType = 'bvn' | 'nin';

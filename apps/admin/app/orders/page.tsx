@@ -2,8 +2,8 @@
 
 import { useState, useTransition } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { adminApi, type OrderSummary, type OrderDetail } from '@speedplus/api-client';
-import { Badge, Skeleton } from '@speedplus/ui';
+import { adminApi, type OrderSummary, type OrderDetail } from '@fourdat/api-client';
+import { Badge, Skeleton } from '@fourdat/ui';
 
 function formatKobo(k: number) {
   return `₦${(k / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`;

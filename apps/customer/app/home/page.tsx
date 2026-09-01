@@ -4,11 +4,11 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { SpeedPlusLogo, Badge, iconColors } from '@speedplus/ui';
-import { staggerContainer, staggerItem, spring } from '@speedplus/ui';
-import { usePackageFlowStore } from '../lib/store/package-flow.store';
-import { ordersApi } from '@speedplus/api-client';
-import { FEATURES } from '../lib/features';
+import { FourdatLogo, Badge, iconColors } from '@fourdat/ui';
+import { staggerContainer, staggerItem, spring } from '@fourdat/ui';
+import { usePackageFlowStore } from '@/lib/store/package-flow.store';
+import { ordersApi } from '@fourdat/api-client';
+import { FEATURES } from '@/lib/features';
 
 // ── Intent routing ────────────────────────────────────────────────────────────
 
@@ -171,7 +171,7 @@ export default function HomePage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...spring.smooth }}
           >
-            <SpeedPlusLogo variant="full" theme="dark" size="md" />
+            <FourdatLogo variant="full" theme="dark" size="md" />
             <Link
               href="/wallet"
               className="flex items-center gap-1.5 text-[12px] font-semibold text-white/70 hover:text-white transition-colors bg-white/[0.08] hover:bg-white/[0.12] border border-white/[0.08] rounded-full px-3.5 py-1.5"

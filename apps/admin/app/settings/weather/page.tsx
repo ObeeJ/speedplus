@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
-import { adminApi } from '@speedplus/api-client';
-import { FuelIcon } from '@speedplus/ui';
+import { adminApi } from '@fourdat/api-client';
+import { FuelIcon } from '@fourdat/ui';
 
 function naira(kobo: number) {
   return `₦${(kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`;

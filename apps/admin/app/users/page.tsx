@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
-import { adminApi } from '@speedplus/api-client';
-import { UsersIcon, DriverIcon, StoreIcon, KYCIcon } from '@speedplus/ui';
+import { adminApi } from '@fourdat/api-client';
+import { UsersIcon, DriverIcon, StoreIcon, KYCIcon } from '@fourdat/ui';
 
 type UserRow = Awaited<ReturnType<typeof adminApi.listUsers>>['users'][number];
 

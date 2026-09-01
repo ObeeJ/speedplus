@@ -104,7 +104,7 @@ services:
       R2_ACCOUNT_ID: ""
       R2_ACCESS_KEY_ID: ""
       R2_SECRET_ACCESS_KEY: ""
-      R2_BUCKET_NAME: "speedplus-docs"
+      R2_BUCKET_NAME: "fourdat-media"
       R2_PUBLIC_URL: ""
       PREMBLY_API_KEY: ""
       PREMBLY_BASE_URL: "https://sandbox.prembly.com"
@@ -119,15 +119,16 @@ services:
       BRIDGE_API_KEY: ""
       BRIDGE_ENABLED: "false"
       SENDBYTE_API_KEY: ""
-      SENDBYTE_FROM_ADDRESS: "SpeedPlus <noreply@speedplus.app>"
+      SENDBYTE_FROM_ADDRESS: "Fourdat <noreply@fourdat.com>"
       PIN_THRESHOLD_KOBO: "5000000"
 
+    # The distroless final image has no shell or wget, so CMD-SHELL healthchecks
+    # will always fail. In production Railway runs an HTTP probe against /healthz
+    # at the platform level — that is the authoritative liveness signal.
+    # This compose healthcheck is disabled to avoid false failures in local dev.
+    # To test liveness locally: curl http://localhost:8000/healthz
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/healthz || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
+      disable: true
 
 volumes:
   postgres_data:

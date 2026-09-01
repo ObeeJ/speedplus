@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { adminApi } from '@speedplus/api-client';
+import { adminApi } from '@fourdat/api-client';
 
 export default function LPGPricePage() {
   const [region, setRegion] = useState('Lagos');

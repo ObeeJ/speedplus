@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { FEATURES } from '@/lib/features';
-import { walletApi, cardApi } from '@speedplus/api-client';
-import { Skeleton, ListCard } from '@speedplus/ui';
+import { walletApi, cardApi } from '@fourdat/api-client';
+import { Skeleton, ListCard } from '@fourdat/ui';
 
 function naira(kobo: number) {
   return `₦${(kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 0 })}`;

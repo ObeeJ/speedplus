@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button } from '@speedplus/ui';
-import { subscriptionsApi, usersApi, type Subscription } from '@speedplus/api-client';
+import { Button } from '@fourdat/ui';
+import { subscriptionsApi, usersApi, type Subscription } from '@fourdat/api-client';
 
 // Seeded in migration 022 — same constant used in gas/price/page.tsx
 const GAS_MERCHANT_ID = '00000000-0000-0000-0000-000000000004';

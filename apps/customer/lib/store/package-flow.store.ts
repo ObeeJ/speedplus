@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { QuoteResult } from '@speedplus/api-client';
+import type { QuoteResult } from '@fourdat/api-client';
 
 export type { QuoteResult };
 export type PackageSize = 'small' | 'medium' | 'large';

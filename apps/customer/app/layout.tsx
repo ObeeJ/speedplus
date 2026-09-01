@@ -15,7 +15,7 @@ const dmSans = DM_Sans({
 export const viewport: Viewport = { themeColor: '#0A3D2C' };
 
 export const metadata: Metadata = {
-  title: 'SpeedPlus — Faster. Cheaper. Better.',
+  title: 'Fourdat — Faster. Cheaper. Better.',
   description: 'Gas, groceries, food and pharmacy delivered fast across Nigeria.',
 };
 

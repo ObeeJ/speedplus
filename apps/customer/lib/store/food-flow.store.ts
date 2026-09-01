@@ -52,6 +52,6 @@ export const useFoodFlowStore = create<FoodFlowState>()(
       setOrderId: (v) => set({ orderId: v }),
       reset: () => set({ merchantId: null, merchantLat: null, merchantLng: null, productId: null, productPriceKobo: null, deliverToId: null, deliverToAddress: null, quote: null, orderId: null }),
     }),
-    { name: 'speedplus-food-flow' },
+    { name: 'fourdat-food-flow' },
   ),
 );

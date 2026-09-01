@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Vertical } from '@speedplus/types';
+import type { Vertical } from '@fourdat/types';
 
 interface CartItem {
   productId: string;

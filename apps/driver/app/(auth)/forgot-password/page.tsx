@@ -1,7 +1,7 @@
 'use client';
 
-import { ForgotPasswordFlow } from '@speedplus/ui';
-import { authApi } from '@speedplus/api-client';
+import { ForgotPasswordFlow } from '@fourdat/ui';
+import { authApi } from '@fourdat/api-client';
 
 export default function ForgotPasswordPage() {
   return (

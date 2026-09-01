@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Skeleton } from '@speedplus/ui';
+import { Button, Skeleton } from '@fourdat/ui';
 import { FlowHeader } from '../../components/flow-header';
 import { usePharmacyFlowStore } from '../../../lib/store/pharmacy-flow.store';
 import { useRequestQuote, useCreateOrder } from '../../../lib/hooks/use-order-mutations';

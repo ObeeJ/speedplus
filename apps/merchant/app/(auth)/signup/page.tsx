@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AuthShell, Button, Input, PasswordInput, AlertCircleIcon, type AuthShellChip } from '@speedplus/ui';
-import { authApi, merchantApi } from '@speedplus/api-client';
+import { AuthShell, Button, Input, PasswordInput, AlertCircleIcon, type AuthShellChip } from '@fourdat/ui';
+import { authApi, merchantApi } from '@fourdat/api-client';
 import { useMerchantAuthStore } from '@/lib/store/auth.store';
 
 const chips: [AuthShellChip, AuthShellChip] = [
@@ -63,12 +63,12 @@ export default function MerchantSignupPage() {
   return (
     <AuthShell
       headline={<>Grow your<br /><span className="text-lime">business.</span></>}
-      subtext="Join SpeedPlus and reach thousands of customers. Set up your store in minutes."
+      subtext="Join Fourdat and reach thousands of customers. Set up your store in minutes."
       heroImage="https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=1200&q=80"
       portalLabel="Partner Portal"
       chips={chips}
       formHeading="Create partner account"
-      formSubheading="Start selling on SpeedPlus today."
+      formSubheading="Start selling on Fourdat today."
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
         <div className="grid grid-cols-2 gap-3">

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
-import { adminApi, type CancellationRule } from '@speedplus/api-client';
+import { adminApi, type CancellationRule } from '@fourdat/api-client';
 
 const EMPTY: Omit<CancellationRule, 'id'> = {
   vertical: '',

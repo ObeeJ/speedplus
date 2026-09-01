@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Skeleton, SelectionCard, ListCard } from '@speedplus/ui';
+import { Button, Skeleton, SelectionCard, ListCard } from '@fourdat/ui';
 import { FlowHeader } from '../../components/flow-header';
 import { usePackageFlowStore, type PaymentMethod } from '../../../lib/store/package-flow.store';
 import { useRequestQuote, useRequestMultiStopQuote, useCreateOrder, useWalletBalance } from '../../../lib/hooks/use-order-mutations';
 import { useQuery } from '@tanstack/react-query';
-import { cardApi } from '@speedplus/api-client';
+import { cardApi } from '@fourdat/api-client';
 
 const WEIGHT_KG: Record<string, number> = { light: 1.5, medium: 6, heavy: 17, very_heavy: 30 };
 
@@ -186,7 +186,7 @@ export default function PackagePricePage() {
               <SelectionCard
                 selected={paymentMethod === 'pay_on_arrival'}
                 label="Pay on arrival"
-                description="Rider scans your SpeedPlus card at the door. You enter your PIN."
+                description="Rider scans your Fourdat card at the door. You enter your PIN."
                 badge="Unlocked"
                 icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>}
                 onClick={() => setPaymentMethod('pay_on_arrival')}
@@ -217,7 +217,7 @@ export default function PackagePricePage() {
           </div>
           <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="sr-only" />
           <p className="text-[12px] text-[#63636E] leading-relaxed">
-            I confirm the recipient has agreed to share their name and phone number with SpeedPlus for this delivery. Their details are encrypted and only shown to the assigned rider.
+            I confirm the recipient has agreed to share their name and phone number with Fourdat for this delivery. Their details are encrypted and only shown to the assigned rider.
           </p>
         </label>
 

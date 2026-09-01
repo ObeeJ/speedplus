@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { SpeedPlusLogo } from '@speedplus/ui';
+import { FourdatLogo } from '@fourdat/ui';
 
 // ── Area ticker ───────────────────────────────────────────────────────────────
 const AREAS = ['in your hands.', 'at your door.', 'confirmed by you.', 'with you.'];
@@ -93,7 +93,7 @@ export default function LandingPage() {
 
       {/* ── Nav ────────────────────────────────────────────────────────── */}
       <header className="relative z-20 flex items-center justify-between px-6 pt-6 lg:pt-8 max-w-6xl mx-auto w-full">
-        <SpeedPlusLogo variant="full" theme="dark" size="md" />
+        <FourdatLogo variant="full" theme="dark" size="md" />
 
         <nav className="hidden md:flex items-center gap-0.5">
           {['For Riders', 'For Merchants', 'About'].map((item) => (

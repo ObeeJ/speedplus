@@ -2,7 +2,7 @@ import { execSync } from 'child_process';
 import path from 'path';
 
 export default function globalSetup() {
-  const dbUrl = process.env['DATABASE_URL'] ?? 'postgres://speedplus:speedplus@localhost:5433/speedplus?sslmode=disable';
+  const dbUrl = process.env['DATABASE_URL'] ?? 'postgres://fourdat:fourdat@localhost:5433/fourdat?sslmode=disable';
 
   if (!process.env['DATABASE_URL']) {
     console.warn('[e2e] DATABASE_URL not set — falling back to localhost:5433. Set it explicitly in CI.');

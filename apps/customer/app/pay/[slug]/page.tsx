@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { paymentLinksApi, walletApi } from '@speedplus/api-client';
-import { Button, SpeedPlusLogo } from '@speedplus/ui';
+import { paymentLinksApi, walletApi } from '@fourdat/api-client';
+import { Button, FourdatLogo } from '@fourdat/ui';
 
 function naira(kobo: number) {
   return `₦${(kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`;
@@ -75,7 +75,7 @@ export default function PayLinkPage() {
       <div className="w-full max-w-sm flex flex-col gap-5">
         {/* Logo */}
         <div className="flex justify-center mb-2">
-          <SpeedPlusLogo size="md" />
+          <FourdatLogo size="md" />
         </div>
 
         {error && (

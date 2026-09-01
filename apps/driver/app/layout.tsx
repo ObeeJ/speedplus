@@ -10,8 +10,8 @@ const dmSans = DM_Sans({ subsets: ['latin'], variable: '--font-display', weight:
 export const viewport: Viewport = { themeColor: '#0A3D2C' };
 
 export const metadata: Metadata = {
-  title: 'SpeedPlus Rider',
-  description: 'Driver portal for SpeedPlus delivery.',
+  title: 'Fourdat Rider',
+  description: 'Driver portal for Fourdat delivery.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

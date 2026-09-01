@@ -7,7 +7,7 @@ const API = 'http://localhost:8000/api/v1';
 
 // Read from the fixture file the seed script writes, falling back to env vars.
 function loadFixtures() {
-  const fixturePath = path.join(os.tmpdir(), 'speedplus-e2e-fixtures.env');
+  const fixturePath = path.join(os.tmpdir(), 'fourdat-e2e-fixtures.env');
   const env: Record<string, string> = {};
   if (fs.existsSync(fixturePath)) {
     for (const line of fs.readFileSync(fixturePath, 'utf8').split('\n')) {

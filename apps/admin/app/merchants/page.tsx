@@ -2,8 +2,8 @@
 
 import { useState, useTransition } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { adminApi, type MerchantRow } from '@speedplus/api-client';
-import { Badge, Skeleton } from '@speedplus/ui';
+import { adminApi, type MerchantRow } from '@fourdat/api-client';
+import { Badge, Skeleton } from '@fourdat/ui';
 
 const STATUS_FILTERS = ['', 'pending', 'active', 'suspended'] as const;
 

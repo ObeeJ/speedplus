@@ -1,0 +1,14 @@
+'use client';
+
+import { ErrorFallback } from '@fourdat/ui';
+
+export default function Error({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  return (
+    <ErrorFallback
+      error={error}
+      reset={reset}
+      title="your wallet"
+      description="We couldn't load your wallet just now. Your balance is safe — try again."
+    />
+  );
+}

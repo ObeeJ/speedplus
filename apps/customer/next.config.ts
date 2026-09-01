@@ -2,9 +2,9 @@ import path from 'node:path';
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  transpilePackages: ['@speedplus/ui', '@speedplus/types', '@speedplus/api-client', '@speedplus/utils'],
+  transpilePackages: ['@fourdat/ui', '@fourdat/types', '@fourdat/api-client', '@fourdat/utils'],
   images: {
-    remotePatterns: [{ protocol: 'https', hostname: '**.speedplus.ng' }],
+    remotePatterns: [{ protocol: 'https', hostname: '**.fourdat.ng' }],
   },
   // Pin the workspace root to the monorepo, not inferred. An unrelated
   // package.json sitting in the home directory (outside this repo) makes

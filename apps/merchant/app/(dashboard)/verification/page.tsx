@@ -1,9 +1,9 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { merchantApi } from '@speedplus/api-client';
-import { Card, Badge } from '@speedplus/ui';
-import { ShieldCheckIcon } from '@speedplus/ui';
+import { merchantApi } from '@fourdat/api-client';
+import { Card, Badge } from '@fourdat/ui';
+import { ShieldCheckIcon } from '@fourdat/ui';
 import { useMerchantAuthStore } from '@/lib/store/auth.store';
 
 export default function VerificationPage() {

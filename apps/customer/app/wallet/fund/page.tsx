@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Input } from '@speedplus/ui';
-import { walletApi } from '@speedplus/api-client';
+import { Button, Input } from '@fourdat/ui';
+import { walletApi } from '@fourdat/api-client';
 import { useAuthStore } from '@/lib/store/auth.store';
 
 type Method = 'naira' | 'crypto';
@@ -154,7 +154,7 @@ export default function WalletFundPage() {
         <p className="text-[11px] text-mid text-center">
           {method === 'crypto'
             ? 'Stablecoin payments powered by Bridge.xyz.'
-            : 'Secured by Paystack. Your card details are never stored by SpeedPlus.'}
+            : 'Secured by Paystack. Your card details are never stored by Fourdat.'}
         </p>
       </div>
     </main>

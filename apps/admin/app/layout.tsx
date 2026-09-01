@@ -11,8 +11,8 @@ const dmSans = DM_Sans({ subsets: ['latin'], variable: '--font-display', weight:
 export const viewport: Viewport = { themeColor: '#0A3D2C' };
 
 export const metadata: Metadata = {
-  title: 'SpeedPlus Ops',
-  description: 'Admin panel for SpeedPlus operations.',
+  title: 'Fourdat Ops',
+  description: 'Admin panel for Fourdat operations.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

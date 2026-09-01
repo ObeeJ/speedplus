@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
-import { adminApi, type KYCCheck } from '@speedplus/api-client';
-import { Badge, Button, Modal, Skeleton, Input } from '@speedplus/ui';
+import { adminApi, type KYCCheck } from '@fourdat/api-client';
+import { Badge, Button, Modal, Skeleton, Input } from '@fourdat/ui';
 
 export default function KYCPage() {
   const [checks, setChecks] = useState<KYCCheck[]>([]);

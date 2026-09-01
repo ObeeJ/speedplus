@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { User } from '@speedplus/types';
-import { setAuthToken, setRefreshToken } from '@speedplus/api-client';
-import type { MerchantProfile } from '@speedplus/api-client';
+import type { User } from '@fourdat/types';
+import { setAuthToken, setRefreshToken } from '@fourdat/api-client';
+import type { MerchantProfile } from '@fourdat/api-client';
 
 interface MerchantAuthState {
   user: User | null;
@@ -36,11 +36,10 @@ export const useMerchantAuthStore = create<MerchantAuthState>()(
       },
     }),
     {
-      name: 'speedplus-merchant-auth',
-      partialize: (s) => ({ user: s.user, merchant: s.merchant, _rt: s._rt }),
+      name: 'fourdat-merchant-auth',
+      partialize: (s) => ({ user: s.user, merchant: s.merchant }),
       onRehydrateStorage: () => (state) => {
-        if (state?.user && state._rt) {
-          setRefreshToken(state._rt);
+        if (state?.user) {
           state.isAuthenticated = true;
         }
       },

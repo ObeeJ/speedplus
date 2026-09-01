@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
-import { adminApi } from '@speedplus/api-client';
-import { SubscriptionIcon } from '@speedplus/ui';
+import { adminApi } from '@fourdat/api-client';
+import { SubscriptionIcon } from '@fourdat/ui';
 
 type SubscriptionRow = Awaited<ReturnType<typeof adminApi.listSubscriptions>>['subscriptions'][number];
 type SubStatus = 'active' | 'paused' | 'cancelled';

@@ -1,9 +1,10 @@
 'use client';
 
+import { Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { runsApi } from '@speedplus/api-client';
-import { Skeleton, ListCard } from '@speedplus/ui';
+import { runsApi } from '@fourdat/api-client';
+import { Skeleton, ListCard } from '@fourdat/ui';
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; label: string }> = {
   assembling:  { bg: '#FEF3C7', text: '#92400E', label: 'Assembling' },
@@ -18,6 +19,14 @@ function fmt(iso: string) {
 }
 
 export default function RunPage() {
+  return (
+    <Suspense fallback={null}>
+      <RunPageContent />
+    </Suspense>
+  );
+}
+
+function RunPageContent() {
   const router = useRouter();
   const params = useSearchParams();
   const runId = params.get('id');

@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { merchantApi, type ProductInput } from '@speedplus/api-client';
-import { Card, Button, Input } from '@speedplus/ui';
+import { merchantApi, type ProductInput } from '@fourdat/api-client';
+import { Card, Button, Input } from '@fourdat/ui';
 
 function naira(kobo: number) {
   return (kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 0 });

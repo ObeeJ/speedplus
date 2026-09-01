@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { FEATURES } from '@/lib/features';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button, Skeleton } from '@speedplus/ui';
-import { usersApi, authApi, type CreateAddressPayload } from '@speedplus/api-client';
+import { Button, Skeleton } from '@fourdat/ui';
+import { usersApi, authApi, type CreateAddressPayload } from '@fourdat/api-client';
 import { useAuthStore } from '@/lib/store/auth.store';
 
 const BLANK: CreateAddressPayload = { label: '', street: '', city: '', state: '', lat: 0, lng: 0 };

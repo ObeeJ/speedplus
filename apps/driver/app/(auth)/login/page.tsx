@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight } from 'lucide-react';
-import { authApi } from '@speedplus/api-client';
+import { authApi } from '@fourdat/api-client';
 import { useDriverAuthStore } from '@/lib/store/auth.store';
-import { AuthShell, Button, Input, PasswordInput, AlertCircleIcon, type AuthShellChip } from '@speedplus/ui';
+import { AuthShell, Button, Input, PasswordInput, AlertCircleIcon, type AuthShellChip } from '@fourdat/ui';
 
 const chips: [AuthShellChip, AuthShellChip] = [
   {
@@ -51,7 +51,7 @@ export default function DriverLoginPage() {
   return (
     <AuthShell
       headline={<>Deliver.<br />Earn.<br /><span className="text-lime">Grow.</span></>}
-      subtext="Your earnings, your schedule, your city. Start riding with SpeedPlus."
+      subtext="Your earnings, your schedule, your city. Start riding with Fourdat."
       heroImage="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=1200&q=80"
       portalLabel="Rider Portal"
       chips={chips}

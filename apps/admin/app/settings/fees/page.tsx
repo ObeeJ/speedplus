@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
-import { adminApi, type FeeConfig, type FuelSuggestion } from '@speedplus/api-client';
+import { adminApi, type FeeConfig, type FuelSuggestion } from '@fourdat/api-client';
 
 const VERTICALS = ['food', 'grocery', 'pharmacy', 'gas', 'package'] as const;
 

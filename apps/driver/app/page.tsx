@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback, type ReactElement } from 'rea
 import { useRouter } from 'next/navigation';
 import { useDriverStore } from '../lib/store/driver.store';
 import { useDriverAuthStore } from '../lib/store/auth.store';
-import { dispatchApi, paycodesApi, walletApi, authApi, usersApi, ordersApi, earningsApi } from '@speedplus/api-client';
+import { dispatchApi, paycodesApi, walletApi, authApi, usersApi, ordersApi, earningsApi } from '@fourdat/api-client';
 import {
   SparkIcon,
   BoxStackIcon,
@@ -20,9 +20,9 @@ import {
   StatusSteps,
   iconColors,
   type DuotoneIconProps,
-} from '@speedplus/ui';
+} from '@fourdat/ui';
 import { ProofCapture } from './components/proof-capture';
-import { buildWsUrl, buildWsProtocols } from '@speedplus/api-client';
+import { buildWsUrl, buildWsProtocols } from '@fourdat/api-client';
 import { useQuery } from '@tanstack/react-query';
 
 const LOCATION_INTERVAL_MS = 10_000;
@@ -718,7 +718,7 @@ export default function DriverAppPage() {
               </span>
               <span className="flex flex-col gap-0.5">
                 <span className="font-display text-base font-semibold">Your profile</span>
-                <span className="text-[11.5px] text-mid">Rider · SpeedPlus</span>
+                <span className="text-[11.5px] text-mid">Rider · Fourdat</span>
               </span>
             </div>
 

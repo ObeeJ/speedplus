@@ -3,11 +3,11 @@
 // matches the actual Go backend exactly.
 
 import MockAdapter from 'axios-mock-adapter';
-import { apiClient, setAuthToken } from '@speedplus/api-client';
-import { ordersApi } from '@speedplus/api-client';
-import { quotesApi } from '@speedplus/api-client';
-import { catalogApi } from '@speedplus/api-client';
-import { walletApi } from '@speedplus/api-client';
+import { apiClient, setAuthToken } from '@fourdat/api-client';
+import { ordersApi } from '@fourdat/api-client';
+import { quotesApi } from '@fourdat/api-client';
+import { catalogApi } from '@fourdat/api-client';
+import { walletApi } from '@fourdat/api-client';
 
 const mock = new MockAdapter(apiClient);
 
