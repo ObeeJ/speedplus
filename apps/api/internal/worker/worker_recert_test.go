@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
@@ -261,17 +261,4 @@ var _ smsSender = (*stubSMSSender)(nil)
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
-		func() bool {
-			for i := 0; i <= len(s)-len(sub); i++ {
-				if s[i:i+len(sub)] == sub {
-					return true
-				}
-			}
-			return false
-		}())
-}
-
-// Ensure time import is used (RecertReminderResult.LastRecert).
-var _ = time.Now
+func contains(s, sub string) bool { return strings.Contains(s, sub) }
