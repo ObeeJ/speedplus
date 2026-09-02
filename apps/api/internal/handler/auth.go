@@ -11,7 +11,7 @@ import (
 	"github.com/speedplus/api/internal/observability"
 	"github.com/speedplus/api/internal/service"
 )
-
+			
 // authService is the interface AuthHandler depends on.
 // Accept interfaces, return structs — keeps the handler testable with a stub.
 type authService interface {
@@ -28,7 +28,7 @@ type authService interface {
 
 type AuthHandler struct {
 	auth   authService
-	secure bool // false in development so cookies work over http://localhost
+	secure bool
 }
 
 func NewAuthHandler(auth *service.AuthService, secure bool) *AuthHandler {
