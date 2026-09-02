@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" role="img" aria-label="Fourdat">
+  <title>Fourdat symbol, compact cut for 24px and below</title>
+  <defs>
+    <mask id="fd-aperture-solid" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+      <rect x="0" y="0" width="100" height="100" rx="30" fill="#fff"/>
+      <path d="M21,79 A76,76 0 0 1 79,21 A76,76 0 0 1 21,79 Z" fill="#000"/>
+    </mask>
+  </defs>
+  <rect x="0" y="0" width="100" height="100" rx="30" fill="currentColor" mask="url(#fd-aperture-solid)"/>
+</svg>

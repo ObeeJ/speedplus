@@ -73,9 +73,27 @@
   --color-icon-stroke:  #1C3A2E;  /* icon primary stroke */
   --color-icon-accent:  #7BA05B;  /* icon olive accent stroke */
 
+  /* Fourdat identity — additive, see brand/README.md.
+     Nothing above is removed; the old names stay valid until every app migrates. */
+  --color-palm:          #0A3D2C;  /* the brand green (same value as --color-emerald) */
+  --color-palm-deep:     #062A1E;  /* pressed states, deepest edge */
+  --color-clay:          #C25E3A;  /* warm accent — never a primary surface */
+  --color-clay-600:      #A94D2D;  /* hover on clay */
+  --color-chalk:         #F4F2EB;  /* brand light ground */
+  --color-signal:        #C6F24E;  /* live states ONLY (same value as --color-lime) */
+  --color-vert-food:     #C25E3A;
+  --color-vert-gas:      #C08A2E;
+  --color-vert-pharmacy: #2F8A72;
+  --color-vert-packages: #4E4459;
+
   /* Typography */
   --font-display: 'DM Sans', sans-serif;       /* headings, buttons, numbers */
   --font-body:    'Instrument Sans', sans-serif; /* body, labels, captions */
+
+  /* Fourdat type system — migrate --font-display/--font-body onto these per app */
+  --font-brand: 'Bricolage Grotesque', 'Familjen Grotesk', system-ui, sans-serif;
+  --font-text:  'Familjen Grotesk', system-ui, sans-serif;
+  --font-code:  'Martian Mono', ui-monospace, SFMono-Regular, monospace;
 
   /* Radius */
   --radius-sm: 8px; --radius-md: 12px; --radius-lg: 16px; --radius-xl: 20px; --radius-full: 9999px;

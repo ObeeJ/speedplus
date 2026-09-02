@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 -4 642 108" width="642" height="108" role="img" aria-label="FOURDAT">
+  <title>FOURDAT wordmark</title>
+  <desc>Drawn on a 100u cap height with a 20u stem and a 14u letter gap. No font dependency.</desc>
+  <g fill="none" stroke="currentColor" stroke-width="20" stroke-linecap="butt" stroke-linejoin="miter">
+    <path d="M10,100 V10 H66"/>
+    <path d="M10,50 H56"/>
+    <path d="M90,36 A26,26 0 0 1 116,10 H128 A26,26 0 0 1 154,36 V64 A26,26 0 0 1 128,90 H116 A26,26 0 0 1 90,64 Z"/>
+    <path d="M188,0 V61 A29,29 0 0 0 246,61 V0"/>
+    <path d="M280,0 V100"/>
+    <path d="M280,10 H314 A22,22 0 0 1 314,54 H280"/>
+    <path d="M307,54 L336,100"/>
+    <path d="M370,0 V100"/>
+    <path d="M370,10 H400 A32,32 0 0 1 432,42 V58 A32,32 0 0 1 400,90 H370"/>
+    <path d="M466,100 L486,10 H514 L534,100"/>
+    <path d="M474,62 H526"/>
+    <path d="M558,10 H634"/>
+    <path d="M596,0 V100"/>
+  </g>
+</svg>
