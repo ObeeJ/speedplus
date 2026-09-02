@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 -4 642 108" width="642" height="108" role="img" aria-label="FOURDAT">
+  <title>FOURDAT wordmark, expressive cut</title>
+  <desc>The O is replaced by the symbol. Use once per piece. Never in navigation or running text.</desc>
+  <defs>
+    <mask id="fd-aperture-w" maskUnits="userSpaceOnUse" x="80" y="8" width="84" height="84">
+      <rect x="80" y="8" width="84" height="84" rx="25.2" fill="#fff"/>
+      <g transform="translate(80,8) scale(0.84)">
+        <path d="M21,79 A76,76 0 0 1 79,21 A76,76 0 0 1 21,79 Z" fill="#000"/>
+        <g fill="#fff">
+          <rect x="18.5" y="62.5" width="35" height="5" transform="rotate(45 36 65)"/>
+          <rect x="32.5" y="47.5" width="35" height="5" transform="rotate(45 50 50)"/>
+          <rect x="46.5" y="32.5" width="35" height="5" transform="rotate(45 64 35)"/>
+        </g>
+      </g>
+    </mask>
+  </defs>
+  <g fill="none" stroke="currentColor" stroke-width="20" stroke-linecap="butt" stroke-linejoin="miter">
+    <path d="M10,100 V10 H66"/>
+    <path d="M10,50 H56"/>
+    <path d="M188,0 V61 A29,29 0 0 0 246,61 V0"/>
+    <path d="M280,0 V100"/>
+    <path d="M280,10 H314 A22,22 0 0 1 314,54 H280"/>
+    <path d="M307,54 L336,100"/>
+    <path d="M370,0 V100"/>
+    <path d="M370,10 H400 A32,32 0 0 1 432,42 V58 A32,32 0 0 1 400,90 H370"/>
+    <path d="M466,100 L486,10 H514 L534,100"/>
+    <path d="M474,62 H526"/>
+    <path d="M558,10 H634"/>
+    <path d="M596,0 V100"/>
+  </g>
+  <rect x="80" y="8" width="84" height="84" rx="25.2" fill="currentColor" mask="url(#fd-aperture-w)"/>
+</svg>
