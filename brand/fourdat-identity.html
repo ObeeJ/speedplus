@@ -1,0 +1,1027 @@
+<title>Fourdat Identity</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Familjen+Grotesk:ital,wght@0,400..700;1,400..600&family=Martian+Mono:wght@300..600&display=swap">
+
+<style>
+/* ============================================================
+   FOURDAT IDENTITY — brand book
+   Palette : Palm / Ink / Sand / Clay / Signal
+   Type    : Bricolage Grotesque · Familjen Grotesk · Martian Mono
+   ============================================================ */
+
+:root{
+  --palm:#0A3D2C;
+  --palm-deep:#062A1E;
+  --palm-lift:#0E5239;
+  --clay:#C25E3A;
+  --signal:#C6F24E;
+  --ochre:#C08A2E;
+  --mint:#2F8A72;
+  --plum:#4E4459;
+
+  /* light theme (default) */
+  --bg:#F4F2EB;
+  --bg-raise:#FBFAF6;
+  --bg-sink:#E8E5DA;
+  --fg:#14170F;
+  --fg-soft:#4C554B;
+  --fg-mute:#77806F;
+  --rule:#D6D2C4;
+  --rule-soft:#E2DED2;
+  --brandsurface:var(--palm);
+  --onbrand:#F4F2EB;
+  --accent:var(--clay);
+  --focus:#0A3D2C;
+
+  --maxw:1160px;
+  --rail:150px;
+  --f-display:"Bricolage Grotesque","Familjen Grotesk",system-ui,sans-serif;
+  --f-text:"Familjen Grotesk",system-ui,-apple-system,sans-serif;
+  --f-mono:"Martian Mono",ui-monospace,"SFMono-Regular",monospace;
+}
+
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0C0F0C;
+    --bg-raise:#141813;
+    --bg-sink:#080A08;
+    --fg:#EDEFE6;
+    --fg-soft:#B4BCAF;
+    --fg-mute:#7F8A7C;
+    --rule:#242A22;
+    --rule-soft:#1A1F19;
+    --brandsurface:#0A3D2C;
+    --onbrand:#EDEFE6;
+    --accent:#DB7B57;
+    --focus:#C6F24E;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0C0F0C;
+  --bg-raise:#141813;
+  --bg-sink:#080A08;
+  --fg:#EDEFE6;
+  --fg-soft:#B4BCAF;
+  --fg-mute:#7F8A7C;
+  --rule:#242A22;
+  --rule-soft:#1A1F19;
+  --brandsurface:#0A3D2C;
+  --onbrand:#EDEFE6;
+  --accent:#DB7B57;
+  --focus:#C6F24E;
+}
+
+*{box-sizing:border-box}
+
+body{
+  background:var(--bg);
+  color:var(--fg);
+  font-family:var(--f-text);
+  font-size:17px;
+  line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+
+/* ---------- section scaffolding ---------- */
+.sec{
+  display:grid;
+  grid-template-columns:var(--rail) minmax(0,1fr);
+  gap:0 48px;
+  padding:76px 0;
+  border-top:1px solid var(--rule);
+}
+.sec:first-of-type{border-top:none}
+.sec__rail{display:flex;flex-direction:column;gap:6px}
+.sec__num{
+  font-family:var(--f-mono);font-size:11px;font-weight:500;
+  letter-spacing:.06em;color:var(--accent);
+  font-variant-numeric:tabular-nums;
+}
+.sec__kicker{
+  font-family:var(--f-mono);font-size:11px;font-weight:400;
+  letter-spacing:.10em;text-transform:uppercase;color:var(--fg-mute);
+  line-height:1.5;
+}
+.sec__body{display:flex;flex-direction:column;gap:26px;min-width:0}
+
+h2{
+  font-family:var(--f-display);
+  font-size:clamp(28px,3.4vw,42px);
+  font-weight:700;line-height:1.04;letter-spacing:-.024em;
+  margin:0;text-wrap:balance;
+}
+h3{
+  font-family:var(--f-display);
+  font-size:20px;font-weight:600;letter-spacing:-.012em;
+  margin:0;line-height:1.2;
+}
+h4{
+  font-family:var(--f-mono);font-size:10.5px;font-weight:500;
+  letter-spacing:.11em;text-transform:uppercase;color:var(--fg-mute);
+  margin:0;
+}
+p{margin:0;max-width:64ch;color:var(--fg-soft)}
+p strong{color:var(--fg);font-weight:600}
+.lede{font-size:19.5px;line-height:1.55;color:var(--fg)}
+em{font-style:italic}
+
+.mono{font-family:var(--f-mono);font-size:11.5px;letter-spacing:.02em;font-variant-numeric:tabular-nums}
+
+/* ---------- hero ---------- */
+.hero{padding:64px 0 60px}
+.hero__eyebrow{
+  font-family:var(--f-mono);font-size:11px;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--fg-mute);margin-bottom:44px;
+  display:flex;gap:14px;flex-wrap:wrap;align-items:baseline;
+}
+.hero__eyebrow b{color:var(--accent);font-weight:500}
+.hero__stage{
+  display:flex;align-items:center;gap:clamp(20px,4vw,46px);
+  flex-wrap:wrap;margin-bottom:40px;
+}
+.hero__mark{width:clamp(88px,11vw,132px);height:auto;color:var(--palm);flex:none}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .hero__mark{color:var(--signal)}}
+:root[data-theme="dark"] .hero__mark{color:var(--signal)}
+.hero__word{width:min(100%,520px);height:auto;color:var(--fg)}
+.hero__claim{
+  font-family:var(--f-display);
+  font-size:clamp(26px,4.4vw,52px);
+  font-weight:500;line-height:1.06;letter-spacing:-.03em;
+  max-width:19ch;text-wrap:balance;margin:0 0 18px;color:var(--fg);
+}
+.hero__claim i{font-style:normal;color:var(--accent)}
+.hero__sub{max-width:56ch;font-size:18px}
+
+/* ---------- generic surfaces ---------- */
+.plate{
+  background:var(--bg-raise);
+  border:1px solid var(--rule-soft);
+  border-radius:4px;
+  padding:34px;
+}
+.plate--dark{background:var(--palm);border-color:transparent;color:#F4F2EB}
+.plate--dark p,.plate--dark h4{color:rgba(244,242,235,.72)}
+.plate--ink{background:#0C0F0C;border-color:transparent;color:#EDEFE6}
+.plate--ink h4{color:#7F8A7C}
+
+.grid{display:grid;gap:18px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+
+/* ---------- direction cards (section 01) ---------- */
+.dirs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.dir{
+  display:flex;flex-direction:column;gap:16px;
+  padding:26px;border:1px solid var(--rule);border-radius:4px;
+  background:var(--bg-raise);
+}
+.dir--pick{
+  border-color:var(--palm);
+  box-shadow:inset 0 0 0 1px var(--palm);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .dir--pick{border-color:var(--signal);box-shadow:inset 0 0 0 1px var(--signal)}}
+:root[data-theme="dark"] .dir--pick{border-color:var(--signal);box-shadow:inset 0 0 0 1px var(--signal)}
+.dir__fig{
+  height:120px;display:flex;align-items:center;justify-content:center;
+  color:var(--fg);
+}
+.dir__fig svg{width:76px;height:76px}
+.dir__name{font-family:var(--f-display);font-size:17px;font-weight:600;letter-spacing:-.01em}
+.dir__tag{
+  font-family:var(--f-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--accent);
+}
+.dir p{font-size:14.5px;line-height:1.55}
+.dir__verdict{
+  margin-top:auto;padding-top:14px;border-top:1px dashed var(--rule);
+  font-size:13.5px;color:var(--fg-mute);
+}
+
+/* ---------- construction ---------- */
+.construct{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:18px;
+}
+.construct figure{margin:0;display:flex;flex-direction:column;gap:12px}
+.construct .frame{
+  aspect-ratio:1;display:grid;place-items:center;
+  background:var(--bg-raise);border:1px solid var(--rule-soft);border-radius:4px;
+  padding:22px;color:var(--palm);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .construct .frame{color:var(--signal)}}
+:root[data-theme="dark"] .construct .frame{color:var(--signal)}
+.construct .frame svg{width:100%;height:auto;max-width:150px}
+.construct figcaption{font-family:var(--f-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-mute);line-height:1.6}
+
+/* size ladder */
+.ladder{
+  display:flex;align-items:flex-end;gap:30px;flex-wrap:wrap;
+  padding:32px 34px;background:var(--bg-raise);
+  border:1px solid var(--rule-soft);border-radius:4px;color:var(--fg);
+}
+.ladder__item{display:flex;flex-direction:column;align-items:center;gap:12px}
+.ladder__item svg{display:block}
+.ladder__item span{font-family:var(--f-mono);font-size:9.5px;color:var(--fg-mute);letter-spacing:.06em}
+
+/* ---------- palette ---------- */
+.swatches{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:14px}
+.sw{border-radius:4px;overflow:hidden;border:1px solid var(--rule-soft);display:flex;flex-direction:column}
+.sw__chip{height:104px}
+.sw__meta{padding:14px 15px 16px;background:var(--bg-raise);display:flex;flex-direction:column;gap:3px}
+.sw__name{font-family:var(--f-display);font-size:15px;font-weight:600;letter-spacing:-.008em;color:var(--fg)}
+.sw__hex{font-family:var(--f-mono);font-size:10.5px;color:var(--fg-mute);letter-spacing:.04em}
+.sw__use{font-size:13px;line-height:1.45;color:var(--fg-soft);margin-top:5px}
+.ratio{
+  display:inline-flex;align-items:center;gap:7px;margin-top:8px;
+  font-family:var(--f-mono);font-size:9.5px;letter-spacing:.05em;color:var(--fg-mute);
+}
+.ratio b{
+  display:inline-block;padding:2px 6px;border-radius:2px;
+  background:var(--bg-sink);color:var(--fg-soft);font-weight:500;
+}
+
+/* proportion bar */
+.propbar{display:flex;height:52px;border-radius:4px;overflow:hidden;border:1px solid var(--rule-soft)}
+.propbar div{display:grid;place-items:center;font-family:var(--f-mono);font-size:9.5px;letter-spacing:.08em}
+
+/* ---------- typography specimens ---------- */
+.spec{
+  display:grid;grid-template-columns:130px minmax(0,1fr);gap:26px;
+  padding:26px 0;border-top:1px solid var(--rule-soft);align-items:start;
+}
+.spec:first-of-type{border-top:none;padding-top:0}
+.spec__meta{display:flex;flex-direction:column;gap:4px}
+.spec__role{font-family:var(--f-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+.spec__face{font-family:var(--f-display);font-size:16px;font-weight:600;letter-spacing:-.01em}
+.spec__note{font-size:13px;color:var(--fg-mute);line-height:1.5}
+.spec__demo{min-width:0}
+.demo-display{font-family:var(--f-display);font-size:clamp(30px,4.6vw,50px);font-weight:600;letter-spacing:-.032em;line-height:1.02;text-wrap:balance;color:var(--fg)}
+.demo-text{font-family:var(--f-text);font-size:17px;line-height:1.6;max-width:60ch;color:var(--fg-soft)}
+.demo-mono{font-family:var(--f-mono);font-size:14px;letter-spacing:.02em;color:var(--fg);font-variant-numeric:tabular-nums;line-height:1.9}
+.demo-mono b{color:var(--accent);font-weight:500}
+
+/* ---------- sub-brands ---------- */
+.verticals{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}
+.vert{
+  border:1px solid var(--rule-soft);border-radius:4px;overflow:hidden;
+  background:var(--bg-raise);display:flex;flex-direction:column;
+}
+.vert__top{padding:22px 20px 18px;display:flex;align-items:center;gap:12px;color:#F4F2EB}
+.vert__top svg{width:26px;height:26px;flex:none}
+.vert__lock{display:flex;flex-direction:column;line-height:1}
+.vert__lock em{font-family:var(--f-mono);font-size:8.5px;letter-spacing:.16em;font-style:normal;opacity:.66;text-transform:uppercase}
+.vert__lock b{font-family:var(--f-display);font-size:17px;font-weight:700;letter-spacing:-.012em}
+.vert__foot{padding:14px 20px 18px;font-size:13.5px;line-height:1.5;color:var(--fg-soft)}
+.vert__foot code{font-family:var(--f-mono);font-size:10px;color:var(--fg-mute)}
+
+/* ---------- applications ---------- */
+.apps{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px}
+.app{border:1px solid var(--rule-soft);border-radius:4px;overflow:hidden;background:var(--bg-raise);display:flex;flex-direction:column}
+.app__stage{aspect-ratio:4/3;display:grid;place-items:center;position:relative;overflow:hidden}
+.app__cap{padding:13px 16px 16px;font-family:var(--f-mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--fg-mute);border-top:1px solid var(--rule-soft)}
+
+.icon-tile{
+  width:96px;height:96px;border-radius:23px;display:grid;place-items:center;
+  box-shadow:0 10px 26px rgba(6,42,30,.28);
+}
+.icon-tile svg{width:58px;height:58px}
+
+.bag{
+  width:74%;aspect-ratio:1/1.06;background:var(--palm);border-radius:8px;
+  display:flex;flex-direction:column;justify-content:space-between;padding:16px;
+  box-shadow:0 14px 30px rgba(6,42,30,.26);
+}
+.bag__grip{height:7px;width:44%;border-radius:99px;background:rgba(244,242,235,.28);margin:0 auto}
+.bag svg{width:34px;height:34px;color:var(--signal)}
+.bag__word{width:82%;height:auto;color:#F4F2EB}
+
+.vest{
+  width:78%;aspect-ratio:5/4;background:var(--bg-sink);border-radius:6px;
+  display:grid;place-items:center;position:relative;
+}
+.vest__band{
+  position:absolute;inset:auto 0 22% 0;height:11px;background:var(--signal);opacity:.9;
+}
+.vest__badge{
+  position:relative;z-index:1;display:flex;align-items:center;gap:9px;
+  background:var(--palm);color:#F4F2EB;padding:9px 14px;border-radius:99px;
+}
+.vest__badge svg{width:20px;height:20px}
+.vest__badge span{font-family:var(--f-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase}
+
+.waybill{
+  width:76%;background:#FBFAF6;color:#14170F;border-radius:3px;padding:15px 16px;
+  display:flex;flex-direction:column;gap:9px;
+  box-shadow:0 10px 24px rgba(0,0,0,.16);
+}
+.waybill__hd{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.waybill__hd svg{width:64px;height:auto;color:#0A3D2C}
+.waybill__code{
+  font-family:var(--f-mono);font-size:13px;font-weight:500;letter-spacing:.06em;
+  font-variant-numeric:tabular-nums;
+}
+.waybill__rows{display:flex;flex-direction:column;gap:5px;border-top:1px dashed #C9C5B6;padding-top:9px}
+.waybill__row{display:flex;justify-content:space-between;font-family:var(--f-mono);font-size:8.5px;letter-spacing:.06em;color:#5B6357}
+.waybill__row b{color:#14170F;font-weight:500}
+.waybill__held{
+  display:flex;align-items:center;gap:6px;font-family:var(--f-mono);
+  font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:#0A3D2C;
+}
+.dot-live{width:6px;height:6px;border-radius:99px;background:#0A3D2C}
+
+.bike{width:82%;display:flex;flex-direction:column;gap:0}
+.bike__panel{
+  background:var(--palm);border-radius:5px 5px 0 0;padding:18px 18px 16px;
+  display:flex;align-items:center;gap:13px;
+}
+.bike__panel svg.m{width:32px;height:32px;color:var(--signal);flex:none}
+.bike__panel svg.w{width:100%;height:auto;color:#F4F2EB;max-width:150px}
+.bike__strip{height:9px;background:var(--signal);border-radius:0 0 5px 5px}
+
+.social{
+  width:74%;aspect-ratio:1;background:var(--palm);border-radius:5px;
+  display:flex;flex-direction:column;justify-content:space-between;padding:20px;
+}
+.social h5{
+  font-family:var(--f-display);font-size:clamp(15px,2.4vw,21px);font-weight:600;
+  letter-spacing:-.02em;line-height:1.1;color:#F4F2EB;margin:0;text-wrap:balance;
+}
+.social h5 i{font-style:normal;color:var(--signal)}
+.social svg{width:26px;height:26px;color:var(--signal)}
+.social__foot{display:flex;justify-content:space-between;align-items:flex-end}
+.social__foot svg{width:88px;height:auto;color:#F4F2EB}
+
+/* ---------- rules / do-dont ---------- */
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px}
+.rule-card{border:1px solid var(--rule-soft);border-radius:4px;padding:20px;background:var(--bg-raise);display:flex;flex-direction:column;gap:9px}
+.rule-card__hd{display:flex;align-items:center;gap:9px}
+.rule-card__hd b{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase}
+.tick{color:var(--palm)}
+.cross{color:var(--clay)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .tick{color:var(--signal)}}
+:root[data-theme="dark"] .tick{color:var(--signal)}
+.rule-card p{font-size:14px;line-height:1.55}
+.rule-card ul{margin:0;padding-left:17px;display:flex;flex-direction:column;gap:6px}
+.rule-card li{font-size:14px;line-height:1.5;color:var(--fg-soft)}
+
+.clearspace{
+  display:grid;place-items:center;padding:34px;background:var(--bg-raise);
+  border:1px solid var(--rule-soft);border-radius:4px;
+}
+.clearspace svg{width:100%;max-width:340px;height:auto}
+
+table{border-collapse:collapse;width:100%;font-size:14px}
+.tablewrap{overflow-x:auto;border:1px solid var(--rule-soft);border-radius:4px}
+th,td{text-align:left;padding:11px 15px;border-bottom:1px solid var(--rule-soft);white-space:nowrap}
+th{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-mute);background:var(--bg-raise)}
+td{color:var(--fg-soft)}
+td:first-child{color:var(--fg);font-weight:500}
+tr:last-child td{border-bottom:none}
+td.num{font-family:var(--f-mono);font-size:12px;font-variant-numeric:tabular-nums}
+
+footer{
+  border-top:1px solid var(--rule);padding:44px 0 66px;
+  display:flex;justify-content:space-between;gap:22px;flex-wrap:wrap;align-items:flex-end;
+}
+footer p{font-size:13.5px;color:var(--fg-mute);max-width:44ch}
+footer svg{width:150px;height:auto;color:var(--fg)}
+
+a{color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:2px}
+
+/* aperture settle — visible at rest, moves only on load */
+@keyframes seg{from{transform:translate(2.6px,2.6px)}to{transform:translate(0,0)}}
+.seg-anim g.seg1{animation:seg .62s cubic-bezier(.16,1,.3,1) .02s both}
+.seg-anim g.seg2{animation:seg .62s cubic-bezier(.16,1,.3,1) .09s both}
+.seg-anim g.seg3{animation:seg .62s cubic-bezier(.16,1,.3,1) .16s both}
+.seg-anim g.seg4{animation:seg .62s cubic-bezier(.16,1,.3,1) .23s both}
+@media (prefers-reduced-motion:reduce){
+  .seg-anim g{animation:none !important}
+  *{transition:none !important}
+}
+
+@media (max-width:900px){
+  .dirs{grid-template-columns:1fr}
+  .sec{grid-template-columns:1fr;gap:18px;padding:56px 0}
+  .sec__rail{flex-direction:row;gap:12px;align-items:baseline}
+  .spec{grid-template-columns:1fr;gap:14px}
+  .g2,.g3,.g4{grid-template-columns:1fr}
+}
+@media (max-width:620px){
+  body{font-size:16px}
+  .wrap{padding:0 18px}
+  .plate{padding:22px}
+}
+</style>
+
+<!-- ============ SVG DEFINITIONS ============ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <!-- Primary mark: solid squircle, lens aperture cut into four segments -->
+    <mask id="m-aperture" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+      <rect x="0" y="0" width="100" height="100" rx="30" fill="#fff"/>
+      <path d="M21,79 A76,76 0 0 1 79,21 A76,76 0 0 1 21,79 Z" fill="#000"/>
+      <g fill="#fff">
+        <rect x="18.5" y="62.5" width="35" height="5" transform="rotate(45 36 65)"/>
+        <rect x="32.5" y="47.5" width="35" height="5" transform="rotate(45 50 50)"/>
+        <rect x="46.5" y="32.5" width="35" height="5" transform="rotate(45 64 35)"/>
+      </g>
+    </mask>
+    <mask id="m-aperture-solid" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+      <rect x="0" y="0" width="100" height="100" rx="30" fill="#fff"/>
+      <path d="M21,79 A76,76 0 0 1 79,21 A76,76 0 0 1 21,79 Z" fill="#000"/>
+    </mask>
+
+    <symbol id="fd-mark" viewBox="0 0 100 100">
+      <rect x="0" y="0" width="100" height="100" rx="30" fill="currentColor" mask="url(#m-aperture)"/>
+    </symbol>
+
+    <symbol id="fd-mark-compact" viewBox="0 0 100 100">
+      <rect x="0" y="0" width="100" height="100" rx="30" fill="currentColor" mask="url(#m-aperture-solid)"/>
+    </symbol>
+
+    <!-- outline / one-colour reversed construction -->
+    <symbol id="fd-mark-outline" viewBox="0 0 100 100">
+      <g fill="none" stroke="currentColor" stroke-width="7">
+        <rect x="3.5" y="3.5" width="93" height="93" rx="27"/>
+      </g>
+      <g fill="currentColor" mask="url(#m-seg-only)"><rect x="0" y="0" width="100" height="100"/></g>
+    </symbol>
+    <mask id="m-seg-only" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+      <rect x="0" y="0" width="100" height="100" fill="#000"/>
+      <path d="M21,79 A76,76 0 0 1 79,21 A76,76 0 0 1 21,79 Z" fill="#fff"/>
+      <g fill="#000">
+        <rect x="18.5" y="62.5" width="35" height="5" transform="rotate(45 36 65)"/>
+        <rect x="32.5" y="47.5" width="35" height="5" transform="rotate(45 50 50)"/>
+        <rect x="46.5" y="32.5" width="35" height="5" transform="rotate(45 64 35)"/>
+      </g>
+    </mask>
+
+    <!-- Wordmark: bespoke geometric construction, 20u stem on a 100u cap height -->
+    <symbol id="fd-word" viewBox="-4 -4 642 108">
+      <g fill="none" stroke="currentColor" stroke-width="20" stroke-linecap="butt" stroke-linejoin="miter">
+        <path d="M10,100 V10 H66"/>
+        <path d="M10,50 H56"/>
+        <path d="M90,36 A26,26 0 0 1 116,10 H128 A26,26 0 0 1 154,36 V64 A26,26 0 0 1 128,90 H116 A26,26 0 0 1 90,64 Z"/>
+        <path d="M188,0 V61 A29,29 0 0 0 246,61 V0"/>
+        <path d="M280,0 V100"/>
+        <path d="M280,10 H314 A22,22 0 0 1 314,54 H280"/>
+        <path d="M307,54 L336,100"/>
+        <path d="M370,0 V100"/>
+        <path d="M370,10 H400 A32,32 0 0 1 432,42 V58 A32,32 0 0 1 400,90 H370"/>
+        <path d="M466,100 L486,10 H514 L534,100"/>
+        <path d="M474,62 H526"/>
+        <path d="M558,10 H634"/>
+        <path d="M596,0 V100"/>
+      </g>
+    </symbol>
+
+    <!-- Wordmark, expressive cut: the O opens into the aperture -->
+    <symbol id="fd-word-open" viewBox="-4 -4 642 108">
+      <g fill="none" stroke="currentColor" stroke-width="20" stroke-linecap="butt" stroke-linejoin="miter">
+        <path d="M10,100 V10 H66"/>
+        <path d="M10,50 H56"/>
+        <path d="M188,0 V61 A29,29 0 0 0 246,61 V0"/>
+        <path d="M280,0 V100"/>
+        <path d="M280,10 H314 A22,22 0 0 1 314,54 H280"/>
+        <path d="M307,54 L336,100"/>
+        <path d="M370,0 V100"/>
+        <path d="M370,10 H400 A32,32 0 0 1 432,42 V58 A32,32 0 0 1 400,90 H370"/>
+        <path d="M466,100 L486,10 H514 L534,100"/>
+        <path d="M474,62 H526"/>
+        <path d="M558,10 H634"/>
+        <path d="M596,0 V100"/>
+      </g>
+      <use href="#fd-mark" x="80" y="8" width="84" height="84"></use>
+    </symbol>
+
+    <!-- Alternate direction 02 — The Handover -->
+    <symbol id="dir-handover" viewBox="0 0 100 100">
+      <g fill="none" stroke="currentColor" stroke-width="19" stroke-linecap="butt">
+        <path d="M11.5,84 V32 A20,20 0 0 1 31.5,12 H56"/>
+        <path d="M88.5,16 V68 A20,20 0 0 1 68.5,88 H44"/>
+      </g>
+    </symbol>
+
+    <!-- Alternate direction 03 — The Seal -->
+    <symbol id="dir-seal" viewBox="0 0 100 100">
+      <path d="M0,30 A30,30 0 0 1 30,0 H60 L100,40 V70 A30,30 0 0 1 70,100 H30 A30,30 0 0 1 0,70 Z" fill="currentColor"/>
+      <path d="M60,0 L100,40 H60 Z" fill="currentColor" opacity=".3"/>
+    </symbol>
+
+    <!-- Clear-space diagram -->
+    <symbol id="fd-clearspace" viewBox="0 0 340 150">
+      <g stroke="currentColor" stroke-width="1" stroke-dasharray="5 4" opacity=".45" fill="none">
+        <rect x="10" y="10" width="320" height="130"/>
+      </g>
+      <use href="#fd-mark" x="40" y="40" width="70" height="70"></use>
+      <use href="#fd-word" x="128" y="61" width="170" height="28.6"></use>
+      <g fill="currentColor" opacity=".55" font-family="monospace" font-size="9">
+        <text x="21" y="28">x</text>
+        <text x="21" y="132">x</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity=".3">
+        <line x1="40" y1="10" x2="40" y2="140"/>
+        <line x1="10" y1="40" x2="330" y2="40"/>
+        <line x1="10" y1="110" x2="330" y2="110"/>
+      </g>
+    </symbol>
+
+    <!-- Construction grid overlay -->
+    <symbol id="fd-grid" viewBox="0 0 100 100">
+      <rect x="0" y="0" width="100" height="100" rx="30" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".9"/>
+      <g stroke="currentColor" stroke-width=".7" opacity=".3">
+        <line x1="0" y1="50" x2="100" y2="50"/><line x1="50" y1="0" x2="50" y2="100"/>
+        <line x1="0" y1="100" x2="100" y2="0"/>
+        <line x1="0" y1="25" x2="100" y2="25"/><line x1="0" y1="75" x2="100" y2="75"/>
+        <line x1="25" y1="0" x2="25" y2="100"/><line x1="75" y1="0" x2="75" y2="100"/>
+      </g>
+      <path d="M21,79 A76,76 0 0 1 79,21 A76,76 0 0 1 21,79 Z" fill="none" stroke="currentColor" stroke-width="1.4"/>
+      <g stroke="currentColor" stroke-width=".8" opacity=".6" stroke-dasharray="3 2">
+        <line x1="21" y1="79" x2="79" y2="21"/>
+      </g>
+      <circle cx="50" cy="50" r="1.8" fill="currentColor"/>
+    </symbol>
+
+    <!-- vertical glyphs -->
+    <symbol id="v-food" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v6a3 3 0 0 0 3 3v7"/><path d="M7 4v5"/><path d="M17 4c-1.6 1.2-2.4 3-2.4 5.2 0 1.8 1 3 2.4 3.2v7.6"/></g></symbol>
+    <symbol id="v-gas" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="7" width="12" height="14" rx="3"/><path d="M10 7V5h4v2"/><path d="M9 12h6"/></g></symbol>
+    <symbol id="v-pharm" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="8" rx="4" transform="rotate(-45 12 12)"/><path d="M9 9l6 6"/></g></symbol>
+    <symbol id="v-pack" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5 12 4l8 4.5v7L12 20l-8-4.5Z"/><path d="M4 8.5 12 13l8-4.5M12 13v7"/></g></symbol>
+
+    <symbol id="i-tick" viewBox="0 0 20 20"><path d="M4 10.5 8 14.5 16 5.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-cross" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></g></symbol>
+  </defs>
+</svg>
+
+<!-- ============ PAGE ============ -->
+<div class="wrap">
+
+  <header class="hero">
+    <div class="hero__eyebrow">
+      <b>Fourdat</b><span>Visual identity, first proposal</span><span>Lagos · 2026</span>
+    </div>
+
+    <div class="hero__stage">
+      <svg class="hero__mark seg-anim" viewBox="0 0 100 100" role="img" aria-label="Fourdat symbol">
+        <use href="#fd-mark"></use>
+      </svg>
+      <svg class="hero__word" viewBox="-4 -4 642 108" role="img" aria-label="Fourdat wordmark"><use href="#fd-word"></use></svg>
+    </div>
+
+    <h1 class="hero__claim">Four things you need. <i>One</i> way to receive them.</h1>
+    <p class="hero__sub lede">An identity built on the moment that actually matters in this business: the handover. Not the ride, not the app, not the speed. The second something protected opens and reaches the person who paid for it.</p>
+  </header>
+
+  <!-- 01 -->
+  <section class="sec">
+    <div class="sec__rail"><span class="sec__num">01</span><span class="sec__kicker">Three routes</span></div>
+    <div class="sec__body">
+      <h2>Three directions were drawn. One is recommended.</h2>
+      <p>Each starts from a different truth about Fourdat. The brief asks for real alternatives rather than one predictable answer, so these are genuinely different arguments, not three finishes of the same idea.</p>
+
+      <div class="dirs">
+        <div class="dir dir--pick">
+          <div class="dir__fig" style="color:var(--palm)"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#fd-mark"></use></svg></div>
+          <span class="dir__tag">Recommended · 01</span>
+          <h3 class="dir__name">The Aperture</h3>
+          <p>A closed, protective form with a single opening cut through it. The opening is divided into four channels that read as one line. Four verticals, one route in.</p>
+          <p class="dir__verdict">Carries protection and release in the same shape, which is what Fourdat actually sells. The four is present without being counted.</p>
+        </div>
+
+        <div class="dir">
+          <div class="dir__fig"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#dir-handover"></use></svg></div>
+          <span class="dir__tag">Alternate · 02</span>
+          <h3 class="dir__name">The Handover</h3>
+          <p>Two hooks, identical, rotated into each other. Neither closes alone. The channel between them is the exchange itself.</p>
+          <p class="dir__verdict">Warmer and more human, but it reads as a logistics mark first. It also gets fragile below 20px, where the channel fills in.</p>
+        </div>
+
+        <div class="dir">
+          <div class="dir__fig"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#dir-seal"></use></svg></div>
+          <span class="dir__tag">Alternate · 03</span>
+          <h3 class="dir__name">The Seal</h3>
+          <p>A soft square with one corner turned back, like a sealed parcel or a signed document. The fold is where the second colour lives.</p>
+          <p class="dir__verdict">The most immediately readable and the easiest to produce, but closest to what a courier brand would already own.</p>
+        </div>
+      </div>
+
+      <p><strong>Direction 01 is developed in full below.</strong> The rest of this document is that system.</p>
+    </div>
+  </section>
+
+  <!-- 02 -->
+  <section class="sec">
+    <div class="sec__rail"><span class="sec__num">02</span><span class="sec__kicker">The idea</span></div>
+    <div class="sec__body">
+      <h2>An opening in something that was closed.</h2>
+      <p>Fourdat's real promise is not speed. It is that money and goods stay held until the right person has them. Your own positioning already says it plainly: <em>your money doesn't move until your order does.</em></p>
+      <p>So the mark is a container, not an arrow. A full, confident form with weight to it, cut once by a diagonal opening. The opening runs upward from left to right, so the whole shape leans forward without ever becoming a delivery chevron.</p>
+      <p>That opening is broken into <strong>four segments</strong>. At the sizes people actually see a brand, they merge into one clean channel. Look closer and the four is there. It is a fact about the company, not a diagram of it, which means Fourdat can add a fifth service without redrawing anything.</p>
+
+      <div class="plate plate--dark">
+        <h4>What it borrows from</h4>
+        <p style="margin-top:12px;font-size:16.5px;line-height:1.6;color:rgba(244,242,235,.9);max-width:62ch">The silhouette of a cowrie shell, opened along its aperture. Cowries were West African currency for centuries. They are the oldest visual shorthand on this continent for value that can be trusted, counted and handed over. Nobody has to know that for the mark to work. It is simply why it feels like it comes from somewhere.</p>
+      </div>
+
+      <div class="construct">
+        <figure>
+          <div class="frame" style="color:var(--fg)"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#fd-grid"></use></svg></div>
+          <figcaption>Construction · 100u square, 30u corner, aperture on the 45° axis</figcaption>
+        </figure>
+        <figure>
+          <div class="frame"><svg viewBox="0 0 100 100" aria-hidden="true" class="seg-anim"><use href="#fd-mark"></use></svg></div>
+          <figcaption>Primary symbol · four segments</figcaption>
+        </figure>
+        <figure>
+          <div class="frame"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#fd-mark-compact"></use></svg></div>
+          <figcaption>Compact symbol · solid aperture, for 24px and below</figcaption>
+        </figure>
+        <figure>
+          <div class="frame"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#fd-mark-outline"></use></svg></div>
+          <figcaption>Outline symbol · embroidery, engraving, single-weight stamps</figcaption>
+        </figure>
+      </div>
+
+      <h3>It holds at every size</h3>
+      <div class="ladder">
+        <div class="ladder__item"><svg width="128" height="128" viewBox="0 0 100 100" style="color:var(--palm)" aria-hidden="true"><use href="#fd-mark"></use></svg><span>128 px</span></div>
+        <div class="ladder__item"><svg width="64" height="64" viewBox="0 0 100 100" style="color:var(--palm)" aria-hidden="true"><use href="#fd-mark"></use></svg><span>64 px</span></div>
+        <div class="ladder__item"><svg width="32" height="32" viewBox="0 0 100 100" style="color:var(--palm)" aria-hidden="true"><use href="#fd-mark"></use></svg><span>32 px</span></div>
+        <div class="ladder__item"><svg width="24" height="24" viewBox="0 0 100 100" style="color:var(--palm)" aria-hidden="true"><use href="#fd-mark-compact"></use></svg><span>24 px · compact</span></div>
+        <div class="ladder__item"><svg width="16" height="16" viewBox="0 0 100 100" style="color:var(--palm)" aria-hidden="true"><use href="#fd-mark-compact"></use></svg><span>16 px · favicon</span></div>
+      </div>
+      <p class="mono" style="color:var(--fg-mute)">Switch to the compact cut at 24px. Below that the segment gaps close optically anyway, so the system does it deliberately instead of letting the renderer decide.</p>
+    </div>
+  </section>
+
+  <!-- 03 -->
+  <section class="sec">
+    <div class="sec__rail"><span class="sec__num">03</span><span class="sec__kicker">Wordmark</span></div>
+    <div class="sec__body">
+      <h2>FOURDAT is drawn, not set.</h2>
+      <p>The letters are built on one grid: a 100-unit cap height, a 20-unit stem, and a 14-unit gap that never changes. Nothing here is a licensed font with the tracking pulled in.</p>
+
+      <div class="plate" style="padding:44px 34px">
+        <svg viewBox="-4 -4 642 108" style="width:100%;height:auto;color:var(--fg)" role="img" aria-label="Fourdat wordmark"><use href="#fd-word"></use></svg>
+      </div>
+
+      <div class="grid g3">
+        <div>
+          <h4>Flat-apex A</h4>
+          <p style="font-size:14.5px;margin-top:8px">A pointed A adds a spike to a name that should feel level. The apex is cut flat and the stems splay slightly. It is the letter people will remember without knowing why.</p>
+        </div>
+        <div>
+          <h4>Squircle O and D</h4>
+          <p style="font-size:14.5px;margin-top:8px">Both bowls use the same corner logic as the symbol. That is the join between mark and name, so the two never look like they were made by different people.</p>
+        </div>
+        <div>
+          <h4>Even colour</h4>
+          <p style="font-size:14.5px;margin-top:8px">Monolinear weight across all seven letters, with no optical thinning at the joins. It stays solid embroidered, screen-printed, or cut in vinyl at three metres.</p>
+        </div>
+      </div>
+
+      <h3>Expressive cut</h3>
+      <p>For covers, brand films, murals and the app splash, the O is replaced by the symbol itself. Use it once in a piece, never in navigation, never in running text.</p>
+      <div class="plate" style="padding:44px 34px">
+        <svg viewBox="-4 -4 642 108" style="width:100%;height:auto;color:var(--palm)" role="img" aria-label="Fourdat wordmark, expressive cut"><use href="#fd-word-open"></use></svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 -->
+  <section class="sec">
+    <div class="sec__rail"><span class="sec__num">04</span><span class="sec__kicker">Lockups</span></div>
+    <div class="sec__body">
+      <h2>Four arrangements, and rules for choosing between them.</h2>
+      <div class="grid g2">
+        <div class="plate" style="display:flex;align-items:center;gap:20px;justify-content:center;min-height:150px">
+          <svg viewBox="0 0 100 100" style="width:52px;height:52px;color:var(--palm);flex:none" aria-hidden="true"><use href="#fd-mark"></use></svg>
+          <svg viewBox="-4 -4 642 108" style="width:min(100%,240px);height:auto;color:var(--fg)" aria-hidden="true"><use href="#fd-word"></use></svg>
+        </div>
+        <div class="plate" style="display:flex;flex-direction:column;align-items:center;gap:16px;justify-content:center;min-height:150px">
+          <svg viewBox="0 0 100 100" style="width:52px;height:52px;color:var(--palm)" aria-hidden="true"><use href="#fd-mark"></use></svg>
+          <svg viewBox="-4 -4 642 108" style="width:min(100%,210px);height:auto;color:var(--fg)" aria-hidden="true"><use href="#fd-word"></use></svg>
+        </div>
+        <div class="plate" style="display:grid;place-items:center;min-height:150px">
+          <svg viewBox="-4 -4 642 108" style="width:min(100%,280px);height:auto;color:var(--fg)" aria-hidden="true"><use href="#fd-word"></use></svg>
+        </div>
+        <div class="plate plate--ink" style="display:flex;align-items:center;gap:20px;justify-content:center;min-height:150px">
+          <svg viewBox="0 0 100 100" style="width:52px;height:52px;color:var(--signal);flex:none" aria-hidden="true"><use href="#fd-mark"></use></svg>
+          <svg viewBox="-4 -4 642 108" style="width:min(100%,240px);height:auto;color:#EDEFE6" aria-hidden="true"><use href="#fd-word"></use></svg>
+        </div>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Lockup</th><th>Use it for</th><th>Minimum width</th></tr></thead>
+          <tbody>
+            <tr><td>Horizontal</td><td>Website header, documents, vehicle panels, signage</td><td class="num">120 px / 30 mm</td></tr>
+            <tr><td>Stacked</td><td>Delivery bags, square formats, merchant window decals</td><td class="num">96 px / 24 mm</td></tr>
+            <tr><td>Wordmark only</td><td>Anywhere the symbol already appears nearby</td><td class="num">88 px / 22 mm</td></tr>
+            <tr><td>Symbol only</td><td>App icon, favicon, avatar, rider badge, seals</td><td class="num">16 px / 8 mm</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Clear space</h3>
+      <p>Reserve the height of the symbol's corner radius, <span class="mono">x</span>, on every side. Nothing enters it. Not a tagline, not a partner logo, not a page edge.</p>
+      <div class="clearspace"><svg viewBox="0 0 340 150" style="color:var(--fg)" role="img" aria-label="Clear space diagram"><use href="#fd-clearspace"></use></svg></div>
+    </div>
+  </section>
+
+  <!-- 05 -->
+  <section class="sec">
+    <div class="sec__rail"><span class="sec__num">05</span><span class="sec__kicker">Colour</span></div>
+    <div class="sec__body">
+      <h2>Deep green carries it. Warmth answers it. The bright colour is a status, not a brand.</h2>
+      <p>The product already runs on a deep green with an acid lime. That green is right and it stays. The lime is the part causing the trouble, so it is demoted: from today it means <em>live</em>, and nothing else. A rider is moving, an order is being tracked, a payment released. It never appears on a logo, a business card or a shopfront.</p>
+      <p>In its place the brand gains <strong>Clay</strong>, a laterite red drawn from the earth these bikes actually ride on. It is the warmth the identity was missing, and per your brief it stays an accent. It never runs the page.</p>
+
+      <div class="swatches">
+        <div class="sw"><div class="sw__chip" style="background:#0A3D2C"></div><div class="sw__meta">
+          <span class="sw__name">Palm</span><span class="sw__hex">#0A3D2C</span>
+          <span class="sw__use">The brand. Surfaces, wordmark, symbol, everything that has to feel permanent.</span>
+          <span class="ratio"><b>13.1:1</b> on Chalk</span></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#062A1E"></div><div class="sw__meta">
+          <span class="sw__name">Palm Deep</span><span class="sw__hex">#062A1E</span>
+          <span class="sw__use">Pressed states, shadows cast by Palm, and the darkest edge of a gradient-free system.</span>
+          <span class="ratio"><b>16.4:1</b> on Chalk</span></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#14170F"></div><div class="sw__meta">
+          <span class="sw__name">Ink</span><span class="sw__hex">#14170F</span>
+          <span class="sw__use">Text. A warm near-black with a green cast, never pure #000.</span>
+          <span class="ratio"><b>16.8:1</b> on Chalk</span></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#C25E3A"></div><div class="sw__meta">
+          <span class="sw__name">Clay</span><span class="sw__hex">#C25E3A</span>
+          <span class="sw__use">Accent only. Section marks, one word in a headline, the Food vertical.</span>
+          <span class="ratio"><b>3.6:1</b> · large type only</span></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#F4F2EB"></div><div class="sw__meta">
+          <span class="sw__name">Chalk</span><span class="sw__hex">#F4F2EB</span>
+          <span class="sw__use">The light ground. Warm enough that Fourdat never looks like a white SaaS dashboard.</span>
+          <span class="ratio"><b>—</b> ground</span></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#C6F24E"></div><div class="sw__meta">
+          <span class="sw__name">Signal</span><span class="sw__hex">#C6F24E</span>
+          <span class="sw__use">Live states only. Tracking, active rider, released payment. Never brand furniture.</span>
+          <span class="ratio"><b>Reserved</b></span></div></div>
+      </div>
+
+      <h3>Proportion</h3>
+      <p>How much of each you should see on any given surface. Get this wrong and the brand stops being Fourdat, even with the right hexes.</p>
+      <div class="propbar">
+        <div style="background:#F4F2EB;color:#14170F;flex:52">CHALK 52</div>
+        <div style="background:#0A3D2C;color:#F4F2EB;flex:34">PALM 34</div>
+        <div style="background:#14170F;color:#EDEFE6;flex:9">INK 9</div>
+        <div style="background:#C25E3A;color:#14170F;flex:4">CLAY 4</div>
+        <div style="background:#C6F24E;color:#14170F;flex:1"></div>
+      </div>
+
+      <h3>One colour, and both grounds</h3>
+      <div class="grid g4">
+        <div class="plate" style="background:#F4F2EB;border-color:#D6D2C4;display:grid;place-items:center;aspect-ratio:1">
+          <svg viewBox="0 0 100 100" style="width:60%;color:#14170F" aria-hidden="true"><use href="#fd-mark"></use></svg></div>
+        <div class="plate" style="background:#14170F;border-color:transparent;display:grid;place-items:center;aspect-ratio:1">
+          <svg viewBox="0 0 100 100" style="width:60%;color:#F4F2EB" aria-hidden="true"><use href="#fd-mark"></use></svg></div>
+        <div class="plate" style="background:#0A3D2C;border-color:transparent;display:grid;place-items:center;aspect-ratio:1">
+          <svg viewBox="0 0 100 100" style="width:60%;color:#F4F2EB" aria-hidden="true"><use href="#fd-mark"></use></svg></div>
+        <div class="plate" style="background:#C25E3A;border-color:transparent;display:grid;place-items:center;aspect-ratio:1">
+          <svg viewBox="0 0 100 100" style="width:60%;color:#14170F" aria-hidden="true"><use href="#fd-mark"></use></svg></div>
+      </div>
+      <p class="mono" style="color:var(--fg-mute)">Solid black, solid white, knocked out of Palm, knocked out of Clay. No outline version needed for print, no gradients anywhere in the system.</p>
+    </div>
+  </section>
+
+  <!-- 06 -->
+  <section class="sec">
+    <div class="sec__rail"><span class="sec__num">06</span><span class="sec__kicker">Typography</span></div>
+    <div class="sec__body">
+      <h2>Three faces, each with a job it does not share.</h2>
+      <p>No Inter, no Poppins, no Montserrat. This page is set in the system it proposes, so what you are reading is the specimen.</p>
+
+      <div class="spec">
+        <div class="spec__meta">
+          <span class="spec__role">Display</span>
+          <span class="spec__face">Bricolage Grotesque</span>
+          <span class="spec__note">600–800. Tracked to −3%. Headlines, campaign lines, big numbers.</span>
+        </div>
+        <div class="spec__demo">
+          <div class="demo-display">Gas before it finishes. Medicine before the shop shuts.</div>
+        </div>
+      </div>
+
+      <div class="spec">
+        <div class="spec__meta">
+          <span class="spec__role">Text</span>
+          <span class="spec__face">Familjen Grotesk</span>
+          <span class="spec__note">400–600. The working face. Every screen, every button, every paragraph.</span>
+        </div>
+        <div class="spec__demo">
+          <p class="demo-text">Your rider is verified before they ever see your address, and the money you paid stays with Fourdat until you confirm the order is in your hands. If it never arrives, you do not chase anyone. It simply comes back.</p>
+        </div>
+      </div>
+
+      <div class="spec">
+        <div class="spec__meta">
+          <span class="spec__role">Data</span>
+          <span class="spec__face">Martian Mono</span>
+          <span class="spec__note">300–500. Tracking codes, delivery codes, receipts, waybills, timestamps.</span>
+        </div>
+        <div class="spec__demo">
+          <div class="demo-mono">
+            FDT&nbsp;4K92&nbsp;LX07<br>
+            <b>held</b>&nbsp;&nbsp;₦12,450.00&nbsp;&nbsp;·&nbsp;&nbsp;released on confirmation<br>
+            picked&nbsp;up&nbsp;14:02&nbsp;&nbsp;·&nbsp;&nbsp;Yaba&nbsp;→&nbsp;Surulere
+          </div>
+        </div>
+      </div>
+
+      <p><strong>Why a mono at all.</strong> Fourdat runs on codes people read aloud to a rider at a gate. A mono with distinct zeroes and ones is not decoration here, it is error prevention. It also gives the brand a texture nobody else in this category has.</p>
+    </div>
+  </section>
+
+  <!-- 07 -->
+  <section class="sec">
+    <div class="sec__rail"><span class="sec__num">07</span><span class="sec__kicker">Sub-brands</span></div>
+    <div class="sec__body">
+      <h2>The master brand never changes. Only the chip does.</h2>
+      <p>Each vertical gets a colour and a glyph. The symbol stays Palm, the wordmark stays as drawn, and the vertical name is set in Bricolage next to it. A fifth service is a new chip, not a new identity.</p>
+
+      <div class="verticals">
+        <div class="vert">
+          <div class="vert__top" style="background:#C25E3A"><svg aria-hidden="true"><use href="#v-food"></use></svg>
+            <span class="vert__lock"><em>Fourdat</em><b>Food</b></span></div>
+          <div class="vert__foot">Clay <code>#C25E3A</code><br>Warm, appetising, the one place the accent is allowed to lead.</div>
+        </div>
+        <div class="vert">
+          <div class="vert__top" style="background:#C08A2E"><svg aria-hidden="true"><use href="#v-gas"></use></svg>
+            <span class="vert__lock"><em>Fourdat</em><b>Gas</b></span></div>
+          <div class="vert__foot">Ochre <code>#C08A2E</code><br>Energy without alarm. Deliberately not a warning yellow.</div>
+        </div>
+        <div class="vert">
+          <div class="vert__top" style="background:#2F8A72"><svg aria-hidden="true"><use href="#v-pharm"></use></svg>
+            <span class="vert__lock"><em>Fourdat</em><b>Pharmacy</b></span></div>
+          <div class="vert__foot">Mint <code>#2F8A72</code><br>Clean and clinical, still inside the family green.</div>
+        </div>
+        <div class="vert">
+          <div class="vert__top" style="background:#4E4459"><svg aria-hidden="true"><use href="#v-pack"></use></svg>
+            <span class="vert__lock"><em>Fourdat</em><b>Packages</b></span></div>
+          <div class="vert__foot">Plum <code>#4E4459</code><br>Neutral and unfussy, so business senders take it seriously.</div>
+        </div>
+      </div>
+
+      <div class="plate">
+        <h4>Naming rule</h4>
+        <p style="margin-top:10px">Always <strong>Fourdat&nbsp;+ the plain English noun</strong>. Never Fourdat&nbsp;Rx, never FourdatGo, never a compound with the four in it. The master brand carries the trust; the second word only has to say what is in the bag.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 08 -->
+  <section class="sec">
+    <div class="sec__rail"><span class="sec__num">08</span><span class="sec__kicker">In the world</span></div>
+    <div class="sec__body">
+      <h2>On a phone, on a back, on a bike, on a receipt.</h2>
+      <p>The identity was drawn for the places it will spend most of its life, not for a presentation slide.</p>
+
+      <div class="apps">
+        <div class="app">
+          <div class="app__stage" style="background:var(--bg-sink)">
+            <div class="icon-tile" style="background:#0A3D2C">
+              <svg viewBox="0 0 100 100" style="color:#C6F24E" aria-hidden="true"><use href="#fd-mark"></use></svg>
+            </div>
+          </div>
+          <div class="app__cap">App icon · Signal on Palm</div>
+        </div>
+
+        <div class="app">
+          <div class="app__stage" style="background:var(--bg-sink)">
+            <div class="bag">
+              <div class="bag__grip"></div>
+              <svg viewBox="0 0 100 100" aria-hidden="true"><use href="#fd-mark"></use></svg>
+              <svg class="bag__word" viewBox="-4 -4 642 108" aria-hidden="true"><use href="#fd-word"></use></svg>
+            </div>
+          </div>
+          <div class="app__cap">Delivery bag · stacked lockup</div>
+        </div>
+
+        <div class="app">
+          <div class="app__stage" style="background:#1A1F19">
+            <div class="vest">
+              <div class="vest__band"></div>
+              <div class="vest__badge">
+                <svg viewBox="0 0 100 100" aria-hidden="true"><use href="#fd-mark-compact"></use></svg>
+                <span>Verified rider</span>
+              </div>
+            </div>
+          </div>
+          <div class="app__cap">Rider vest · night visibility band in Signal</div>
+        </div>
+
+        <div class="app">
+          <div class="app__stage" style="background:#0A3D2C">
+            <div class="bike">
+              <div class="bike__panel">
+                <svg class="m" viewBox="0 0 100 100" aria-hidden="true"><use href="#fd-mark"></use></svg>
+                <svg class="w" viewBox="-4 -4 642 108" aria-hidden="true"><use href="#fd-word"></use></svg>
+              </div>
+              <div class="bike__strip"></div>
+            </div>
+          </div>
+          <div class="app__cap">Bike box · horizontal lockup over a Signal strip</div>
+        </div>
+
+        <div class="app">
+          <div class="app__stage" style="background:var(--bg-sink)">
+            <div class="waybill">
+              <div class="waybill__hd">
+                <svg viewBox="-4 -4 642 108" aria-hidden="true"><use href="#fd-word"></use></svg>
+                <span class="waybill__code">4K92&nbsp;LX07</span>
+              </div>
+              <div class="waybill__rows">
+                <div class="waybill__row"><span>FROM</span><b>Mama Ope Kitchen, Yaba</b></div>
+                <div class="waybill__row"><span>TO</span><b>Surulere · 3.4 km</b></div>
+                <div class="waybill__row"><span>RIDER</span><b>Verified · ID 88213</b></div>
+              </div>
+              <div class="waybill__held"><span class="dot-live"></span>₦12,450 held until you confirm</div>
+            </div>
+          </div>
+          <div class="app__cap">Waybill · Martian Mono earning its place</div>
+        </div>
+
+        <div class="app">
+          <div class="app__stage" style="background:var(--bg-sink)">
+            <div class="social">
+              <svg viewBox="0 0 100 100" aria-hidden="true"><use href="#fd-mark"></use></svg>
+              <h5>Gas at 9pm.<br>Still <i>your</i> money<br>until it lands.</h5>
+              <div class="social__foot">
+                <svg viewBox="-4 -4 642 108" aria-hidden="true"><use href="#fd-word"></use></svg>
+              </div>
+            </div>
+          </div>
+          <div class="app__cap">Social post · one Signal word, never two</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 09 -->
+  <section class="sec">
+    <div class="sec__rail"><span class="sec__num">09</span><span class="sec__kicker">Rules</span></div>
+    <div class="sec__body">
+      <h2>What keeps it recognisable.</h2>
+      <div class="rules">
+        <div class="rule-card">
+          <div class="rule-card__hd tick"><svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><use href="#i-tick"></use></svg><b>Do</b></div>
+          <ul>
+            <li>Let Palm hold large areas. The brand is confident when it commits to a full field of green.</li>
+            <li>Switch to the compact symbol at 24px and below, in code, automatically.</li>
+            <li>Keep Signal for live states, and only ever one Signal element per view.</li>
+            <li>Set delivery and tracking codes in Martian Mono, everywhere, without exception.</li>
+          </ul>
+        </div>
+        <div class="rule-card">
+          <div class="rule-card__hd cross"><svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><use href="#i-cross"></use></svg><b>Don't</b></div>
+          <ul>
+            <li>Rotate the symbol. The aperture's angle is the only angle it has.</li>
+            <li>Add a gradient, a bevel, an outer glow or a drop shadow to the mark itself.</li>
+            <li>Re-set FOURDAT in a font. The wordmark ships as artwork and is used as artwork.</li>
+            <li>Put the four verticals inside the logo. They live in chips, never in the mark.</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>What ships with this</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Asset</th><th>File</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Primary symbol</td><td class="num">mark.svg</td><td>currentColor, four segments</td></tr>
+            <tr><td>Compact symbol</td><td class="num">mark-compact.svg</td><td>24px and below, favicon, avatars</td></tr>
+            <tr><td>Outline symbol</td><td class="num">mark-outline.svg</td><td>Embroidery, engraving, stamps</td></tr>
+            <tr><td>Wordmark</td><td class="num">wordmark.svg</td><td>Drawn outlines, no font dependency</td></tr>
+            <tr><td>Expressive wordmark</td><td class="num">wordmark-open.svg</td><td>Once per piece, never in navigation</td></tr>
+            <tr><td>Horizontal lockup</td><td class="num">lockup-horizontal.svg</td><td>Default for headers and documents</td></tr>
+            <tr><td>Stacked lockup</td><td class="num">lockup-stacked.svg</td><td>Square and near-square formats</td></tr>
+            <tr><td>Design tokens</td><td class="num">tokens.css</td><td>Extends the existing Tailwind theme</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="plate plate--dark">
+        <h4>Before anything is printed</h4>
+        <p style="margin-top:10px;color:rgba(244,242,235,.88);max-width:62ch">This is a proposal, not a cleared identity. Run <strong>FOURDAT</strong> and this mark through a CAC and Trademarks Registry search in Nigeria, and confirm the .com, before any money goes into signage, vests or bike boxes. Your own naming constraints already require it.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div>
+      <svg viewBox="-4 -4 642 108" aria-hidden="true"><use href="#fd-word"></use></svg>
+      <p style="margin-top:14px">Direction 01, The Aperture. Drawn against the positioning already adopted in the rebrand spec: the outcome, never the mechanism.</p>
+    </div>
+    <p class="mono" style="color:var(--fg-mute)">Food · Gas · Pharmacy · Packages</p>
+  </footer>
+
+</div>
